@@ -1,14 +1,155 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  
+  --radius-xl: 12px;
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+
+  /* Redefining legacy Tailwind v3 color palette to map to Vercel/shadcn neutral design variables */
+  --color-white: var(--white);
+  --color-gray-50: var(--gray-50);
+  --color-gray-100: var(--gray-100);
+  --color-gray-200: var(--gray-200);
+  --color-gray-300: var(--gray-300);
+  --color-gray-400: var(--gray-400);
+  --color-gray-500: var(--gray-500);
+  --color-gray-600: var(--gray-600);
+  --color-gray-700: var(--gray-700);
+  --color-gray-800: var(--gray-800);
+  --color-gray-900: var(--gray-900);
+  
+  --color-primary-50: var(--primary-50);
+  --color-primary-100: var(--primary-100);
+  --color-primary-200: var(--primary-200);
+  --color-primary-500: var(--primary-500);
+  --color-primary-600: var(--primary-600);
+  --color-primary-700: var(--primary-700);
+  --color-primary-800: var(--primary-800);
+  --color-primary-900: var(--primary-900);
+
+  --animate-border-beam: border-beam var(--duration, 15s) infinite linear;
+  @keyframes border-beam {
+    100% {
+      offset-distance: 100%;
+    }
+  }
+}
 
 :root {
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --background: #ffffff;
+  --foreground: #262626;
+  --card: #ffffff;
+  --card-foreground: #262626;
+  --popover: #ffffff;
+  --popover-foreground: #262626;
+  --primary: #262626;
+  --primary-foreground: #fafafa;
+  --secondary: rgba(0, 0, 0, 0.04);
+  --secondary-foreground: #262626;
+  --muted: rgba(0, 0, 0, 0.04);
+  --muted-foreground: #686868;
+  --accent: rgba(0, 0, 0, 0.04);
+  --accent-foreground: #262626;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.10);
+  --ring: #a3a3a3;
+
+  /* Legacy light mappings */
+  --white: #ffffff;
+  --gray-50: #f9f9fb;
+  --gray-100: #f4f4f5;
+  --gray-200: rgba(0, 0, 0, 0.08);
+  --gray-300: rgba(0, 0, 0, 0.12);
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
+
+  --primary-50: #fafafa;
+  --primary-100: #f5f5f5;
+  --primary-200: #e5e5e5;
+  --primary-500: #262626;
+  --primary-600: #262626;
+  --primary-700: #171717;
+  --primary-800: #0a0a0a;
+  --primary-900: #050505;
+}
+
+.dark {
+  --background: #171717;
+  --foreground: #f5f5f5;
+  --card: #1c1c1c;
+  --card-foreground: #f5f5f5;
+  --popover: #1c1c1c;
+  --popover-foreground: #f5f5f5;
+  --primary: #f5f5f5;
+  --primary-foreground: #262626;
+  --secondary: rgba(255, 255, 255, 0.04);
+  --secondary-foreground: #f5f5f5;
+  --muted: rgba(255, 255, 255, 0.04);
+  --muted-foreground: #a3a3a3;
+  --accent: rgba(255, 255, 255, 0.04);
+  --accent-foreground: #f5f5f5;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #737373;
+
+  /* Legacy dark mappings */
+  --white: #171717;
+  --gray-50: #171717;
+  --gray-100: #262626;
+  --gray-200: rgba(255, 255, 255, 0.06);
+  --gray-300: rgba(255, 255, 255, 0.10);
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #d4d4d8;
+  --gray-700: #e4e4e7;
+  --gray-800: #1c1c1c;
+  --gray-900: #f5f5f5;
+
+  --primary-50: #262626;
+  --primary-100: #262626;
+  --primary-200: #404040;
+  --primary-500: #f5f5f5;
+  --primary-600: #f5f5f5;
+  --primary-700: #e5e5e5;
+  --primary-800: #d4d4d8;
+  --primary-900: #a3a3a3;
 }
 
 body {
   font-family: var(--font-sans);
-  @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white;
+  background-color: var(--background);
+  color: var(--foreground);
 }
 
 /* Fix browser autofill text color - prevent white text on white background */
@@ -23,52 +164,34 @@ input:-webkit-autofill:active {
 
 /* Custom animations for login screen */
 @keyframes gradient-xy {
-
-  0%,
-  100% {
+  0%, 100% {
     background-position: 0% 50%;
   }
-
   50% {
     background-position: 100% 50%;
   }
 }
 
 @keyframes blob {
-
-  0%,
-  100% {
+  0%, 100% {
     transform: translate(0, 0) scale(1);
   }
-
   33% {
     transform: translate(30px, -50px) scale(1.1);
   }
-
   66% {
     transform: translate(-20px, 20px) scale(0.9);
   }
 }
 
 @keyframes shake {
-
-  0%,
-  100% {
+  0%, 100% {
     transform: translateX(0);
   }
-
-  10%,
-  30%,
-  50%,
-  70%,
-  90% {
+  10%, 30%, 50%, 70%, 90% {
     transform: translateX(-2px);
   }
-
-  20%,
-  40%,
-  60%,
-  80% {
+  20%, 40%, 60%, 80% {
     transform: translateX(2px);
   }
 }
@@ -105,66 +228,17 @@ input:-webkit-autofill:active {
   animation: shake 0.5s ease-in-out;
 }
 
-/* Mobile Responsive Utilities */
-@layer utilities {
-  /* Touch-friendly tap targets */
-  .touch-target {
-    @apply min-h-[44px] min-w-[44px];
-  }
-
-  /* Mobile-first table horizontal scroll */
-  .mobile-table-scroll {
-    @apply -mx-4 overflow-x-auto md:mx-0;
-  }
-
-  /* Stack on mobile */
-  .mobile-stack {
-    @apply flex flex-col gap-4 md:flex-row;
-  }
-
-  /* Full-width on mobile buttons */
-  .mobile-full-button {
-    @apply w-full md:w-auto;
-  }
-}
-
-/* Mobile optimizations */
-@media (max-width: 768px) {
-  /* Ensure modals are full screen on mobile */
-  .modal-mobile-full {
-    @apply fixed inset-0 rounded-none max-w-full max-h-full;
-  }
-  
-  /* Adjust table cells for mobile */
-  table th,
-  table td {
-    @apply px-3 py-2 text-sm;
-  }
-  
-  /* Make filter sections stack on mobile */
-  .filters-mobile {
-    @apply flex-col space-y-2;
-  }
-  
-  /* Card layout on mobile */
-  .card-mobile {
-    @apply p-4;
-  }
-  
-  /* Hide certain columns on mobile for tables */
-  .hide-mobile {
-    @apply hidden md:table-cell;
-  }
-}
-
 /* Prevent body scroll when mobile sidebar is open */
 body.sidebar-open {
-  @apply overflow-hidden md:overflow-auto;
+  overflow: hidden;
+  @media (min-width: 768px) {
+    overflow: auto;
+  }
 }
 
 /* Smooth transitions for mobile sidebar */
 .sidebar-transition {
-  @apply transition-transform duration-300 ease-in-out;
+  transition: transform 0.3s ease-in-out;
 }
 
 /* Swapy drag styles */

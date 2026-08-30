@@ -154,27 +154,27 @@ export function RolesPage() {
         switch (baseRole) {
             case 'SuperAdmin':
                 return {
-                    text: 'text-purple-600 dark:text-purple-400',
-                    bg: 'bg-purple-50 dark:bg-purple-900/20',
-                    border: 'border-purple-200 dark:border-purple-800',
+                    text: 'text-violet-600 dark:text-violet-400',
+                    bg: 'bg-violet-500/10',
+                    border: 'border-violet-500/25',
                 };
             case 'Admin':
                 return {
-                    text: 'text-blue-600 dark:text-blue-400',
-                    bg: 'bg-blue-50 dark:bg-blue-900/20',
-                    border: 'border-blue-200 dark:border-blue-800',
+                    text: 'text-sky-600 dark:text-sky-400',
+                    bg: 'bg-sky-500/10',
+                    border: 'border-sky-500/25',
                 };
             case 'Manager':
                 return {
-                    text: 'text-green-600 dark:text-green-400',
-                    bg: 'bg-green-50 dark:bg-green-900/20',
-                    border: 'border-green-200 dark:border-green-800',
+                    text: 'text-emerald-600 dark:text-emerald-400',
+                    bg: 'bg-emerald-500/10',
+                    border: 'border-emerald-500/25',
                 };
             default:
                 return {
-                    text: 'text-gray-600 dark:text-gray-400',
-                    bg: 'bg-gray-50 dark:bg-gray-700/50',
-                    border: 'border-gray-200 dark:border-gray-700',
+                    text: 'text-muted-foreground',
+                    bg: 'bg-muted',
+                    border: 'border-border',
                 };
         }
     };
@@ -188,43 +188,43 @@ export function RolesPage() {
     if (isLoading) {
         return (
             <div className="flex items-center justify-center h-96">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-foreground border-t-transparent"></div>
             </div>
         );
     }
 
     return (
-        <div className="p-4 sm:p-6 max-w-6xl mx-auto">
-            <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+        <div className="max-w-6xl mx-auto space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
                 <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2 sm:gap-3">
-                        <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600" />
+                    <h1 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2 sm:gap-3">
+                        <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-foreground" />
                         Roles & Permissions
                     </h1>
-                    <p className="mt-1 sm:mt-2 text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                    <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
                         Manage user roles and their access levels
                     </p>
                 </div>
                 {canManageRoles && (
                     <button
                         onClick={() => setShowCreateModal(true)}
-                        className="flex items-center px-3 sm:px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium transition-colors self-start sm:self-auto"
+                        className="flex items-center px-3 sm:px-4 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium transition-colors self-start sm:self-auto"
                         title="Create Custom Role"
                     >
-                        <Plus className="w-4 h-4 sm:mr-2" />
+                        <Plus className="w-4 h-4 sm:mr-1.5" />
                         <span className="hidden sm:inline">Create Custom Role</span>
                     </button>
                 )}
             </div>
 
             {/* System Roles */}
-            <div className="mb-6 sm:mb-8">
+            <div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-4">
                     <div className="flex items-center gap-2">
-                        <Lock className="w-4 h-4 text-gray-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">System Roles</h2>
+                        <Lock className="w-4 h-4 text-muted-foreground/60" />
+                        <h2 className="text-sm font-semibold text-foreground">System Roles</h2>
                     </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-6 sm:ml-0">
+                    <span className="text-xs text-muted-foreground ml-6 sm:ml-0">
                         {isSuperAdmin ? '(Built-in, editable by SuperAdmin)' : '(Built-in, read-only)'}
                     </span>
                 </div>
@@ -237,7 +237,7 @@ export function RolesPage() {
                             <div
                                 key={role.id}
                                 className={clsx(
-                                    "bg-white dark:bg-gray-800 border rounded-xl p-5 transition-all",
+                                    "bg-card border rounded-xl p-5 transition-all",
                                     colors.border
                                 )}
                             >
@@ -246,14 +246,14 @@ export function RolesPage() {
                                         <Icon className={clsx("w-5 h-5", colors.text)} />
                                     </div>
                                     <div className="flex items-center gap-1">
-                                        <Globe className="w-3 h-3 text-gray-400" />
-                                        <span className="text-xs text-gray-400">Global</span>
+                                        <Globe className="w-3.5 h-3.5 text-muted-foreground/60" />
+                                        <span className="text-xs text-muted-foreground">Global</span>
                                     </div>
                                 </div>
-                                <h3 className={clsx("text-lg font-semibold mb-1", colors.text)}>
+                                <h3 className={clsx("text-base font-semibold mb-1", colors.text)}>
                                     {role.name}
                                 </h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">
+                                <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
                                     {role.description || 'No description'}
                                 </p>
                                 <button
@@ -261,10 +261,10 @@ export function RolesPage() {
                                         setSelectedRole(role);
                                         setShowPermissionsModal(true);
                                     }}
-                                    className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center"
+                                    className="text-sm text-foreground hover:underline font-semibold flex items-center"
                                 >
                                     {isSuperAdmin ? 'Edit Permissions' : 'View Permissions'}
-                                    <ChevronRight className="w-4 h-4 ml-1" />
+                                    <ChevronRight className="w-4 h-4 ml-0.5" />
                                 </button>
                             </div>
                         );
@@ -273,38 +273,38 @@ export function RolesPage() {
             </div>
 
             {/* Custom Roles */}
-            <div className="mb-6 sm:mb-8">
+            <div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-4">
                     <div className="flex items-center gap-2">
-                        <Unlock className="w-4 h-4 text-primary-500" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">Custom Roles</h2>
+                        <Unlock className="w-4 h-4 text-muted-foreground" />
+                        <h2 className="text-sm font-semibold text-foreground">Custom Roles</h2>
                     </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-6 sm:ml-0">(Created by your organization)</span>
+                    <span className="text-xs text-muted-foreground ml-6 sm:ml-0">(Created by your organization)</span>
                 </div>
 
                 {customRoles.length === 0 ? (
-                    <div className="bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center">
-                        <Shield className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">
+                    <div className="bg-muted/10 border border-dashed border-border rounded-xl p-8 text-center">
+                        <Shield className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+                        <h3 className="text-sm font-semibold text-foreground mb-1">
                             No Custom Roles Yet
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        <p className="text-xs text-muted-foreground mb-4">
                             Create custom roles to define specific permission sets for your team.
                         </p>
                         {canManageRoles && (
                             <button
                                 onClick={() => setShowCreateModal(true)}
-                                className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                                className="inline-flex items-center px-3 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium"
                             >
-                                <Plus className="w-4 h-4 mr-2" />
+                                <Plus className="w-4 h-4 mr-1.5" />
                                 Create Your First Role
                             </button>
                         )}
                     </div>
                 ) : (
-                    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+                    <div className="bg-card rounded-xl border border-border overflow-hidden">
                         {/* Mobile: Card view */}
-                        <div className="sm:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                        <div className="sm:hidden divide-y divide-border">
                             {customRoles.map((role) => {
                                 const Icon = getRoleIcon(role.base_role);
                                 const colors = getRoleColors(role.base_role);
@@ -317,8 +317,8 @@ export function RolesPage() {
                                                     <Icon className={clsx("w-4 h-4", colors.text)} />
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="font-medium text-gray-900 dark:text-white truncate">{role.name}</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                    <p className="font-semibold text-foreground truncate">{role.name}</p>
+                                                    <p className="text-xs text-muted-foreground truncate">
                                                         {role.description || 'No description'}
                                                     </p>
                                                 </div>
@@ -329,7 +329,7 @@ export function RolesPage() {
                                                         setSelectedRole(role);
                                                         setShowPermissionsModal(true);
                                                     }}
-                                                    className="p-2 text-gray-400 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                                                     title="View/Edit Permissions"
                                                 >
                                                     <Settings className="w-4 h-4" />
@@ -337,7 +337,7 @@ export function RolesPage() {
                                                 {canManageRoles && role.tenant_id && (
                                                     <button
                                                         onClick={() => handleDeleteRole(role.id)}
-                                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted rounded-lg transition-colors"
                                                         title="Delete Role"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -353,17 +353,17 @@ export function RolesPage() {
                                                 {role.base_role}
                                             </span>
                                             {role.tenant_id ? (
-                                                <span className="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
+                                                <span className="inline-flex items-center text-xs text-muted-foreground">
                                                     <Building2 className="w-3 h-3 mr-1" />
                                                     {tenant?.name || 'This Company'}
                                                 </span>
                                             ) : (
-                                                <span className="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
+                                                <span className="inline-flex items-center text-xs text-muted-foreground">
                                                     <Globe className="w-3 h-3 mr-1" />
                                                     Global
                                                 </span>
                                             )}
-                                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                                            <span className="text-xs text-muted-foreground/60">
                                                 {formatDate(role.created_at)}
                                             </span>
                                         </div>
@@ -373,80 +373,80 @@ export function RolesPage() {
                         </div>
 
                         {/* Desktop: Table view */}
-                        <table className="hidden sm:table min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-900/50">
+                        <table className="hidden sm:table min-w-full divide-y divide-border">
+                            <thead className="bg-muted/50">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Role
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Base Level
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Scope
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Created
                                     </th>
-                                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                         Actions
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                            <tbody className="divide-y divide-border">
                                 {customRoles.map((role) => {
                                     const Icon = getRoleIcon(role.base_role);
                                     const colors = getRoleColors(role.base_role);
 
                                     return (
-                                        <tr key={role.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                        <tr key={role.id} className="hover:bg-muted/30 transition-colors">
+                                            <td className="px-5 py-3.5 whitespace-nowrap">
                                                 <div className="flex items-center">
                                                     <div className={clsx("p-2 rounded-lg mr-3", colors.bg)}>
                                                         <Icon className={clsx("w-4 h-4", colors.text)} />
                                                     </div>
                                                     <div>
-                                                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                                        <div className="text-sm font-semibold text-foreground">
                                                             {role.name}
                                                         </div>
-                                                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">
+                                                        <div className="text-xs text-muted-foreground truncate max-w-xs mt-0.5">
                                                             {role.description || 'No description'}
                                                         </div>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                            <td className="px-5 py-3.5 whitespace-nowrap">
                                                 <span className={clsx(
-                                                    "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+                                                    "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
                                                     colors.bg, colors.text
                                                 )}>
                                                     {role.base_role}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                            <td className="px-5 py-3.5 whitespace-nowrap">
                                                 {role.tenant_id ? (
-                                                    <span className="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
-                                                        <Building2 className="w-3 h-3 mr-1" />
+                                                    <span className="inline-flex items-center text-xs text-muted-foreground">
+                                                        <Building2 className="w-3.5 h-3.5 mr-1" />
                                                         {tenant?.name || 'This Company'}
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
-                                                        <Globe className="w-3 h-3 mr-1" />
+                                                    <span className="inline-flex items-center text-xs text-muted-foreground">
+                                                        <Globe className="w-3.5 h-3.5 mr-1" />
                                                         Global
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
                                                 {formatDate(role.created_at)}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                <div className="flex items-center justify-end gap-2">
+                                            <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                                                <div className="flex items-center justify-end gap-1">
                                                     <button
                                                         onClick={() => {
                                                             setSelectedRole(role);
                                                             setShowPermissionsModal(true);
                                                         }}
-                                                        className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                                        className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                                                         title="View/Edit Permissions"
                                                     >
                                                         <Settings className="w-4 h-4" />
@@ -454,7 +454,7 @@ export function RolesPage() {
                                                     {canManageRoles && role.tenant_id && (
                                                         <button
                                                             onClick={() => handleDeleteRole(role.id)}
-                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted rounded-lg transition-colors"
                                                             title="Delete Role"
                                                         >
                                                             <Trash2 className="w-4 h-4" />
@@ -472,53 +472,53 @@ export function RolesPage() {
             </div>
 
             {/* Info Panel */}
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 sm:p-6">
-                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2 text-sm sm:text-base">
+            <div className="bg-muted/50 border border-border rounded-xl p-5 sm:p-6">
+                <h4 className="font-semibold text-foreground mb-2 text-sm sm:text-base">
                     Understanding Role Hierarchy
                 </h4>
-                <p className="text-xs sm:text-sm text-blue-800 dark:text-blue-200 mb-3">
-                    Roles in ClovaLink follow a hierarchical permission model. Each role inherits all permissions from the level below it:
+                <p className="text-xs sm:text-sm text-muted-foreground mb-4">
+                    Roles follow a hierarchical permission model. Each role inherits all permissions from the level below it:
                 </p>
                 {/* Mobile: Vertical layout */}
-                <div className="flex sm:hidden flex-col items-start gap-1 text-sm text-blue-700 dark:text-blue-300">
-                    <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Employee</span>
-                    <ChevronDown className="w-4 h-4 ml-2" />
-                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 rounded text-green-700 dark:text-green-400">Manager</span>
-                    <ChevronDown className="w-4 h-4 ml-2" />
-                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-700 dark:text-blue-400">Admin</span>
-                    <ChevronDown className="w-4 h-4 ml-2" />
-                    <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 rounded text-purple-700 dark:text-purple-400">SuperAdmin</span>
+                <div className="flex sm:hidden flex-col items-start gap-1 text-sm">
+                    <span className="px-2.5 py-0.5 bg-muted rounded text-muted-foreground font-semibold text-xs">Employee</span>
+                    <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded font-semibold text-xs">Manager</span>
+                    <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-sky-500/10 text-sky-600 dark:text-sky-400 rounded font-semibold text-xs">Admin</span>
+                    <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-violet-500/10 text-violet-600 dark:text-violet-400 rounded font-semibold text-xs">SuperAdmin</span>
                 </div>
                 {/* Desktop: Horizontal layout */}
-                <div className="hidden sm:flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
-                    <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300">Employee</span>
-                    <ChevronRight className="w-4 h-4" />
-                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 rounded text-green-700 dark:text-green-400">Manager</span>
-                    <ChevronRight className="w-4 h-4" />
-                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-700 dark:text-blue-400">Admin</span>
-                    <ChevronRight className="w-4 h-4" />
-                    <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 rounded text-purple-700 dark:text-purple-400">SuperAdmin</span>
+                <div className="hidden sm:flex items-center gap-2 text-sm">
+                    <span className="px-2.5 py-0.5 bg-muted rounded text-muted-foreground font-semibold text-xs">Employee</span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded font-semibold text-xs">Manager</span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-sky-500/10 text-sky-600 dark:text-sky-400 rounded font-semibold text-xs">Admin</span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/60" />
+                    <span className="px-2.5 py-0.5 bg-violet-500/10 text-violet-600 dark:text-violet-400 rounded font-semibold text-xs">SuperAdmin</span>
                 </div>
             </div>
 
             {/* Create Role Modal */}
             {showCreateModal && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full">
-                        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    <div className="bg-popover rounded-xl shadow-xl border border-border max-w-md w-full">
+                        <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                            <h3 className="text-base font-semibold text-foreground">
                                 Create Custom Role
                             </h3>
                             <button
                                 onClick={() => setShowCreateModal(false)}
-                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                className="text-muted-foreground hover:text-foreground transition-colors"
                             >
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
-                        <div className="p-6 space-y-4">
+                        <div className="p-5 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-xs font-semibold text-foreground mb-1">
                                     Role Name *
                                 </label>
                                 <input
@@ -526,11 +526,11 @@ export function RolesPage() {
                                     value={newRoleName}
                                     onChange={(e) => setNewRoleName(e.target.value)}
                                     placeholder="e.g., Senior Manager"
-                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    className="w-full px-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-xs font-semibold text-foreground mb-1">
                                     Description
                                 </label>
                                 <textarea
@@ -538,24 +538,24 @@ export function RolesPage() {
                                     onChange={(e) => setNewRoleDescription(e.target.value)}
                                     placeholder="What is this role for?"
                                     rows={2}
-                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                    className="w-full px-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
                                 />
                             </div>
                             {isSuperAdmin && (
                                 <div>
-                                    <label className="flex items-center p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                    <label className="flex items-center p-3 border border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                                         <input
                                             type="checkbox"
                                             checked={isGlobalRole}
                                             onChange={(e) => setIsGlobalRole(e.target.checked)}
-                                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                                            className="h-4 w-4 text-foreground focus:ring-ring border-border rounded"
                                         />
                                         <div className="ml-3">
-                                            <span className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                                                <Globe className="w-4 h-4 text-primary-500" />
+                                            <span className="text-sm font-medium text-foreground flex items-center gap-2">
+                                                <Globe className="w-4 h-4 text-muted-foreground" />
                                                 Create as Global Role
                                             </span>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            <p className="text-xs text-muted-foreground">
                                                 Global roles are available to all companies
                                             </p>
                                         </div>
@@ -563,10 +563,10 @@ export function RolesPage() {
                                 </div>
                             )}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label className="block text-xs font-semibold text-foreground mb-1">
                                     Base Permission Level *
                                 </label>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                <p className="text-xs text-muted-foreground mb-2">
                                     This role will inherit all permissions from the selected level.
                                 </p>
                                 <div className="space-y-2">
@@ -579,7 +579,7 @@ export function RolesPage() {
                                                     "flex items-center p-3 border rounded-lg cursor-pointer transition-colors",
                                                     newRoleBaseRole === level
                                                         ? `${colors.border} ${colors.bg}`
-                                                        : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                                                        : "border-border hover:bg-muted/50"
                                                 )}
                                             >
                                                 <input
@@ -590,7 +590,7 @@ export function RolesPage() {
                                                     onChange={(e) => setNewRoleBaseRole(e.target.value)}
                                                     className="sr-only"
                                                 />
-                                                <span className={clsx("font-medium text-sm", colors.text)}>
+                                                <span className={clsx("font-semibold text-sm", colors.text)}>
                                                     {level}
                                                 </span>
                                                 {newRoleBaseRole === level && (
@@ -602,17 +602,17 @@ export function RolesPage() {
                                 </div>
                             </div>
                         </div>
-                        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                        <div className="px-5 py-3.5 border-t border-border flex justify-end gap-3">
                             <button
                                 onClick={() => setShowCreateModal(false)}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                className="px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted rounded-lg transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleCreateRole}
                                 disabled={!newRoleName.trim() || isCreating}
-                                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium disabled:opacity-50 transition-colors"
+                                className="px-3 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium disabled:opacity-50 transition-colors"
                             >
                                 {isCreating ? 'Creating...' : 'Create Role'}
                             </button>
