@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE extensions SET allowed_tenant_ids = $1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f4cb63e1a71ff12c0a8d44413d85a49cf1f502630de0165d8c1b87e959476ff"
+}

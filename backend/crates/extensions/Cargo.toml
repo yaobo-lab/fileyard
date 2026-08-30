@@ -1,0 +1,52 @@
+[package]
+name = "clovalink_extensions"
+version = "0.1.6"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+async-trait = "0.1"
+
+# Web framework
+axum = { version = "0.8", features = ["multipart"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+
+# UUID and time
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client for webhook calls
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Redis for rate limiting and job queue
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Cryptography for webhook signatures
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# Cron parsing for automation jobs
+cron = "0.13"
+
+# JSON Schema validation for manifests
+jsonschema = "0.26"
+
+# Tracing
+tracing = "0.1"
+
+# Shared crates
+clovalink_core = { path = "../core" }
+clovalink_auth = { path = "../auth" }
+
+# Error handling
+thiserror = "2"

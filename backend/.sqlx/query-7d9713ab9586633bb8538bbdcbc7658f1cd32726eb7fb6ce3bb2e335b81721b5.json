@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE extension_installations SET enabled = $1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d9713ab9586633bb8538bbdcbc7658f1cd32726eb7fb6ce3bb2e335b81721b5"
+}

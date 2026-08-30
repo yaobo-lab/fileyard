@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ei.id as installation_id, ei.enabled, ei.settings, ei.installed_at,\n               e.id as extension_id, e.name, e.slug, e.description, e.extension_type,\n               e.status as extension_status,\n               ev.version, ev.manifest\n        FROM extension_installations ei\n        JOIN extensions e ON ei.extension_id = e.id\n        JOIN extension_versions ev ON ei.version_id = ev.id\n        WHERE ei.tenant_id = $1\n        ORDER BY ei.installed_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "installation_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "installed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "extension_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "slug",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "extension_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "extension_status",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "manifest",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3511a5443043b51b7cf18d927e6fae66d35d5860406ce0d2ac5535e478654b51"
+}

@@ -1,0 +1,38 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+    plugins: [react()],
+    server: {
+        host: true,
+        port: 8080,
+        proxy: {
+            '/api': {
+                target: 'http://192.168.3.42:8001',
+                changeOrigin: true,
+                secure: false,
+            }
+        }
+    },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    // Core React framework - rarely changes
+                    vendor: ['react', 'react-dom', 'react-router-dom'],
+                    // Charting library - heavy, used only on dashboard
+                    charts: ['recharts'],
+                    // UI utilities - used throughout
+                    ui: ['lucide-react', 'clsx', 'tailwind-merge'],
+                    // Date formatting - used in many places
+                    dates: ['date-fns'],
+                    // Grid layout - used on dashboard
+                    grid: ['react-grid-layout', 'react-is'],
+                }
+            }
+        },
+        // Increase chunk size warning limit since we're intentionally splitting
+        chunkSizeWarningLimit: 600,
+    }
+})

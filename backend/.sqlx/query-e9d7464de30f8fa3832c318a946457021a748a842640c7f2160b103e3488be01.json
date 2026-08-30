@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO extension_event_triggers (extension_id, event_type, filter_config)\n            VALUES ($1, 'file_uploaded', $2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e9d7464de30f8fa3832c318a946457021a748a842640c7f2160b103e3488be01"
+}

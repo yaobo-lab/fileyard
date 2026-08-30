@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white;
+}
+
+/* Fix browser autofill text color - prevent white text on white background */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #111827 !important;
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  caret-color: #111827;
+}
+
+/* Custom animations for login screen */
+@keyframes gradient-xy {
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes blob {
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+}
+
+@keyframes shake {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-2px);
+  }
+
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes upload-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-gradient-xy {
+  animation: gradient-xy 15s ease infinite;
+  background-size: 400% 400%;
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Mobile Responsive Utilities */
+@layer utilities {
+  /* Touch-friendly tap targets */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Mobile-first table horizontal scroll */
+  .mobile-table-scroll {
+    @apply -mx-4 overflow-x-auto md:mx-0;
+  }
+
+  /* Stack on mobile */
+  .mobile-stack {
+    @apply flex flex-col gap-4 md:flex-row;
+  }
+
+  /* Full-width on mobile buttons */
+  .mobile-full-button {
+    @apply w-full md:w-auto;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  /* Ensure modals are full screen on mobile */
+  .modal-mobile-full {
+    @apply fixed inset-0 rounded-none max-w-full max-h-full;
+  }
+  
+  /* Adjust table cells for mobile */
+  table th,
+  table td {
+    @apply px-3 py-2 text-sm;
+  }
+  
+  /* Make filter sections stack on mobile */
+  .filters-mobile {
+    @apply flex-col space-y-2;
+  }
+  
+  /* Card layout on mobile */
+  .card-mobile {
+    @apply p-4;
+  }
+  
+  /* Hide certain columns on mobile for tables */
+  .hide-mobile {
+    @apply hidden md:table-cell;
+  }
+}
+
+/* Prevent body scroll when mobile sidebar is open */
+body.sidebar-open {
+  @apply overflow-hidden md:overflow-auto;
+}
+
+/* Smooth transitions for mobile sidebar */
+.sidebar-transition {
+  @apply transition-transform duration-300 ease-in-out;
+}
+
+/* Swapy drag styles */
+[data-swapy-slot] {
+  transition: background-color 0.2s ease;
+}
+
+[data-swapy-item] {
+  cursor: grab;
+  height: 100%;
+}
+
+[data-swapy-item]:active {
+  cursor: grabbing;
+}

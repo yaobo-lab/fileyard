@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO extension_permissions (installation_id, permission)\n            VALUES ($1, $2)\n            ON CONFLICT (installation_id, permission) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9205bf5eaf0c73d981169611cfb0a278e58f680df7b268634febbd7084e1cc12"
+}

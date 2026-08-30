@@ -1,0 +1,11 @@
+export { SettingsLayout } from './SettingsLayout';
+export { GeneralSettings } from './GeneralSettings';
+export { BrandingSettings } from './BrandingSettings';
+export { PagesSettings } from './PagesSettings';
+export { SystemSettings } from './SystemSettings';
+export { AdminSettings } from './AdminSettings';
+export { EmailTemplatesSettings } from './EmailTemplatesSettings';
+export { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
+export { VirusScanSettings } from './VirusScanSettings';
+export { SsoSettings } from './SsoSettings';
+export { BackupRestoreSettings } from './BackupRestoreSettings';
