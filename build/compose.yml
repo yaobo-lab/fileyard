@@ -85,9 +85,12 @@ services:
     # Alternative: Docker Hub
     # image: clovalink/clovalink-frontend:latest
     ports:
-      - "8080:80"
+      - "8080:8080"
     depends_on:
       - backend
+    environment:
+      - PORT=8080
+      - BACKEND_URL=http://backend:3000
     networks:
       - clovalink-net
 

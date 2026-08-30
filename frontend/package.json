@@ -4,10 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "vite": "vite --port 8081",
+    "server": "cd storageui && node ../server.js",
+    "dev": "run-p vite server",
     "build": "tsc && vite build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "NODE_ENV=production cd storageui && node ../server.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -15,8 +17,12 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^4.2.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
+    "next": "16.3.0",
+    "npm-run-all": "^4.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-easy-crop": "^5.0.0",

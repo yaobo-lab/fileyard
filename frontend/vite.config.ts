@@ -22,6 +22,11 @@ export default defineConfig({
                 target: 'http://192.168.3.42:8001',
                 changeOrigin: true,
                 secure: false,
+            },
+            '/storage': {
+                target: 'http://localhost:3000',
+                changeOrigin: true,
+                secure: false,
             }
         }
     },

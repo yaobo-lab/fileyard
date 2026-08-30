@@ -44,6 +44,7 @@ interface NavItem {
     superAdminOnly?: boolean;
     adminOnly?: boolean; // Only visible to SuperAdmin and Admin
     requiresTenantFlag?: string; // Only show when this tenant flag is true
+    isExternal?: boolean;
 }
 
 const NAVIGATION: NavItem[] = [
@@ -51,6 +52,7 @@ const NAVIGATION: NavItem[] = [
     { name: 'Companies', href: '/companies', icon: Building2, permission: 'tenants.manage' },
     { name: 'Users', href: '/users', icon: Users, permission: 'users.view' },
     { name: 'Files', href: '/files', icon: FileText, permission: 'files.view' },
+    { name: 'Storage', href: '/storage', icon: Folder, permission: null, isExternal: true },
     { name: 'Requests', href: '/file-requests', icon: Link2, permission: 'requests.view' },
     { name: 'Approvals', href: '/approvals', icon: CheckCircle, permission: 'approvals.view', requiresTenantFlag: 'approval_workflow_enabled' },
     { name: 'Shared', href: '/shared-with-me', icon: Share2, permission: 'files.view' },
@@ -439,6 +441,27 @@ export function Layout() {
                         })
                         .map((item) => {
                             const isCollapsed = sidebarCollapsed && !isMobileSidebarOpen;
+                            if (item.isExternal) {
+                                const isActive = location.pathname.startsWith(item.href);
+                                return (
+                                    <a
+                                        key={item.name}
+                                        href={item.href}
+                                        onClick={() => setIsMobileSidebarOpen(false)}
+                                        title={isCollapsed ? item.name : undefined}
+                                        className={clsx(
+                                            "flex items-center py-3 text-sm font-medium rounded-lg transition-colors min-h-[44px]",
+                                            isCollapsed ? "justify-center px-2 relative" : "px-3",
+                                            isActive
+                                                ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-400"
+                                                : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                                        )}
+                                    >
+                                        <item.icon className={clsx("h-5 w-5 flex-shrink-0", !isCollapsed && "mr-3")} />
+                                        {!isCollapsed && <span className="flex-1">{item.name}</span>}
+                                    </a>
+                                );
+                            }
                             return (
                             <NavLink
                                 key={item.name}
