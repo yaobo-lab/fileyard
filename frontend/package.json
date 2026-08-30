@@ -6,7 +6,8 @@
   "scripts": {
     "vite": "vite --port 8081",
     "server": "cd storageui && node ../server.js",
-    "dev": "run-p vite server",
+    "storageui-dev": "cd storageui && bun run dev",
+    "dev": "run-p vite server storageui-dev",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production cd storageui && node ../server.js"

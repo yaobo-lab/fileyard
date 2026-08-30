@@ -1,5 +1,4 @@
 import express from 'express';
-import next from 'next';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,11 +9,7 @@ const __dirname = path.dirname(__filename);
 const dev = process.env.NODE_ENV !== 'production';
 const port = process.env.PORT || 8080;
 
-// Initialize Next.js app located in the subdirectory `./storageui`
-const nextApp = next({ dev, dir: path.resolve(__dirname, './storageui') });
-const nextHandler = nextApp.getRequestHandler();
-
-nextApp.prepare().then(() => {
+const startServer = async () => {
     const app = express();
 
     // 1. Proxy API requests to the Rust backend service
@@ -25,9 +20,39 @@ nextApp.prepare().then(() => {
         secure: false,
     }));
 
-    // 2. Route routing: route /storage and /_next requests to Next.js handler
-    app.use('/storage', (req, res) => nextHandler(req, res));
-    app.use('/_next', (req, res) => nextHandler(req, res));
+    // 2. Route routing for Next.js /storage, /_next, and /__nextjs_font requests
+    if (dev) {
+        // Dev: proxy everything to Next.js dev server on port 3000 with complete header rewrite
+        // This completely bypasses Turbopack CORS/Cross-Origin Referer 403 Forbidden checks
+        app.use(createProxyMiddleware({
+            target: 'http://localhost:3000',
+            changeOrigin: true,
+            ws: true,
+            filter: (pathname) => (
+                pathname.startsWith('/storage') ||
+                pathname.startsWith('/_next') ||
+                pathname.startsWith('/__nextjs_font')
+            ),
+            on: {
+                proxyReq: (proxyReq, req) => {
+                    proxyReq.setHeader('host', 'localhost:3000');
+                    proxyReq.setHeader('origin', 'http://localhost:3000');
+                    if (req.headers.referer) {
+                        proxyReq.setHeader('referer', req.headers.referer.replace(/^https?:\/\/[^/]+/, 'http://localhost:3000'));
+                    }
+                }
+            }
+        }));
+    } else {
+        // Prod: lazy import next and load custom handler in production
+        const { default: next } = await import('next');
+        const nextApp = next({ dev, dir: path.resolve(__dirname, './storageui') });
+        const nextHandler = nextApp.getRequestHandler();
+        await nextApp.prepare();
+        
+        app.all(/^\/storage($|\/.*)/, (req, res) => nextHandler(req, res));
+        app.all(/^\/_next($|\/.*)/, (req, res) => nextHandler(req, res));
+    }
 
     // 3. Serve frontend SPA pages and assets
     if (dev) {
@@ -47,9 +72,11 @@ nextApp.prepare().then(() => {
     }
 
     app.listen(port, () => {
-        console.log(`> Single Server ready on http://localhost:${port}`);
+        console.log(`> Unified Server ready on http://localhost:${port}`);
     });
-}).catch((err) => {
+};
+
+startServer().catch((err) => {
     console.error('Error starting server:', err);
     process.exit(1);
 });

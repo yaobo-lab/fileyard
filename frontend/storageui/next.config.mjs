@@ -7,6 +7,16 @@ const assetPrefix = process.env.NEXT_PUBLIC_ASSET_PREFIX ?? ""
 const nextConfig = {
   basePath,
   assetPrefix,
+  allowedDevOrigins: [
+    '192.168.3.42:8080',
+    '192.168.3.42:8081',
+    '192.168.3.42:3000',
+    '192.168.3.42',
+    'localhost:8080',
+    'localhost:8081',
+    'localhost:3000',
+    'localhost',
+  ],
   devIndicators: false,
   reactCompiler: true,
   typescript: {
@@ -53,17 +63,7 @@ const nextConfig = {
     return config
   },
   redirects() {
-    // Only redirect "/" → basePath when a basePath is configured.
-    return basePath
-      ? [
-          {
-            source: "/",
-            destination: basePath,
-            permanent: false,
-            basePath: false,
-          },
-        ]
-      : []
+    return []
   },
 }
 
