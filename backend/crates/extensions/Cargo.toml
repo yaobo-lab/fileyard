@@ -5,48 +5,49 @@ edition = "2021"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.42", features = ["full"] }
-async-trait = "0.1"
+tokio = { workspace = true }
+async-trait = { workspace = true }
 
 # Web framework
-axum = { version = "0.8", features = ["multipart"] }
+axum = { workspace = true }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+sqlx = { workspace = true }
 
 # UUID and time
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
 
 # HTTP client for webhook calls
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { workspace = true }
 
 # Redis for rate limiting and job queue
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+redis = { workspace = true }
 
 # Cryptography for webhook signatures
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-rand = "0.8"
+ed25519-dalek = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
 
 # Cron parsing for automation jobs
-cron = "0.13"
+cron = { workspace = true }
 
 # JSON Schema validation for manifests
-jsonschema = "0.26"
+jsonschema = { workspace = true }
 
 # Tracing
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Shared crates
-clovalink_core = { path = "../core" }
-clovalink_auth = { path = "../auth" }
+clovalink_core = { workspace = true }
+clovalink_auth = { workspace = true }
 
 # Error handling
-thiserror = "2"
+thiserror = { workspace = true }
+

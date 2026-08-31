@@ -8,3 +8,133 @@ members = [
     "crates/ai",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Web framework
+axum = { version = "0.8", features = ["multipart", "macros"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower = { version = "0.5", features = ["timeout", "limit", "load-shed"] }
+tower-http = { version = "0.6", features = [
+    "trace",
+    "cors",
+    "limit",
+    "timeout",
+    "fs",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+] }
+
+# UUID & Time
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Tracing & Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+toolkit-rs = { version = "1.0.31", features = [
+    "logger",
+    "panic_handle",
+    "config",
+] }
+
+
+# Error handling
+thiserror = "2"
+
+# HTTP Client
+reqwest = { version = "0.12", features = [
+    "json",
+    "rustls-tls",
+], default-features = false }
+
+# Auth & Crypto
+jsonwebtoken = "9"
+argon2 = "0.5"
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = "0.10"
+hex = "0.4"
+hmac = "0.12"
+rsa = { version = "0.9", features = ["sha2"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+base64 = "0.22"
+
+# X.509 / PKCS (SAML 2.0)
+x509-cert = "0.2"
+der = { version = "0.7", features = ["pem"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+
+# Encryption
+chacha20poly1305 = "0.10"
+
+# Cache / Queue
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# AWS / S3
+aws-config = "1.5"
+aws-sdk-s3 = "1.65"
+aws-credential-types = "1.2"
+
+# Email
+lettre = { version = "0.11", features = [
+    "tokio1",
+    "tokio1-native-tls",
+    "builder",
+] }
+
+# TOTP
+totp-rs = { version = "5.6", features = ["qr", "gen_secret", "serde_support"] }
+
+# Utilities
+nanoid = "0.4"
+ulid = "1.1"
+blake3 = "1.5"
+url = "2.5"
+urlencoding = "2.1"
+regex = "1"
+bytes = "1"
+zip = "2.2"
+flate2 = "1"
+semver = "1.0"
+pin-project-lite = "0.2"
+dotenvy = "0.15"
+
+# Rate limiting
+governor = "0.6"
+nonzero_ext = "0.3"
+
+# Cron
+cron = "0.13"
+
+# JSON Schema
+jsonschema = "0.26"
+
+# Text extraction
+pdf-extract = "0.7"
+calamine = "0.26"
+quick-xml = "0.37"
+
+# Workspace crates
+clovalink_core = { path = "crates/core" }
+clovalink_auth = { path = "crates/auth" }
+clovalink_storage = { path = "crates/storage" }
+clovalink_extensions = { path = "crates/extensions" }
+clovalink_ai = { path = "crates/ai" }

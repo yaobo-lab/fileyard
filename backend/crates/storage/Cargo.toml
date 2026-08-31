@@ -4,18 +4,19 @@ version = "0.1.6"
 edition = "2021"
 
 [dependencies]
-aws-config = "1.5"
-aws-sdk-s3 = "1.65"
-tokio = { version = "1.42", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
-async-trait = "0.1"
-thiserror = "2"
-futures = "0.3"
-bytes = "1"
-pin-project-lite = "0.2"
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+pin-project-lite = { workspace = true }
 
 # Encryption (ChaCha20-Poly1305 for local storage at-rest encryption)
-chacha20poly1305 = "0.10"
-rand = "0.8"
-base64 = "0.22"
-tracing = "0.1"
+chacha20poly1305 = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+tracing = { workspace = true }
+

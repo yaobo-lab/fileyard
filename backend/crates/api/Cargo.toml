@@ -1,70 +1,71 @@
 [package]
-name = "clovalink_api"
+name = "app"
 version = "0.1.6"
 edition = "2021"
-default-run = "clovalink_api"
+default-run = "app"
 
 
 [dependencies]
-axum = { version = "0.8", features = ["multipart", "macros"] }
-tokio = { version = "1.42", features = ["full"] }
-tower = { version = "0.5", features = ["timeout", "limit", "load-shed"] }
-tower-http = { version = "0.6", features = ["trace", "cors", "limit", "timeout", "fs"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
-jsonwebtoken = "9"
-argon2 = "0.5"
-nanoid = "0.4"
-clovalink_core = { path = "../core" }
-clovalink_auth = { path = "../auth" }
-clovalink_storage = { path = "../storage" }
-clovalink_extensions = { path = "../extensions" }
-clovalink_ai = { path = "../ai" }
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-urlencoding = "2.1"
-totp-rs = { version = "5.6", features = ["qr", "serde_support"] }
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-axum-extra = { version = "0.10", features = ["typed-header"] }
-futures = "0.3"
-zip = "2.2"
-sha1 = { version = "0.10", features = ["oid"] }
-sha2 = "0.10"
-hex = "0.4"
-ulid = "1.1"
-blake3 = "1.5"
-url = "2.5"
-governor = "0.6"
-nonzero_ext = "0.3"
-bytes = "1.5"
-rand = "0.8"
-regex = "1.10"
-reqwest = { version = "0.12", features = ["json"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+nanoid = { workspace = true }
+clovalink_core = { workspace = true }
+clovalink_auth = { workspace = true }
+clovalink_storage = { workspace = true }
+clovalink_extensions = { workspace = true }
+clovalink_ai = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+urlencoding = { workspace = true }
+totp-rs = { workspace = true }
+redis = { workspace = true }
+axum-extra = { workspace = true }
+futures = { workspace = true }
+zip = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+ulid = { workspace = true }
+blake3 = { workspace = true }
+url = { workspace = true }
+governor = { workspace = true }
+nonzero_ext = { workspace = true }
+bytes = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
 openidconnect = "4"
-semver = "1.0"
-async-trait = "0.1"
+semver = { workspace = true }
+async-trait = { workspace = true }
 
-thiserror = "1"
+thiserror = { workspace = true }
 
 # SAML 2.0 (pure Rust, no C dependencies)
-rsa = { version = "0.9", features = ["sha2"] }
-x509-cert = "0.2"
-der = { version = "0.7", features = ["pem"] }
-pkcs8 = { version = "0.10", features = ["pem"] }
-base64 = "0.22"
-flate2 = "1"
+rsa = { workspace = true }
+x509-cert = { workspace = true }
+der = { workspace = true }
+pkcs8 = { workspace = true }
+base64 = { workspace = true }
+flate2 = { workspace = true }
 
 # Backup encryption (ChaCha20-Poly1305 - matches storage crate)
-chacha20poly1305 = "0.10"
+chacha20poly1305 = { workspace = true }
 
 # Scheduled backup cron parsing
-cron = "0.13"
+cron = { workspace = true }
 
 # Text extraction for AI features
-pdf-extract = "0.7"
-calamine = "0.26"
-quick-xml = "0.37"
-dotenvy = "0.15"
+pdf-extract = { workspace = true }
+calamine = { workspace = true }
+quick-xml = { workspace = true }
+dotenvy = { workspace = true }
+toolkit-rs = "1.0.31"
