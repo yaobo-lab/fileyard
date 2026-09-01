@@ -1,25 +1,25 @@
 //! Compliance Mode Enforcement Module
-//! 
+//!
 //! This module provides enforcement logic for compliance modes:
 //! - Standard: No restrictions
 //! - HIPAA: Healthcare data protection requirements
 //! - SOX: Financial audit and governance requirements  
 //! - GDPR: European data protection requirements
 
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use chrono::{DateTime, Utc};
+use clovalink_auth::AuthUser;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use crate::AppState;
-use clovalink_auth::AuthUser;
 
 // ==================== Compliance Mode Enum ====================
 
@@ -96,7 +96,7 @@ impl ComplianceRestrictions {
     /// Get restrictions for a compliance mode
     pub fn for_mode(mode: &str) -> Self {
         let compliance_mode = ComplianceMode::from_str(mode);
-        
+
         match compliance_mode {
             ComplianceMode::Standard => Self::standard(),
             ComplianceMode::HIPAA => Self::hipaa(),
@@ -174,7 +174,9 @@ impl ComplianceRestrictions {
                 },
                 EnforcedSetting {
                     name: "document_retention".to_string(),
-                    description: "Documents must be retained for minimum 6 years per HIPAA regulations".to_string(),
+                    description:
+                        "Documents must be retained for minimum 6 years per HIPAA regulations"
+                            .to_string(),
                     locked: true,
                     forced_value: Some(json!(2190)),
                 },
@@ -210,7 +212,8 @@ impl ComplianceRestrictions {
                 },
                 EnforcedSetting {
                     name: "file_versioning".to_string(),
-                    description: "Files cannot be overwritten; new versions are created".to_string(),
+                    description: "Files cannot be overwritten; new versions are created"
+                        .to_string(),
                     locked: true,
                     forced_value: Some(json!(true)),
                 },
@@ -228,7 +231,9 @@ impl ComplianceRestrictions {
                 },
                 EnforcedSetting {
                     name: "retention_policy".to_string(),
-                    description: "Documents must be retained for minimum 7 years per SOX regulations".to_string(),
+                    description:
+                        "Documents must be retained for minimum 7 years per SOX regulations"
+                            .to_string(),
                     locked: true,
                     forced_value: Some(json!(2555)),
                 },
@@ -276,7 +281,8 @@ impl ComplianceRestrictions {
                 },
                 EnforcedSetting {
                     name: "retention_auto_delete".to_string(),
-                    description: "Data is automatically deleted when retention period expires".to_string(),
+                    description: "Data is automatically deleted when retention period expires"
+                        .to_string(),
                     locked: true,
                     forced_value: Some(json!(true)),
                 },
@@ -288,18 +294,20 @@ impl ComplianceRestrictions {
 // ==================== Compliance Helper Functions ====================
 
 /// Get the compliance mode for a tenant
-pub async fn get_tenant_compliance_mode(pool: &PgPool, tenant_id: Uuid) -> Result<String, StatusCode> {
-    let result = sqlx::query_scalar::<_, String>(
-        "SELECT compliance_mode FROM tenants WHERE id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get tenant compliance mode: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    
+pub async fn get_tenant_compliance_mode(
+    pool: &PgPool,
+    tenant_id: Uuid,
+) -> Result<String, StatusCode> {
+    let result =
+        sqlx::query_scalar::<_, String>("SELECT compliance_mode FROM tenants WHERE id = $1")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get tenant compliance mode: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
     Ok(result)
 }
 
@@ -312,9 +320,9 @@ pub async fn check_compliance_action(
     let mode = get_tenant_compliance_mode(pool, tenant_id)
         .await
         .map_err(|_| ComplianceViolation::InternalError)?;
-    
+
     let restrictions = ComplianceRestrictions::for_mode(&mode);
-    
+
     match action {
         ComplianceAction::PublicShare => {
             if restrictions.public_sharing_blocked {
@@ -336,7 +344,10 @@ pub async fn check_compliance_action(
             if restrictions.audit_settings_locked {
                 return Err(ComplianceViolation::ActionBlocked {
                     action: format!("disable_audit_{}", setting),
-                    reason: format!("{} compliance mode requires audit logging to be enabled", mode),
+                    reason: format!(
+                        "{} compliance mode requires audit logging to be enabled",
+                        mode
+                    ),
                 });
             }
         }
@@ -344,7 +355,10 @@ pub async fn check_compliance_action(
             if restrictions.file_versioning_required {
                 return Err(ComplianceViolation::ActionBlocked {
                     action: "overwrite_file".to_string(),
-                    reason: format!("{} compliance mode requires file versioning; files cannot be overwritten", mode),
+                    reason: format!(
+                        "{} compliance mode requires file versioning; files cannot be overwritten",
+                        mode
+                    ),
                 });
             }
         }
@@ -353,7 +367,10 @@ pub async fn check_compliance_action(
                 if days < min_days {
                     return Err(ComplianceViolation::ActionBlocked {
                         action: "set_retention".to_string(),
-                        reason: format!("{} compliance mode requires minimum {} day retention", mode, min_days),
+                        reason: format!(
+                            "{} compliance mode requires minimum {} day retention",
+                            mode, min_days
+                        ),
                     });
                 }
             }
@@ -362,27 +379,47 @@ pub async fn check_compliance_action(
             if restrictions.deletion_requests_allowed && mode == "GDPR" {
                 return Err(ComplianceViolation::ActionBlocked {
                     action: "block_deletion".to_string(),
-                    reason: "GDPR compliance requires that deletion requests cannot be blocked".to_string(),
+                    reason: "GDPR compliance requires that deletion requests cannot be blocked"
+                        .to_string(),
                 });
             }
         }
     }
-    
+
     Ok(())
 }
 
 /// Check if audit logging should be forced for an action
 pub fn should_force_audit_log(mode: &str, action_type: &str) -> bool {
     let restrictions = ComplianceRestrictions::for_mode(mode);
-    
+
     if !restrictions.audit_logging_mandatory {
         return false;
     }
-    
+
     match mode {
-        "HIPAA" => matches!(action_type, "file_view" | "file_download" | "file_preview" | "file_access" | "login" | "login_failed"),
-        "SOX" => matches!(action_type, "file_upload" | "file_rename" | "file_delete" | "permission_change" | "role_change" | "settings_change"),
-        "GDPR" => matches!(action_type, "file_export" | "data_export" | "deletion_request"),
+        "HIPAA" => matches!(
+            action_type,
+            "file_view"
+                | "file_download"
+                | "file_preview"
+                | "file_access"
+                | "login"
+                | "login_failed"
+        ),
+        "SOX" => matches!(
+            action_type,
+            "file_upload"
+                | "file_rename"
+                | "file_delete"
+                | "permission_change"
+                | "role_change"
+                | "settings_change"
+        ),
+        "GDPR" => matches!(
+            action_type,
+            "file_export" | "data_export" | "deletion_request"
+        ),
         _ => false,
     }
 }
@@ -390,14 +427,16 @@ pub fn should_force_audit_log(mode: &str, action_type: &str) -> bool {
 /// Check if a setting can be modified under current compliance mode
 pub fn can_modify_setting(mode: &str, setting: &str) -> bool {
     let restrictions = ComplianceRestrictions::for_mode(mode);
-    
+
     match setting {
         "mfa_required" | "enable_totp" => !restrictions.mfa_locked,
         "session_timeout_minutes" => !restrictions.session_timeout_locked,
         "public_sharing_enabled" => !restrictions.public_sharing_locked,
-        "log_logins" | "log_file_operations" | "log_user_changes" | "log_settings_changes" | "log_role_changes" => {
-            !restrictions.audit_settings_locked
-        }
+        "log_logins"
+        | "log_file_operations"
+        | "log_user_changes"
+        | "log_settings_changes"
+        | "log_role_changes" => !restrictions.audit_settings_locked,
         "retention_policy_days" => !restrictions.retention_policy_locked,
         _ => true,
     }
@@ -528,27 +567,27 @@ pub async fn get_compliance_restrictions(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     use clovalink_core::cache::{keys, ttl};
-    
+
     let cache_key = keys::compliance(auth.tenant_id);
-    
+
     // Try to get from cache first
     if let Some(ref cache) = state.cache {
         if let Ok(cached) = cache.get::<ComplianceRestrictions>(&cache_key).await {
             return Ok(Json(json!(cached)));
         }
     }
-    
+
     // Cache miss - fetch from database
     let mode = get_tenant_compliance_mode(&state.pool, auth.tenant_id).await?;
     let restrictions = ComplianceRestrictions::for_mode(&mode);
-    
+
     // Cache the result
     if let Some(ref cache) = state.cache {
         if let Err(e) = cache.set(&cache_key, &restrictions, ttl::COMPLIANCE).await {
             tracing::warn!("Failed to cache compliance restrictions: {}", e);
         }
     }
-    
+
     Ok(Json(json!(restrictions)))
 }
 
@@ -566,7 +605,7 @@ pub async fn record_consent(
         ON CONFLICT (user_id, consent_type) WHERE revoked_at IS NULL
         DO UPDATE SET granted_at = NOW(), metadata = $4, updated_at = NOW()
         RETURNING *
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(auth.tenant_id)
@@ -578,13 +617,13 @@ pub async fn record_consent(
         tracing::error!("Failed to record consent: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Log consent recording
     let _ = sqlx::query(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'consent_recorded', 'user', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -594,7 +633,7 @@ pub async fn record_consent(
     .bind(&auth.ip_address)
     .execute(&state.pool)
     .await;
-    
+
     Ok(Json(json!(consent)))
 }
 
@@ -609,13 +648,13 @@ pub async fn get_consent_status(
     if auth.user_id != user_id && !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let consents = sqlx::query_as::<_, UserConsent>(
         r#"
         SELECT * FROM user_consent 
         WHERE user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL
         ORDER BY granted_at DESC
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(auth.tenant_id)
@@ -625,7 +664,7 @@ pub async fn get_consent_status(
         tracing::error!("Failed to get consent status: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     Ok(Json(json!({
         "user_id": user_id,
         "consents": consents,
@@ -644,7 +683,7 @@ pub async fn revoke_consent(
         UPDATE user_consent 
         SET revoked_at = NOW(), updated_at = NOW()
         WHERE user_id = $1 AND tenant_id = $2 AND consent_type = $3 AND revoked_at IS NULL
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(auth.tenant_id)
@@ -655,13 +694,13 @@ pub async fn revoke_consent(
         tracing::error!("Failed to revoke consent: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Log consent revocation
     let _ = sqlx::query(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'consent_revoked', 'user', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -671,7 +710,7 @@ pub async fn revoke_consent(
     .bind(&auth.ip_address)
     .execute(&state.pool)
     .await;
-    
+
     Ok(Json(json!({ "success": true })))
 }
 
@@ -684,12 +723,12 @@ pub async fn create_deletion_request(
 ) -> Result<Json<Value>, StatusCode> {
     // Check compliance mode allows deletion requests
     let mode = get_tenant_compliance_mode(&state.pool, auth.tenant_id).await?;
-    
+
     // SOX mode may block deletion for retention requirements
     if mode == "SOX" && input.request_type == "all_data" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let request = sqlx::query_as::<_, DeletionRequest>(
         r#"
         INSERT INTO deletion_requests (tenant_id, user_id, requested_by, request_type, resource_id, reason)
@@ -709,7 +748,7 @@ pub async fn create_deletion_request(
         tracing::error!("Failed to create deletion request: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Log deletion request
     let _ = sqlx::query(
         r#"
@@ -728,7 +767,7 @@ pub async fn create_deletion_request(
     .bind(&auth.ip_address)
     .execute(&state.pool)
     .await;
-    
+
     Ok(Json(json!(request)))
 }
 
@@ -743,37 +782,32 @@ pub async fn list_deletion_requests(
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let limit = params.limit.unwrap_or(50).min(100);
     let offset = params.offset.unwrap_or(0);
-    
-    let mut query = String::from(
-        "SELECT * FROM deletion_requests WHERE tenant_id = $1"
-    );
-    
+
+    let mut query = String::from("SELECT * FROM deletion_requests WHERE tenant_id = $1");
+
     if params.status.is_some() {
         query.push_str(" AND status = $4");
     }
-    
+
     query.push_str(" ORDER BY requested_at DESC LIMIT $2 OFFSET $3");
-    
+
     let mut db_query = sqlx::query_as::<_, DeletionRequest>(&query)
         .bind(auth.tenant_id)
         .bind(limit)
         .bind(offset);
-    
+
     if let Some(status) = params.status {
         db_query = db_query.bind(status);
     }
-    
-    let requests = db_query
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list deletion requests: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    
+
+    let requests = db_query.fetch_all(&state.pool).await.map_err(|e| {
+        tracing::error!("Failed to list deletion requests: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     Ok(Json(json!({
         "requests": requests,
         "limit": limit,
@@ -791,10 +825,10 @@ pub async fn process_deletion_request(
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Get the request
     let request = sqlx::query_as::<_, DeletionRequest>(
-        "SELECT * FROM deletion_requests WHERE id = $1 AND tenant_id = $2"
+        "SELECT * FROM deletion_requests WHERE id = $1 AND tenant_id = $2",
     )
     .bind(request_id)
     .bind(auth.tenant_id)
@@ -802,11 +836,11 @@ pub async fn process_deletion_request(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     if request.status != "pending" {
         return Err(StatusCode::BAD_REQUEST);
     }
-    
+
     // Mark as processing
     sqlx::query(
         "UPDATE deletion_requests SET status = 'processing', processed_at = NOW(), updated_at = NOW() WHERE id = $1"
@@ -815,7 +849,7 @@ pub async fn process_deletion_request(
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // Process based on request type
     match request.request_type.as_str() {
         "user_data" => {
@@ -829,7 +863,7 @@ pub async fn process_deletion_request(
                 .execute(&state.pool)
                 .await
                 .ok();
-                
+
                 // Delete user preferences
                 sqlx::query("DELETE FROM user_preferences WHERE user_id = $1")
                     .bind(user_id)
@@ -852,7 +886,7 @@ pub async fn process_deletion_request(
         }
         _ => {}
     }
-    
+
     // Mark as completed
     sqlx::query(
         "UPDATE deletion_requests SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1"
@@ -861,7 +895,7 @@ pub async fn process_deletion_request(
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // Log completion
     let _ = sqlx::query(
         r#"
@@ -879,7 +913,7 @@ pub async fn process_deletion_request(
     .bind(&auth.ip_address)
     .execute(&state.pool)
     .await;
-    
+
     Ok(Json(json!({ "success": true, "status": "completed" })))
 }
 
@@ -913,6 +947,6 @@ pub async fn log_file_export(
         tracing::error!("Failed to log file export: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     Ok(())
 }

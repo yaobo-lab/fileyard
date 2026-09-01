@@ -19,14 +19,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::{require_super_admin, AuthUser};
-use clovalink_core::models::{Tenant, User};
-use crate::AppState;
 use crate::saml_crypto;
 use crate::saml_xml;
 use crate::sso_common::{
     self, SsoIdentityParams, SsoProvisionConfig, SsoSessionResult, SsoUserResolution,
 };
+use crate::AppState;
+use clovalink_auth::{require_super_admin, AuthUser};
+use clovalink_core::models::{Tenant, User};
 
 // ==================== Models ====================
 
@@ -149,7 +149,14 @@ pub struct SamlAcsForm {
 pub async fn sp_metadata(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<Uuid>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), StatusCode> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    StatusCode,
+> {
     let provider = sqlx::query_as::<_, SamlProvider>(
         "SELECT * FROM tenant_saml_providers WHERE id = $1 AND enabled = true",
     )
@@ -159,7 +166,8 @@ pub async fn sp_metadata(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
 
     let metadata = saml_xml::generate_sp_metadata(
@@ -183,7 +191,14 @@ pub async fn sp_metadata(
 pub async fn start_saml_auth(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<Uuid>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, Json<Value>)> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    (StatusCode, Json<Value>),
+> {
     start_saml_flow(&state, provider_id, None).await
 }
 
@@ -192,17 +207,35 @@ async fn start_saml_flow(
     state: &AppState,
     provider_id: Uuid,
     linking_user_id: Option<Uuid>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, Json<Value>)> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    (StatusCode, Json<Value>),
+> {
     let provider = sqlx::query_as::<_, SamlProvider>(
         "SELECT * FROM tenant_saml_providers WHERE id = $1 AND enabled = true",
     )
     .bind(provider_id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Provider not found or disabled"}))))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Provider not found or disabled"})),
+        )
+    })?;
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
 
     // Generate request ID and relay state
@@ -278,9 +311,9 @@ pub async fn saml_acs(
         std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // Step 1: Validate RelayState
-    let relay_state = form.relay_state.ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, "Missing RelayState".to_string())
-    })?;
+    let relay_state = form
+        .relay_state
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing RelayState".to_string()))?;
 
     let state_record: Option<(String, Uuid, Uuid, Option<Uuid>)> = sqlx::query_as(
         r#"
@@ -292,11 +325,19 @@ pub async fn saml_acs(
     .bind(&relay_state)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database error".to_string(),
+        )
+    })?;
 
     let (authn_request_id, provider_id, tenant_id, linking_user_id) =
         state_record.ok_or_else(|| {
-            (StatusCode::BAD_REQUEST, "Invalid or expired RelayState".to_string())
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid or expired RelayState".to_string(),
+            )
         })?;
 
     // Delete used state (one-time use)
@@ -306,20 +347,26 @@ pub async fn saml_acs(
         .await;
 
     // Step 2: Load provider
-    let provider = sqlx::query_as::<_, SamlProvider>(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1",
-    )
-    .bind(provider_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Provider not found".to_string()))?;
+    let provider =
+        sqlx::query_as::<_, SamlProvider>("SELECT * FROM tenant_saml_providers WHERE id = $1")
+            .bind(provider_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Provider not found".to_string(),
+                )
+            })?;
 
     // Step 3: Parse SAML Response
-    let saml_response = saml_xml::parse_saml_response(&form.saml_response)
-        .map_err(|e| {
-            tracing::error!("Failed to parse SAML response: {}", e);
-            (StatusCode::BAD_REQUEST, format!("Invalid SAML response: {}", e))
-        })?;
+    let saml_response = saml_xml::parse_saml_response(&form.saml_response).map_err(|e| {
+        tracing::error!("Failed to parse SAML response: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid SAML response: {}", e),
+        )
+    })?;
 
     // Step 4: Verify status
     if !saml_response.status_code.contains("Success") {
@@ -332,7 +379,10 @@ pub async fn saml_acs(
     }
 
     let assertion = saml_response.assertion.ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, "No assertion in SAML response".to_string())
+        (
+            StatusCode::BAD_REQUEST,
+            "No assertion in SAML response".to_string(),
+        )
     })?;
 
     // Step 5: Verify XML signature (if provider requires it)
@@ -345,7 +395,10 @@ pub async fn saml_acs(
             Ok(true) => {}
             Ok(false) => {
                 tracing::error!("SAML signature verification returned false");
-                return Err((StatusCode::BAD_REQUEST, "Signature verification failed".to_string()));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Signature verification failed".to_string(),
+                ));
             }
             Err(saml_crypto::SamlCryptoError::NoSignature) => {
                 if provider.want_assertions_signed {
@@ -381,7 +434,10 @@ pub async fn saml_acs(
     if let Some(not_before) = assertion.not_before {
         if now < not_before - skew {
             tracing::error!("Assertion not yet valid: NotBefore={}", not_before);
-            return Err((StatusCode::BAD_REQUEST, "Assertion not yet valid".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Assertion not yet valid".to_string(),
+            ));
         }
     }
     if let Some(not_on_or_after) = assertion.not_on_or_after {
@@ -404,7 +460,9 @@ pub async fn saml_acs(
     }
 
     // Step 9: Replay protection — atomic insert to prevent race conditions
-    let expiry = assertion.not_on_or_after.unwrap_or_else(|| now + chrono::Duration::hours(1));
+    let expiry = assertion
+        .not_on_or_after
+        .unwrap_or_else(|| now + chrono::Duration::hours(1));
     let inserted: Option<(String,)> = sqlx::query_as(
         "INSERT INTO saml_consumed_assertions (assertion_id, provider_id, consumed_at, not_on_or_after) VALUES ($1, $2, NOW(), $3) ON CONFLICT (assertion_id) DO NOTHING RETURNING assertion_id",
     )
@@ -416,16 +474,26 @@ pub async fn saml_acs(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
 
     if inserted.is_none() {
-        tracing::error!("Replay detected: assertion {} already consumed", assertion.id);
-        return Err((StatusCode::BAD_REQUEST, "Assertion replay detected".to_string()));
+        tracing::error!(
+            "Replay detected: assertion {} already consumed",
+            assertion.id
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Assertion replay detected".to_string(),
+        ));
     }
 
     // Step 10: Extract user attributes
     let name_id = assertion.name_id.clone();
-    let saml_email = get_attribute_value(&assertion.attributes, &provider.attribute_email)
-        .or_else(|| {
+    let saml_email =
+        get_attribute_value(&assertion.attributes, &provider.attribute_email).or_else(|| {
             // Fallback: NameID might be an email
-            if name_id.contains('@') { Some(name_id.clone()) } else { None }
+            if name_id.contains('@') {
+                Some(name_id.clone())
+            } else {
+                None
+            }
         });
     let saml_name = get_attribute_value(&assertion.attributes, &provider.attribute_name);
 
@@ -440,11 +508,17 @@ pub async fn saml_acs(
 
     // === Account Linking Flow ===
     if let Some(linking_user_id) = linking_user_id {
-        let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE id = $1 AND status = 'active'")
-            .bind(linking_user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
+        let user: Option<User> =
+            sqlx::query_as("SELECT * FROM users WHERE id = $1 AND status = 'active'")
+                .bind(linking_user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Database error".to_string(),
+                    )
+                })?;
 
         let user = user.ok_or_else(|| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
 
@@ -476,10 +550,12 @@ pub async fn saml_acs(
 
         // Update identity_provider to hybrid if currently local
         if user.identity_provider == "local" {
-            let _ = sqlx::query("UPDATE users SET identity_provider = 'hybrid', updated_at = NOW() WHERE id = $1")
-                .bind(user.id)
-                .execute(&state.pool)
-                .await;
+            let _ = sqlx::query(
+                "UPDATE users SET identity_provider = 'hybrid', updated_at = NOW() WHERE id = $1",
+            )
+            .bind(user.id)
+            .execute(&state.pool)
+            .await;
         }
 
         tracing::info!(user_id = %user.id, provider = %provider.name, "SAML identity linked");
@@ -496,7 +572,10 @@ pub async fn saml_acs(
             provider.idp_entity_id,
             assertion.issuer
         );
-        return Err((StatusCode::BAD_REQUEST, "Assertion issuer mismatch".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Assertion issuer mismatch".to_string(),
+        ));
     }
 
     // === Login Flow (via shared SSO logic) ===
@@ -566,7 +645,12 @@ pub async fn saml_acs(
         .bind(tenant_id)
         .fetch_one(&state.pool)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Tenant not found".to_string()))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tenant not found".to_string(),
+            )
+        })?;
 
     // Create session via shared logic
     match sso_common::create_sso_session(
@@ -635,7 +719,8 @@ pub async fn create_provider(
         ));
     }
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let sp_entity_id = format!("{}/api/auth/saml/metadata/{}", base_url, input.slug);
 
     let provider: SamlProvider = sqlx::query_as(
@@ -722,16 +807,25 @@ pub async fn update_provider(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Verify provider belongs to tenant
-    let existing: Option<SamlProvider> = sqlx::query_as(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let existing: Option<SamlProvider> =
+        sqlx::query_as("SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2")
+            .bind(id)
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?;
 
-    let _existing = existing.ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Provider not found"}))))?;
+    let _existing = existing.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Provider not found"})),
+        )
+    })?;
 
     // Validate certificate if being updated
     if let Some(ref cert) = input.idp_signing_certificate {
@@ -795,7 +889,10 @@ pub async fn update_provider(
     .await
     .map_err(|e| {
         tracing::error!("Failed to update SAML provider: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update SAML provider"})))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to update SAML provider"})),
+        )
     })?;
 
     Ok(Json(json!({ "provider": provider })))
@@ -823,7 +920,12 @@ pub async fn delete_provider(
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?;
 
     if saml_only_count.0 > 0 {
         return Ok(Json(json!({
@@ -838,16 +940,25 @@ pub async fn delete_provider(
         .bind(auth.tenant_id)
         .execute(&state.pool)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?;
 
     // Check if tenant still has SAML providers; if not, remove 'saml' from auth_methods
-    let remaining: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tenant_saml_providers WHERE tenant_id = $1",
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let remaining: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tenant_saml_providers WHERE tenant_id = $1")
+            .bind(auth.tenant_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?;
 
     if remaining.0 == 0 {
         let _ = sqlx::query(
@@ -870,15 +981,24 @@ pub async fn test_provider(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
-    let provider: SamlProvider = sqlx::query_as(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Provider not found"}))))?;
+    let provider: SamlProvider =
+        sqlx::query_as("SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2")
+            .bind(id)
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "Provider not found"})),
+                )
+            })?;
 
     // Validate certificate
     let cert_valid = match saml_crypto::parse_x509_pem(&provider.idp_signing_certificate) {
@@ -909,7 +1029,8 @@ pub async fn test_provider(
         }
     }
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     Ok(Json(json!({
         "success": cert_valid,
@@ -929,7 +1050,14 @@ pub async fn link_saml_identity(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
     Path(provider_id): Path<Uuid>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, Json<Value>)> {
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    (StatusCode, Json<Value>),
+> {
     // Verify provider belongs to user's tenant
     let _provider = sqlx::query_as::<_, SamlProvider>(
         "SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2 AND enabled = true",
@@ -938,8 +1066,18 @@ pub async fn link_saml_identity(
     .bind(auth.tenant_id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Provider not found"}))))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Provider not found"})),
+        )
+    })?;
 
     start_saml_flow(&state, provider_id, Some(auth.user_id)).await
 }
@@ -952,14 +1090,13 @@ pub async fn unlink_saml_identity(
     Path(identity_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify identity belongs to user
-    let identity: Option<SamlIdentity> = sqlx::query_as(
-        "SELECT * FROM user_saml_identities WHERE id = $1 AND user_id = $2",
-    )
-    .bind(identity_id)
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let identity: Option<SamlIdentity> =
+        sqlx::query_as("SELECT * FROM user_saml_identities WHERE id = $1 AND user_id = $2")
+            .bind(identity_id)
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let _identity = identity.ok_or(StatusCode::NOT_FOUND)?;
 
@@ -971,21 +1108,19 @@ pub async fn unlink_saml_identity(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Count remaining SSO identities (both OIDC + SAML)
-    let saml_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM user_saml_identities WHERE user_id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let saml_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM user_saml_identities WHERE user_id = $1")
+            .bind(auth.user_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let oidc_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM user_oidc_identities WHERE user_id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let oidc_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM user_oidc_identities WHERE user_id = $1")
+            .bind(auth.user_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let total_sso = saml_count.0 + oidc_count.0;
 
@@ -1043,8 +1178,11 @@ pub async fn list_my_identities(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let (provider_name, provider_slug, provider_type) =
-            provider_info.unwrap_or(("Unknown".to_string(), "unknown".to_string(), "generic".to_string()));
+        let (provider_name, provider_slug, provider_type) = provider_info.unwrap_or((
+            "Unknown".to_string(),
+            "unknown".to_string(),
+            "generic".to_string(),
+        ));
 
         result.push(json!({
             "id": identity.id,
@@ -1074,16 +1212,22 @@ fn get_attribute_value(attributes: &HashMap<String, Vec<String>>, name: &str) ->
     }
     // Try common OID-format attribute names
     let common_aliases: &[(&str, &[&str])] = &[
-        ("email", &[
-            "urn:oid:0.9.2342.19200300.100.1.3",
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-            "mail",
-        ]),
-        ("displayName", &[
-            "urn:oid:2.16.840.1.113730.3.1.241",
-            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
-            "cn",
-        ]),
+        (
+            "email",
+            &[
+                "urn:oid:0.9.2342.19200300.100.1.3",
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                "mail",
+            ],
+        ),
+        (
+            "displayName",
+            &[
+                "urn:oid:2.16.840.1.113730.3.1.241",
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+                "cn",
+            ],
+        ),
     ];
     for (canonical, aliases) in common_aliases {
         if *canonical == name {

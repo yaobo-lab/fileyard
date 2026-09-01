@@ -1,5 +1,5 @@
 //! File Groups API handlers
-//! 
+//!
 //! Allows users to create and manage file groups - manual collections of related files.
 
 use axum::{
@@ -13,8 +13,8 @@ use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::AuthUser;
 use crate::AppState;
+use clovalink_auth::AuthUser;
 
 /// Maximum number of files allowed per group
 const MAX_FILES_PER_GROUP: i64 = 20;
@@ -50,7 +50,7 @@ async fn is_group_in_company_folder(
     .bind(tenant_id)
     .fetch_optional(pool)
     .await?;
-    
+
     Ok(result.map(|r| r.0).unwrap_or(false))
 }
 
@@ -72,7 +72,7 @@ pub struct FileGroup {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub parent_path: Option<String>, // Folder path where this group lives (null = root)
     // Visibility (matches file model)
-    pub visibility: String,  // 'department' or 'private'
+    pub visibility: String, // 'department' or 'private'
     pub owner_id: Option<Uuid>,
     // Locking fields
     pub is_locked: Option<bool>,
@@ -165,9 +165,13 @@ pub async fn list_groups(
     }
 
     // Parse department filter from query params (for admin filtering)
-    let dept_filter: Option<Uuid> = params.department_id
-        .as_ref()
-        .and_then(|s| if s.is_empty() { None } else { Uuid::parse_str(s).ok() });
+    let dept_filter: Option<Uuid> = params.department_id.as_ref().and_then(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            Uuid::parse_str(s).ok()
+        }
+    });
 
     // Parse parent_path filter (empty string means root, None means all)
     let path_filter = params.parent_path.as_deref();
@@ -176,13 +180,12 @@ pub async fn list_groups(
     let visibility_filter = params.visibility.as_deref();
 
     // Get user's department and allowed departments for non-admin filtering
-    let user_dept_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> = sqlx::query_as(
-        "SELECT department_id, allowed_department_ids FROM users WHERE id = $1"
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    let user_dept_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
+        sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     let user_department_id = user_dept_info.as_ref().and_then(|u| u.0);
     let user_allowed_depts: Vec<Uuid> = user_dept_info
@@ -272,8 +275,9 @@ pub async fn list_groups(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let result: Vec<FileGroupWithCount> = groups.into_iter().map(|row| {
-        FileGroupWithCount {
+    let result: Vec<FileGroupWithCount> = groups
+        .into_iter()
+        .map(|row| FileGroupWithCount {
             group: FileGroup {
                 id: row.id,
                 tenant_id: row.tenant_id,
@@ -296,8 +300,8 @@ pub async fn list_groups(
             file_count: row.file_count,
             total_size: row.total_size,
             owner_name: row.owner_name,
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(Json(result))
 }
@@ -324,13 +328,21 @@ pub async fn create_group(
     }
 
     // Parse department_id
-    let department_id: Option<Uuid> = input.department_id
-        .as_ref()
-        .and_then(|s| if s.is_empty() { None } else { Uuid::parse_str(s).ok() });
+    let department_id: Option<Uuid> = input.department_id.as_ref().and_then(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            Uuid::parse_str(s).ok()
+        }
+    });
 
     // Parse and validate visibility (default to 'department')
     let visibility = input.visibility.as_deref().unwrap_or("department");
-    let visibility = if visibility == "private" { "private" } else { "department" };
+    let visibility = if visibility == "private" {
+        "private"
+    } else {
+        "department"
+    };
 
     // Validate color format if provided
     if let Some(ref color) = input.color {
@@ -405,22 +417,27 @@ pub async fn update_group(
     }
 
     // Check if group is inside company folder - only admins can modify
-    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!("Security: Non-admin user {} attempted to rename group in company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to rename group in company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // Check group exists and belongs to tenant
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM file_groups WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(group_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let existing: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM file_groups WHERE id = $1 AND tenant_id = $2")
+            .bind(group_uuid)
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if existing.is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -484,22 +501,27 @@ pub async fn delete_group(
     }
 
     // Check if group is inside company folder - only admins can delete
-    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!("Security: Non-admin user {} attempted to delete group in company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to delete group in company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // Get group info for audit log
-    let group_name: Option<(String,)> = sqlx::query_as(
-        "SELECT name FROM file_groups WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(group_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let group_name: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM file_groups WHERE id = $1 AND tenant_id = $2")
+            .bind(group_uuid)
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let Some((name,)) = group_name else {
         return Err(StatusCode::NOT_FOUND);
@@ -533,7 +555,9 @@ pub async fn delete_group(
 
     tracing::info!(user_id = %auth.user_id, group_id = %group_uuid, "File group deleted");
 
-    Ok(Json(json!({ "success": true, "message": "Group deleted. Files have been unlinked." })))
+    Ok(Json(
+        json!({ "success": true, "message": "Group deleted. Files have been unlinked." }),
+    ))
 }
 
 /// Add a file to a group
@@ -568,14 +592,13 @@ pub async fn add_file_to_group(
     };
 
     // Verify group exists and belongs to tenant
-    let group_exists: Option<(String,)> = sqlx::query_as(
-        "SELECT name FROM file_groups WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(group_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let group_exists: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM file_groups WHERE id = $1 AND tenant_id = $2")
+            .bind(group_uuid)
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let Some((group_name,)) = group_exists else {
         return Err(StatusCode::NOT_FOUND);
@@ -592,7 +615,11 @@ pub async fn add_file_to_group(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if current_count.0 >= MAX_FILES_PER_GROUP {
-        tracing::warn!("Group {} has reached max file limit of {}", group_uuid, MAX_FILES_PER_GROUP);
+        tracing::warn!(
+            "Group {} has reached max file limit of {}",
+            group_uuid,
+            MAX_FILES_PER_GROUP
+        );
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -647,7 +674,7 @@ pub async fn remove_file_from_group(
     // Get file info including parent_path, name, visibility to check for duplicates
     let file_info: Option<(String, Option<String>, String)> = sqlx::query_as(
         "SELECT name, parent_path, visibility FROM files_metadata 
-         WHERE id = $1 AND tenant_id = $2 AND is_deleted = false AND group_id IS NOT NULL"
+         WHERE id = $1 AND tenant_id = $2 AND is_deleted = false AND group_id IS NOT NULL",
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -666,7 +693,7 @@ pub async fn remove_file_from_group(
     let duplicate: Option<(Uuid,)> = sqlx::query_as(
         r#"SELECT id FROM files_metadata 
          WHERE tenant_id = $1 AND name = $2 AND parent_path IS NOT DISTINCT FROM $3 
-         AND visibility = $4 AND is_deleted = false AND group_id IS NULL AND id != $5"#
+         AND visibility = $4 AND is_deleted = false AND group_id IS NULL AND id != $5"#,
     )
     .bind(tenant_id)
     .bind(&file_name)
@@ -734,7 +761,9 @@ pub async fn remove_file_from_group(
         }
     }
 
-    Ok(Json(json!({ "success": true, "message": "File removed from group" })))
+    Ok(Json(
+        json!({ "success": true, "message": "File removed from group" }),
+    ))
 }
 
 /// Get files in a specific group
@@ -767,10 +796,10 @@ pub async fn get_group_files(
     };
 
     // Check visibility access: private groups only visible to owner or admins
-    if group.visibility == "private" 
-        && group.owner_id != Some(auth.user_id) 
-        && auth.role != "SuperAdmin" 
-        && auth.role != "Admin" 
+    if group.visibility == "private"
+        && group.owner_id != Some(auth.user_id)
+        && auth.role != "SuperAdmin"
+        && auth.role != "Admin"
     {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -798,15 +827,27 @@ pub async fn get_group_files(
     }
 
     // Get files in this group
-    tracing::info!("Fetching files for group {} in tenant {}", group_uuid, tenant_id);
-    
-    let files: Vec<(Uuid, String, i64, Option<String>, Option<String>, Option<Uuid>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+    tracing::info!(
+        "Fetching files for group {} in tenant {}",
+        group_uuid,
+        tenant_id
+    );
+
+    let files: Vec<(
+        Uuid,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<Uuid>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
         r#"
         SELECT id, name, size_bytes, content_type, parent_path, owner_id, created_at
         FROM files_metadata
         WHERE group_id = $1 AND tenant_id = $2 AND is_deleted = false AND is_directory = false
         ORDER BY name ASC
-        "#
+        "#,
     )
     .bind(group_uuid)
     .bind(tenant_id)
@@ -819,18 +860,21 @@ pub async fn get_group_files(
 
     tracing::info!("Found {} files in group {}", files.len(), group_uuid);
 
-    let files_json: Vec<Value> = files.into_iter().map(|f| {
-        json!({
-            "id": f.0,
-            "name": f.1,
-            "size_bytes": f.2,
-            "content_type": f.3,
-            "parent_path": f.4,
-            "owner_id": f.5,
-            "created_at": f.6,
-            "type": "file"
+    let files_json: Vec<Value> = files
+        .into_iter()
+        .map(|f| {
+            json!({
+                "id": f.0,
+                "name": f.1,
+                "size_bytes": f.2,
+                "content_type": f.3,
+                "parent_path": f.4,
+                "owner_id": f.5,
+                "created_at": f.6,
+                "type": "file"
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({
         "group": group,
@@ -842,7 +886,7 @@ pub async fn get_group_files(
 pub struct MoveGroupInput {
     pub target_folder_id: Option<String>,
     pub target_path: Option<String>,
-    pub target_visibility: Option<String>,  // 'department' or 'private'
+    pub target_visibility: Option<String>, // 'department' or 'private'
 }
 
 /// Move a group to a folder (updates the group's parent_path, not the files)
@@ -862,16 +906,22 @@ pub async fn move_group_to_folder(
     }
 
     // Check if group is inside company folder - only admins can move
-    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!("Security: Non-admin user {} attempted to move group in company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to move group in company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // Get group info including current visibility
     let group: Option<(String, Option<String>, String)> = sqlx::query_as(
-        "SELECT name, parent_path, visibility FROM file_groups WHERE id = $1 AND tenant_id = $2"
+        "SELECT name, parent_path, visibility FROM file_groups WHERE id = $1 AND tenant_id = $2",
     )
     .bind(group_uuid)
     .bind(tenant_id)
@@ -902,7 +952,7 @@ pub async fn move_group_to_folder(
     // Determine target path
     let target_path = if let Some(folder_id) = &input.target_folder_id {
         let folder_uuid = Uuid::parse_str(folder_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-        
+
         // Get folder's path
         let folder: Option<(String, Option<String>)> = sqlx::query_as(
             "SELECT name, parent_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_directory = true"
@@ -935,11 +985,15 @@ pub async fn move_group_to_folder(
         UPDATE file_groups 
         SET parent_path = $3, updated_at = NOW()
         WHERE id = $1 AND tenant_id = $2
-        "#
+        "#,
     )
     .bind(group_uuid)
     .bind(tenant_id)
-    .bind(if target_path.is_empty() { None } else { Some(&target_path) })
+    .bind(if target_path.is_empty() {
+        None
+    } else {
+        Some(&target_path)
+    })
     .execute(&state.pool)
     .await
     .map_err(|e| {
@@ -989,7 +1043,7 @@ pub async fn move_group_to_folder(
 
 #[derive(Debug, Deserialize)]
 pub struct LockGroupInput {
-    pub password: Option<String>,      // Optional password for additional security
+    pub password: Option<String>, // Optional password for additional security
     pub required_role: Option<String>, // Optional role requirement (Admin, Manager, Employee)
 }
 
@@ -1015,9 +1069,15 @@ pub async fn lock_group(
     }
 
     // Check if group is inside company folder - only admins can lock
-    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!("Security: Non-admin user {} attempted to lock group in company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to lock group in company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -1032,7 +1092,7 @@ pub async fn lock_group(
                 SELECT 1 FROM roles r
                 WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
             )
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(&auth.role)
@@ -1040,7 +1100,7 @@ pub async fn lock_group(
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         if !custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
             return Err(StatusCode::FORBIDDEN);
         }
@@ -1068,20 +1128,23 @@ pub async fn lock_group(
     // Process optional password and role requirement
     let password_hash: Option<String> = if let Some(ref pwd) = input.password {
         if !pwd.is_empty() {
-            use argon2::{PasswordHasher, password_hash::SaltString};
             use argon2::password_hash::rand_core::OsRng;
+            use argon2::{password_hash::SaltString, PasswordHasher};
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = crate::password::get_argon2();
-            Some(argon2.hash_password(pwd.as_bytes(), &salt)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .to_string())
+            Some(
+                argon2
+                    .hash_password(pwd.as_bytes(), &salt)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                    .to_string(),
+            )
         } else {
             None
         }
     } else {
         None
     };
-    
+
     let required_role = input.required_role.clone();
 
     // Lock the group
@@ -1091,7 +1154,7 @@ pub async fn lock_group(
         SET is_locked = true, locked_by = $1, locked_at = NOW(), 
             lock_password_hash = $3, lock_requires_role = $4, updated_at = NOW()
         WHERE id = $2
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(group_uuid)
@@ -1149,9 +1212,15 @@ pub async fn unlock_group(
     }
 
     // Check if group is inside company folder - only admins can unlock
-    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if is_group_in_company_folder(&state.pool, tenant_id, group_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!("Security: Non-admin user {} attempted to unlock group in company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to unlock group in company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -1170,7 +1239,8 @@ pub async fn unlock_group(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (group_name, is_locked, locked_by, password_hash, required_role, owner_id) = group.ok_or(StatusCode::NOT_FOUND)?;
+    let (group_name, is_locked, locked_by, password_hash, required_role, owner_id) =
+        group.ok_or(StatusCode::NOT_FOUND)?;
 
     if !is_locked {
         return Ok(Json(json!({ "message": "Group is not locked" })));
@@ -1206,7 +1276,7 @@ pub async fn unlock_group(
     else if let Some(ref req_role) = required_role {
         let user_level = role_hierarchy(&auth.role);
         let required_level = role_hierarchy(req_role);
-        
+
         if user_level >= required_level {
             can_unlock = true;
         } else {
@@ -1217,7 +1287,7 @@ pub async fn unlock_group(
                     SELECT 1 FROM roles r
                     WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
                 )
-                "#
+                "#,
             )
             .bind(tenant_id)
             .bind(&auth.role)
@@ -1225,7 +1295,7 @@ pub async fn unlock_group(
             .fetch_optional(&state.pool)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            
+
             if custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
                 can_unlock = true;
             }
@@ -1248,12 +1318,15 @@ pub async fn unlock_group(
     // Check password if required
     if let Some(ref pwd_hash) = password_hash {
         let provided_password = input.password.as_deref().unwrap_or("");
-        
+
         use argon2::{Argon2, PasswordHash, PasswordVerifier};
-        let parsed_hash = PasswordHash::new(pwd_hash)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
-        if Argon2::default().verify_password(provided_password.as_bytes(), &parsed_hash).is_err() {
+        let parsed_hash =
+            PasswordHash::new(pwd_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if Argon2::default()
+            .verify_password(provided_password.as_bytes(), &parsed_hash)
+            .is_err()
+        {
             return Ok(Json(json!({
                 "error": "Invalid password",
                 "has_password": true
@@ -1268,7 +1341,7 @@ pub async fn unlock_group(
         SET is_locked = false, locked_by = NULL, locked_at = NULL, 
             lock_password_hash = NULL, lock_requires_role = NULL, updated_at = NOW()
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(group_uuid)
     .execute(&state.pool)
@@ -1341,10 +1414,10 @@ pub fn can_access_locked_group(
                 _ => 20,
             }
         };
-        
+
         let user_level = role_level(user_role);
         let required_level = role_level(req_role);
-        
+
         return user_level >= required_level;
     }
 
@@ -1367,14 +1440,13 @@ pub async fn toggle_group_star(
     }
 
     // Verify group exists
-    let group_exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM file_groups WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(group_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let group_exists: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM file_groups WHERE id = $1 AND tenant_id = $2")
+            .bind(group_uuid)
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if group_exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -1388,11 +1460,14 @@ pub async fn toggle_group_star(
     };
 
     let group_id_str = group_uuid.to_string();
-    
+
     // Modify starred array in place
     {
         let starred_files = prefs["starred"].as_array_mut().unwrap();
-        if let Some(pos) = starred_files.iter().position(|x| x.as_str() == Some(&group_id_str)) {
+        if let Some(pos) = starred_files
+            .iter()
+            .position(|x| x.as_str() == Some(&group_id_str))
+        {
             starred_files.remove(pos); // Unstar
         } else {
             starred_files.push(json!(group_id_str)); // Star
@@ -1400,8 +1475,11 @@ pub async fn toggle_group_star(
     }
 
     let data = serde_json::to_vec(&prefs).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state.storage.upload(&user_prefs_key, data).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .storage
+        .upload(&user_prefs_key, data)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({ "starred": prefs["starred"] })))
 }
-

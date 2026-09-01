@@ -1,13 +1,9 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json, Extension,
-};
-use serde::{Serialize, Deserialize};
+use axum::{extract::State, http::StatusCode, Extension, Json};
+use clovalink_auth::AuthUser;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use clovalink_auth::AuthUser;
 
 use crate::AppState;
 
@@ -22,7 +18,10 @@ pub fn mark_server_start() {
 }
 
 fn get_uptime() -> Duration {
-    SERVER_START.get().map(|start| start.elapsed()).unwrap_or_default()
+    SERVER_START
+        .get()
+        .map(|start| start.elapsed())
+        .unwrap_or_default()
 }
 
 /// Basic liveness check - just returns 200 OK
@@ -33,9 +32,7 @@ pub async fn liveness() -> StatusCode {
 
 /// Readiness check - verifies DB and Redis connections
 /// GET /health/ready
-pub async fn readiness(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, StatusCode> {
+pub async fn readiness(State(state): State<Arc<AppState>>) -> Result<Json<Value>, StatusCode> {
     let mut checks = Vec::new();
     let mut all_healthy = true;
 
@@ -146,7 +143,7 @@ fn format_uptime(seconds: u64) -> String {
     let hours = (seconds % 86400) / 3600;
     let minutes = (seconds % 3600) / 60;
     let secs = seconds % 60;
-    
+
     if days > 0 {
         format!("{}d {}h {}m {}s", days, hours, minutes, secs)
     } else if hours > 0 {
@@ -176,7 +173,7 @@ pub async fn detailed_health(
     let db_start = Instant::now();
     let db_result = sqlx::query("SELECT 1").execute(&state.pool).await;
     let db_latency = db_start.elapsed().as_millis() as u64;
-    
+
     let db_connected = db_result.is_ok();
     if !db_connected {
         all_healthy = false;
@@ -215,7 +212,12 @@ pub async fn detailed_health(
 
     checks.push(HealthCheck {
         name: "redis".to_string(),
-        status: if redis_connected { "healthy" } else { "unhealthy" }.to_string(),
+        status: if redis_connected {
+            "healthy"
+        } else {
+            "unhealthy"
+        }
+        .to_string(),
         latency_ms: redis_latency,
         details: None,
     });
@@ -240,7 +242,12 @@ pub async fn detailed_health(
 
     checks.push(HealthCheck {
         name: "storage".to_string(),
-        status: if storage_connected { "healthy" } else { "unhealthy" }.to_string(),
+        status: if storage_connected {
+            "healthy"
+        } else {
+            "unhealthy"
+        }
+        .to_string(),
         latency_ms: storage_latency,
         details: Some(json!({
             "backend": storage_type,
@@ -249,20 +256,22 @@ pub async fn detailed_health(
     });
 
     // ClamAV virus scan check
-    let (virus_scan_connected, virus_scan_latency, virus_scan_version) = if state.virus_scan_config.enabled {
-        let client = clovalink_core::virus_scan::ClamAvClient::new(state.virus_scan_config.clone());
-        let scan_start = Instant::now();
-        match client.ping().await {
-            Ok(true) => {
-                let latency = scan_start.elapsed().as_millis() as u64;
-                let version = client.version().await.ok();
-                (true, Some(latency), version)
+    let (virus_scan_connected, virus_scan_latency, virus_scan_version) =
+        if state.virus_scan_config.enabled {
+            let client =
+                clovalink_core::virus_scan::ClamAvClient::new(state.virus_scan_config.clone());
+            let scan_start = Instant::now();
+            match client.ping().await {
+                Ok(true) => {
+                    let latency = scan_start.elapsed().as_millis() as u64;
+                    let version = client.version().await.ok();
+                    (true, Some(latency), version)
+                }
+                _ => (false, None, None),
             }
-            _ => (false, None, None),
-        }
-    } else {
-        (false, None, None)
-    };
+        } else {
+            (false, None, None)
+        };
 
     if state.virus_scan_config.enabled && !virus_scan_connected {
         // ClamAV being down is degraded, not critical
@@ -347,12 +356,13 @@ pub async fn detailed_health(
 #[cfg(target_os = "linux")]
 fn get_memory_info() -> MemoryInfo {
     use std::fs;
-    
+
     // Read from /proc/self/status for RSS
     let rss_mb = fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|content| {
-            content.lines()
+            content
+                .lines()
                 .find(|line| line.starts_with("VmRSS:"))
                 .and_then(|line| {
                     line.split_whitespace()
@@ -423,22 +433,21 @@ pub async fn get_version_info(
     let current_version = CURRENT_VERSION.to_string();
 
     // Try to get github_repo from global settings
-    let github_repo: Option<String> = sqlx::query_scalar(
-        "SELECT value::text FROM global_settings WHERE key = 'github_repo'"
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten()
-    .and_then(|v: String| {
-        // Remove quotes from JSON string
-        let trimmed = v.trim_matches('"');
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    });
+    let github_repo: Option<String> =
+        sqlx::query_scalar("SELECT value::text FROM global_settings WHERE key = 'github_repo'")
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v: String| {
+                // Remove quotes from JSON string
+                let trimmed = v.trim_matches('"');
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            });
 
     // If no repo configured, just return current version
     let Some(repo) = github_repo else {
@@ -455,7 +464,7 @@ pub async fn get_version_info(
 
     // Fetch latest release from GitHub
     let github_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-    
+
     let client = match reqwest::Client::builder()
         .user_agent("ClovaLink-UpdateChecker/1.0")
         .timeout(Duration::from_secs(10))
@@ -603,7 +612,7 @@ pub async fn sync_storage(
           AND storage_path IS NOT NULL 
           AND storage_path != ''
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(&state.pool)
     .await
@@ -629,13 +638,13 @@ pub async fn sync_storage(
             Ok(false) => {
                 // File doesn't exist in storage - mark as deleted (orphaned)
                 orphaned += 1;
-                
+
                 match sqlx::query(
                     r#"
                     UPDATE files_metadata 
                     SET is_deleted = true, deleted_at = NOW(), updated_at = NOW()
                     WHERE id = $1
-                    "#
+                    "#,
                 )
                 .bind(file_id)
                 .execute(&state.pool)
@@ -700,4 +709,3 @@ pub async fn sync_storage(
         duration_ms,
     }))
 }
-

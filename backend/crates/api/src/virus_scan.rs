@@ -9,9 +9,7 @@ use axum::{
     Extension,
 };
 use clovalink_auth::{require_admin, require_super_admin, AuthUser};
-use clovalink_core::virus_scan::{
-    self, ScanMetrics, TenantScanSettings,
-};
+use clovalink_core::virus_scan::{self, ScanMetrics, TenantScanSettings};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -141,18 +139,13 @@ pub async fn get_scan_results(
     let offset = params.offset.unwrap_or(0) as i64;
     let infected_only = params.infected_only.unwrap_or(false);
 
-    let results = virus_scan::get_scan_history(
-        &state.pool,
-        auth.tenant_id,
-        limit,
-        offset,
-        infected_only,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get scan history: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let results =
+        virus_scan::get_scan_history(&state.pool, auth.tenant_id, limit, offset, infected_only)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get scan history: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     Ok(Json(results))
 }
@@ -173,17 +166,12 @@ pub async fn get_quarantined_files(
     let limit = params.limit.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    let results = virus_scan::get_quarantined_files(
-        &state.pool,
-        auth.tenant_id,
-        limit,
-        offset,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get quarantined files: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let results = virus_scan::get_quarantined_files(&state.pool, auth.tenant_id, limit, offset)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get quarantined files: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(results))
 }
@@ -227,7 +215,9 @@ pub async fn delete_quarantined_file(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(Json(json!({ "message": "Quarantined file permanently deleted" })))
+    Ok(Json(
+        json!({ "message": "Quarantined file permanently deleted" }),
+    ))
 }
 
 // =============================================================================
@@ -250,7 +240,7 @@ pub async fn rescan_file(
 
     // Verify file exists and belongs to tenant
     let file_exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
+        "SELECT id FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false",
     )
     .bind(file_id)
     .bind(auth.tenant_id)
@@ -308,5 +298,3 @@ pub async fn get_global_config(
         "max_file_size_mb": state.virus_scan_config.max_file_size_mb,
     })))
 }
-
-

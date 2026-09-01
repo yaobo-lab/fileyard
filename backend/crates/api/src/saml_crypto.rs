@@ -76,7 +76,8 @@ pub fn parse_x509_pem(pem: &str) -> Result<RsaPublicKey, SamlCryptoError> {
     let not_before = cert.tbs_certificate.validity.not_before.to_date_time();
     tracing::debug!(
         "IdP certificate validity: {:?} to {:?}",
-        not_before, not_after
+        not_before,
+        not_after
     );
     // Compare using der::DateTime's Ord implementation
     if let Ok(now) = der::DateTime::new(
@@ -87,7 +88,12 @@ pub fn parse_x509_pem(pem: &str) -> Result<RsaPublicKey, SamlCryptoError> {
                 .as_secs();
             // Approximate year from unix timestamp
             (1970 + (secs / 31_536_000)) as u16
-        }, 1, 1, 0, 0, 0,
+        },
+        1,
+        1,
+        0,
+        0,
+        0,
     ) {
         if now > not_after {
             tracing::warn!(
@@ -154,9 +160,10 @@ pub fn verify_saml_signature(
         }
         a if a.contains("sha1") || a.contains("SHA1") => {
             tracing::warn!("SHA-1 digest algorithm rejected as insecure: {}", a);
-            return Err(SamlCryptoError::UnsupportedAlgorithm(
-                format!("{} (SHA-1 is not supported — use SHA-256)", a),
-            ));
+            return Err(SamlCryptoError::UnsupportedAlgorithm(format!(
+                "{} (SHA-1 is not supported — use SHA-256)",
+                a
+            )));
         }
         other => return Err(SamlCryptoError::UnsupportedAlgorithm(other.to_string())),
     };
@@ -179,9 +186,10 @@ pub fn verify_saml_signature(
         }
         a if a.contains("sha1") || a.contains("SHA1") || a.contains("#rsa-sha1") => {
             tracing::warn!("RSA-SHA1 signature algorithm rejected as insecure: {}", a);
-            return Err(SamlCryptoError::UnsupportedAlgorithm(
-                format!("{} (SHA-1 is not supported — use RSA-SHA256)", a),
-            ));
+            return Err(SamlCryptoError::UnsupportedAlgorithm(format!(
+                "{} (SHA-1 is not supported — use RSA-SHA256)",
+                a
+            )));
         }
         other => return Err(SamlCryptoError::UnsupportedAlgorithm(other.to_string())),
     }
@@ -218,7 +226,10 @@ fn extract_signature_info(xml: &str) -> Result<SignatureInfo, SamlCryptoError> {
                     "SignedInfo" if in_signature => {
                         in_signed_info = true;
                         // Capture the raw SignedInfo element
-                        signed_info_xml.push_str(&format!("<{}", std::str::from_utf8(e.name().as_ref()).unwrap_or("SignedInfo")));
+                        signed_info_xml.push_str(&format!(
+                            "<{}",
+                            std::str::from_utf8(e.name().as_ref()).unwrap_or("SignedInfo")
+                        ));
                         for attr in e.attributes().flatten() {
                             let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
                             let val = std::str::from_utf8(&attr.value).unwrap_or("");
@@ -231,21 +242,24 @@ fn extract_signature_info(xml: &str) -> Result<SignatureInfo, SamlCryptoError> {
                     "Reference" if in_signed_info => {
                         for attr in e.attributes().flatten() {
                             if std::str::from_utf8(attr.key.as_ref()).unwrap_or("") == "URI" {
-                                reference_uri = std::str::from_utf8(&attr.value).unwrap_or("").to_string();
+                                reference_uri =
+                                    std::str::from_utf8(&attr.value).unwrap_or("").to_string();
                             }
                         }
                     }
                     "DigestMethod" if in_signed_info => {
                         for attr in e.attributes().flatten() {
                             if std::str::from_utf8(attr.key.as_ref()).unwrap_or("") == "Algorithm" {
-                                digest_algorithm = std::str::from_utf8(&attr.value).unwrap_or("").to_string();
+                                digest_algorithm =
+                                    std::str::from_utf8(&attr.value).unwrap_or("").to_string();
                             }
                         }
                     }
                     "SignatureMethod" if in_signed_info => {
                         for attr in e.attributes().flatten() {
                             if std::str::from_utf8(attr.key.as_ref()).unwrap_or("") == "Algorithm" {
-                                signature_algorithm = std::str::from_utf8(&attr.value).unwrap_or("").to_string();
+                                signature_algorithm =
+                                    std::str::from_utf8(&attr.value).unwrap_or("").to_string();
                             }
                         }
                     }
@@ -254,7 +268,10 @@ fn extract_signature_info(xml: &str) -> Result<SignatureInfo, SamlCryptoError> {
 
                 if in_signed_info && local_name != "SignedInfo" {
                     // Append child elements to signed_info_xml
-                    signed_info_xml.push_str(&format!("<{}", std::str::from_utf8(e.name().as_ref()).unwrap_or("")));
+                    signed_info_xml.push_str(&format!(
+                        "<{}",
+                        std::str::from_utf8(e.name().as_ref()).unwrap_or("")
+                    ));
                     for attr in e.attributes().flatten() {
                         let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
                         let val = std::str::from_utf8(&attr.value).unwrap_or("");
@@ -287,7 +304,10 @@ fn extract_signature_info(xml: &str) -> Result<SignatureInfo, SamlCryptoError> {
                     "DigestValue" => in_digest_value = false,
                     _ => {
                         if in_signed_info {
-                            signed_info_xml.push_str(&format!("</{}>", std::str::from_utf8(e.name().as_ref()).unwrap_or("")));
+                            signed_info_xml.push_str(&format!(
+                                "</{}>",
+                                std::str::from_utf8(e.name().as_ref()).unwrap_or("")
+                            ));
                         }
                     }
                 }
@@ -337,12 +357,14 @@ fn extract_element_by_id(xml: &str, id: &str) -> Result<String, SamlCryptoError>
     for pattern in &patterns {
         if let Some(start_pos) = xml.find(pattern.as_str()) {
             // Walk back to find the opening '<'
-            let elem_start = xml[..start_pos].rfind('<')
+            let elem_start = xml[..start_pos]
+                .rfind('<')
                 .ok_or_else(|| SamlCryptoError::XmlError("Malformed XML".to_string()))?;
 
             // Find the element name
             let after_lt = &xml[elem_start + 1..];
-            let elem_name_end = after_lt.find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            let elem_name_end = after_lt
+                .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
                 .unwrap_or(0);
             let elem_name = &after_lt[..elem_name_end];
 
@@ -356,7 +378,10 @@ fn extract_element_by_id(xml: &str, id: &str) -> Result<String, SamlCryptoError>
         }
     }
 
-    Err(SamlCryptoError::XmlError(format!("Element with ID '{}' not found", id)))
+    Err(SamlCryptoError::XmlError(format!(
+        "Element with ID '{}' not found",
+        id
+    )))
 }
 
 /// Remove the ds:Signature element from XML.
@@ -421,7 +446,9 @@ pub fn exclusive_c14n(xml: &str) -> String {
                 // Collect and sort attributes
                 let mut attrs: Vec<(String, String)> = Vec::new();
                 for attr in e.attributes().flatten() {
-                    let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
+                    let key = std::str::from_utf8(attr.key.as_ref())
+                        .unwrap_or("")
+                        .to_string();
                     let val = std::str::from_utf8(&attr.value).unwrap_or("").to_string();
                     attrs.push((key, val));
                 }
@@ -451,7 +478,9 @@ pub fn exclusive_c14n(xml: &str) -> String {
 
                 let mut attrs: Vec<(String, String)> = Vec::new();
                 for attr in e.attributes().flatten() {
-                    let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
+                    let key = std::str::from_utf8(attr.key.as_ref())
+                        .unwrap_or("")
+                        .to_string();
                     let val = std::str::from_utf8(&attr.value).unwrap_or("").to_string();
                     attrs.push((key, val));
                 }

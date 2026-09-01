@@ -43,7 +43,10 @@ pub enum SsoSessionResult {
     /// JWT token ready — redirect to frontend
     Token(String),
     /// 2FA required — redirect to login with pending_2fa
-    Pending2fa { user_id: Uuid, provider_slug: String },
+    Pending2fa {
+        user_id: Uuid,
+        provider_slug: String,
+    },
     /// User is suspended
     Suspended,
 }
@@ -51,11 +54,11 @@ pub enum SsoSessionResult {
 /// Parameters for SSO identity linking (protocol-specific)
 #[derive(Debug)]
 pub struct SsoIdentityParams {
-    pub protocol: String,           // "oidc" or "saml"
+    pub protocol: String, // "oidc" or "saml"
     pub provider_id: Uuid,
     pub tenant_id: Uuid,
-    pub subject: String,            // oidc_subject or saml_name_id
-    pub issuer: String,             // issuer_url or idp_entity_id
+    pub subject: String, // oidc_subject or saml_name_id
+    pub issuer: String,  // issuer_url or idp_entity_id
     pub email: Option<String>,
     pub name: Option<String>,
 }
@@ -112,20 +115,18 @@ pub async fn apply_attribute_mapping(
 
     for mapping in &mappings {
         if let Some(attr_values) = attributes.get(&mapping.attribute_name) {
-            let matched = attr_values.iter().any(|val| {
-                match mapping.match_type.as_str() {
+            let matched = attr_values
+                .iter()
+                .any(|val| match mapping.match_type.as_str() {
                     "exact" => val == &mapping.attribute_value,
                     "contains" => val.contains(&mapping.attribute_value),
-                    "regex" => {
-                        regex::RegexBuilder::new(&mapping.attribute_value)
-                            .size_limit(10_000)
-                            .build()
-                            .map(|re| re.is_match(val))
-                            .unwrap_or(false)
-                    }
+                    "regex" => regex::RegexBuilder::new(&mapping.attribute_value)
+                        .size_limit(10_000)
+                        .build()
+                        .map(|re| re.is_match(val))
+                        .unwrap_or(false),
                     _ => false,
-                }
-            });
+                });
 
             if matched {
                 return Some(SsoRoleMapping {
@@ -154,7 +155,12 @@ pub async fn resolve_sso_user(
     config: &SsoProvisionConfig,
     role_override: Option<&SsoRoleMapping>,
 ) -> Result<SsoUserResolution, (StatusCode, String)> {
-    let db_err = |_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string());
+    let db_err = |_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database error".to_string(),
+        )
+    };
 
     // Step 1: Look up by subject in the appropriate identity table
     let existing_user_id = match identity.protocol.as_str() {
@@ -185,12 +191,13 @@ pub async fn resolve_sso_user(
 
     if let Some(user_id) = existing_user_id {
         // Known identity — load user
-        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND status = 'active'")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?
-            .ok_or_else(|| (StatusCode::FORBIDDEN, "Account is deactivated".to_string()))?;
+        let user =
+            sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND status = 'active'")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?
+                .ok_or_else(|| (StatusCode::FORBIDDEN, "Account is deactivated".to_string()))?;
 
         return Ok(SsoUserResolution::ExistingUser(user));
     }
@@ -432,7 +439,10 @@ pub async fn create_sso_session(
     )
     .map_err(|e| {
         tracing::error!("Token generation error: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Token generation failed".to_string())
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Token generation failed".to_string(),
+        )
     })?;
 
     // Create session record

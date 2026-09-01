@@ -1,15 +1,15 @@
+use crate::AppState;
 use axum::{
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use clovalink_auth::{require_admin, AuthUser};
+use clovalink_core::models::{CreateDepartmentInput, Department, UpdateDepartmentInput};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::AppState;
-use clovalink_auth::{AuthUser, require_admin};
-use clovalink_core::models::{Department, CreateDepartmentInput, UpdateDepartmentInput};
 
 /// List departments for a tenant
 /// GET /api/departments
@@ -29,7 +29,7 @@ pub async fn list_departments(
     };
 
     let departments = sqlx::query_as::<_, Department>(
-        "SELECT * FROM departments WHERE tenant_id = $1 ORDER BY name ASC"
+        "SELECT * FROM departments WHERE tenant_id = $1 ORDER BY name ASC",
     )
     .bind(tenant_id)
     .fetch_all(&state.pool)
@@ -67,7 +67,7 @@ pub async fn create_department(
         INSERT INTO departments (tenant_id, name, description)
         VALUES ($1, $2, $3)
         RETURNING *
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(&input.name)
@@ -146,9 +146,9 @@ pub async fn delete_department(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Check if there are users or files assigned? 
+    // Check if there are users or files assigned?
     // The DB constraint might handle it (ON DELETE SET NULL was used in migration).
-    
+
     let result = sqlx::query!(
         "DELETE FROM departments WHERE id = $1 AND tenant_id = $2",
         id,

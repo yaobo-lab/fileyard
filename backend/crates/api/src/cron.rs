@@ -1,17 +1,12 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    Extension,
-};
+use crate::AppState;
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
+use chrono::Utc;
+use clovalink_auth::{require_admin, AuthUser};
+use clovalink_core::models::Tenant;
+use clovalink_core::notification_service;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::AppState;
-use clovalink_auth::{AuthUser, require_admin};
-use clovalink_core::models::Tenant;
-use clovalink_core::notification_service;
-use chrono::Utc;
 
 /// Manually trigger cleanup of expired files
 /// POST /api/cron/cleanup
@@ -23,27 +18,25 @@ pub async fn cleanup_expired_files(
     require_admin(&auth)?;
 
     // 1. Get all tenants and their retention policies
-    let tenants = sqlx::query!(
-        "SELECT id, retention_policy_days FROM tenants"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenants: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenants = sqlx::query!("SELECT id, retention_policy_days FROM tenants")
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch tenants: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let mut deleted_count = 0;
 
     for tenant in tenants {
         let retention_days = tenant.retention_policy_days;
-        
+
         // Skip tenants with infinite retention (0 = never auto-delete from trash)
         if retention_days == 0 {
             tracing::debug!("Skipping tenant {} - infinite retention policy", tenant.id);
             continue;
         }
-        
+
         // Calculate cutoff date
         let cutoff_date = Utc::now() - chrono::Duration::days(retention_days as i64);
 
@@ -64,8 +57,12 @@ pub async fn cleanup_expired_files(
             // 3. Delete from storage
             // Note: storage_path should already point to .trash/...
             if let Err(e) = state.storage.delete(&file.storage_path).await {
-                tracing::error!("Failed to delete file from storage: {:?}, error: {:?}", file.storage_path, e);
-                // Continue to next file even if storage deletion fails? 
+                tracing::error!(
+                    "Failed to delete file from storage: {:?}, error: {:?}",
+                    file.storage_path,
+                    e
+                );
+                // Continue to next file even if storage deletion fails?
                 // Ideally yes, but maybe we should keep metadata if storage fails?
                 // For now, we'll log and proceed to delete metadata to keep DB clean.
             }
@@ -77,8 +74,13 @@ pub async fn cleanup_expired_files(
                 file.name
             )
             .execute(&state.pool)
-            .await {
-                tracing::error!("Failed to delete file metadata: {:?}, error: {:?}", file.name, e);
+            .await
+            {
+                tracing::error!(
+                    "Failed to delete file metadata: {:?}, error: {:?}",
+                    file.name,
+                    e
+                );
             } else {
                 deleted_count += 1;
             }
@@ -119,7 +121,7 @@ pub async fn notify_expiring_requests(
               AND n.metadata->>'request_id' = fr.id::text
               AND n.created_at > ($1 - interval '1 day')
           )
-        "#
+        "#,
     )
     .bind(now)
     .bind(three_days)
@@ -138,16 +140,15 @@ pub async fn notify_expiring_requests(
         let days_until = duration.num_days() as i32;
 
         // Get user details
-        let user: Option<(String, String)> = sqlx::query_as(
-            "SELECT email, role FROM users WHERE id = $1"
-        )
-        .bind(created_by)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch user: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let user: Option<(String, String)> =
+            sqlx::query_as("SELECT email, role FROM users WHERE id = $1")
+                .bind(created_by)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch user: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
         if let Some((user_email, user_role)) = user {
             // Get tenant
@@ -165,7 +166,8 @@ pub async fn notify_expiring_requests(
                     &request_name,
                     request_id,
                     days_until,
-                ).await;
+                )
+                .await;
                 notification_count += 1;
             }
         }
@@ -189,7 +191,7 @@ pub async fn check_storage_quotas(
 
     // Get tenants with storage quotas
     let tenants: Vec<Tenant> = sqlx::query_as(
-        "SELECT * FROM tenants WHERE storage_quota_bytes IS NOT NULL AND status = 'active'"
+        "SELECT * FROM tenants WHERE storage_quota_bytes IS NOT NULL AND status = 'active'",
     )
     .fetch_all(&state.pool)
     .await
@@ -216,8 +218,14 @@ pub async fn check_storage_quotas(
             // Only warn at 80%, 90%, and 100% thresholds
             if percentage >= 80 {
                 // Check if we already sent a warning at this threshold recently
-                let threshold = if percentage >= 100 { 100 } else if percentage >= 90 { 90 } else { 80 };
-                
+                let threshold = if percentage >= 100 {
+                    100
+                } else if percentage >= 90 {
+                    90
+                } else {
+                    80
+                };
+
                 let recent_warning: Option<(i64,)> = sqlx::query_as(
                     r#"
                     SELECT COUNT(*) FROM notifications 
@@ -225,7 +233,7 @@ pub async fn check_storage_quotas(
                       AND tenant_id = $1
                       AND (metadata->>'percentage_used')::int >= $2
                       AND created_at > NOW() - interval '24 hours'
-                    "#
+                    "#,
                 )
                 .bind(tenant.id)
                 .bind(threshold)

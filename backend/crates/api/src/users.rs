@@ -1,27 +1,27 @@
+use crate::middleware::rate_limit::{check_rate_limit_atomic, RateLimitConfig};
+use crate::password::get_argon2;
+use crate::AppState;
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, PasswordVerifier, SaltString},
+    PasswordHash,
+};
 use axum::{
-    extract::{Path, Query, State, Multipart},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, PasswordVerifier, SaltString},
-    PasswordHash
-};
-use crate::password::get_argon2;
+use chrono::{DateTime, Utc};
+use clovalink_auth::{require_admin, require_manager, AuthUser};
+use clovalink_core::models::{CreateUserInput, SuspendUserInput, Tenant, UpdateUserInput, User};
+use clovalink_core::notification_service;
+use clovalink_core::security_service;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::Arc;
+use totp_rs::{Algorithm, Secret, TOTP};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use totp_rs::{Algorithm, TOTP, Secret};
-use crate::AppState;
-use crate::middleware::rate_limit::{RateLimitConfig, check_rate_limit_atomic};
-use clovalink_auth::{AuthUser, require_admin, require_manager};
-use clovalink_core::models::{User, Tenant, CreateUserInput, UpdateUserInput, SuspendUserInput};
-use clovalink_core::notification_service;
-use clovalink_core::security_service;
 
 fn validate_role_assignment(auth_role: &str, target_role: &str) -> Result<(), StatusCode> {
     match auth_role {
@@ -32,14 +32,14 @@ fn validate_role_assignment(auth_role: &str, target_role: &str) -> Result<(), St
             } else {
                 Ok(())
             }
-        },
+        }
         "Manager" => {
             if target_role == "SuperAdmin" || target_role == "Admin" || target_role == "Manager" {
                 Err(StatusCode::FORBIDDEN)
             } else {
                 Ok(())
             }
-        },
+        }
         _ => Err(StatusCode::FORBIDDEN),
     }
 }
@@ -67,20 +67,19 @@ pub async fn list_users(
 
     let limit = filters.limit.unwrap_or(50).min(100);
     let offset = filters.offset.unwrap_or(0);
-    
+
     // For Managers, get their accessible departments
     let manager_departments: Option<Vec<Uuid>> = if auth.role == "Manager" {
-        let dept_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> = sqlx::query_as(
-            "SELECT department_id, allowed_department_ids FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get manager departments: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        
+        let dept_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
+            sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get manager departments: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
         let (primary_dept, allowed_depts) = dept_info.unwrap_or((None, None));
         let mut all_depts = Vec::new();
         if let Some(pd) = primary_dept {
@@ -107,23 +106,29 @@ pub async fn list_users(
         "SELECT id, tenant_id, department_id, email, name, role, status, avatar_url, last_active_at, dashboard_layout, widget_config, allowed_tenant_ids, allowed_department_ids, suspended_at, suspended_until, suspension_reason, created_at, updated_at 
          FROM users WHERE 1=1"
     );
-    
+
     let mut param_count = 1;
-    
+
     // Tenant filter (SuperAdmin can see all or filter, others see own)
     // Also include users who have access to this tenant via allowed_tenant_ids
     let tenant_id_filter = if auth.role == "SuperAdmin" {
-        filters.tenant_id.as_ref().and_then(|t| Uuid::parse_str(t).ok())
+        filters
+            .tenant_id
+            .as_ref()
+            .and_then(|t| Uuid::parse_str(t).ok())
     } else {
         Some(auth.tenant_id)
     };
 
     if let Some(_) = tenant_id_filter {
         // Include users whose primary tenant matches OR who have this tenant in allowed_tenant_ids
-        query.push_str(&format!(" AND (tenant_id = ${0} OR ${0} = ANY(allowed_tenant_ids))", param_count));
+        query.push_str(&format!(
+            " AND (tenant_id = ${0} OR ${0} = ANY(allowed_tenant_ids))",
+            param_count
+        ));
         param_count += 1;
     }
-    
+
     // Department filter for Managers - they can only see users in their departments
     let dept_filter: Option<Uuid> = if auth.role == "Manager" {
         // If a specific department is requested, validate it's one they have access to
@@ -147,9 +152,12 @@ pub async fn list_users(
         }
     } else {
         // Admins can filter by any department
-        filters.department_id.as_ref().and_then(|d| Uuid::parse_str(d).ok())
+        filters
+            .department_id
+            .as_ref()
+            .and_then(|d| Uuid::parse_str(d).ok())
     };
-    
+
     if let Some(_) = dept_filter {
         query.push_str(&format!(" AND department_id = ${}", param_count));
         param_count += 1;
@@ -158,12 +166,12 @@ pub async fn list_users(
         query.push_str(&format!(" AND department_id = ANY(${})", param_count));
         param_count += 1;
     }
-    
+
     // For Managers: only show Employee-level users (not other Managers, Admins, or SuperAdmins)
     if auth.role == "Manager" {
         query.push_str(" AND role = 'Employee'");
     }
-    
+
     if filters.role.is_some() {
         query.push_str(&format!(" AND role = ${}", param_count));
         param_count += 1;
@@ -173,12 +181,19 @@ pub async fn list_users(
         param_count += 1;
     }
     if filters.search.is_some() {
-        query.push_str(&format!(" AND (name ILIKE ${} OR email ILIKE ${})", param_count, param_count));
+        query.push_str(&format!(
+            " AND (name ILIKE ${} OR email ILIKE ${})",
+            param_count, param_count
+        ));
         param_count += 1;
     }
-    
+
     query.push_str(" ORDER BY created_at DESC");
-    query.push_str(&format!(" LIMIT ${} OFFSET ${}", param_count, param_count + 1));
+    query.push_str(&format!(
+        " LIMIT ${} OFFSET ${}",
+        param_count,
+        param_count + 1
+    ));
 
     // Execute query
     let mut db_query = sqlx::query(&query);
@@ -186,7 +201,7 @@ pub async fn list_users(
     if let Some(tid) = tenant_id_filter {
         db_query = db_query.bind(tid);
     }
-    
+
     if let Some(df) = dept_filter {
         db_query = db_query.bind(df);
     } else if let Some(ref mgr_depts) = manager_departments {
@@ -267,29 +282,33 @@ pub async fn create_user(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Hash password if provided (not required for SSO-only users)
-    let password_hash: Option<String> = if input.identity_provider == "oidc" || input.identity_provider == "saml" {
-        // SSO-only users don't need a password
-        None
-    } else {
-        let password = input.password.as_deref().ok_or_else(|| {
-            tracing::error!("Password required for local/hybrid auth");
-            StatusCode::BAD_REQUEST
-        })?;
+    let password_hash: Option<String> =
+        if input.identity_provider == "oidc" || input.identity_provider == "saml" {
+            // SSO-only users don't need a password
+            None
+        } else {
+            let password = input.password.as_deref().ok_or_else(|| {
+                tracing::error!("Password required for local/hybrid auth");
+                StatusCode::BAD_REQUEST
+            })?;
 
-        // Validate password against tenant's password policy
-        validate_password_against_policy(&state.pool, tenant_id, password)
-            .await
-            .map_err(|(status, _json)| status)?;
+            // Validate password against tenant's password policy
+            validate_password_against_policy(&state.pool, tenant_id, password)
+                .await
+                .map_err(|(status, _json)| status)?;
 
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = get_argon2();
-        Some(argon2.hash_password(password.as_bytes(), &salt)
-            .map_err(|e| {
-                tracing::error!("Failed to hash password: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .to_string())
-    };
+            let salt = SaltString::generate(&mut OsRng);
+            let argon2 = get_argon2();
+            Some(
+                argon2
+                    .hash_password(password.as_bytes(), &salt)
+                    .map_err(|e| {
+                        tracing::error!("Failed to hash password: {:?}", e);
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?
+                    .to_string(),
+            )
+        };
 
     // Determine tenant_id
     let tenant_id = if auth.role == "SuperAdmin" {
@@ -330,14 +349,18 @@ pub async fn create_user(
         &tenant,
         notification_service::NotificationType::UserCreated,
         "New user added",
-        &format!("{} ({}) was added as {} to the organization.", user.name, user.email, user.role),
+        &format!(
+            "{} ({}) was added as {} to the organization.",
+            user.name, user.email, user.role
+        ),
         Some(serde_json::json!({
             "new_user_id": user.id,
             "new_user_email": user.email,
             "new_user_name": user.name,
             "new_user_role": user.role
         })),
-    ).await;
+    )
+    .await;
 
     Ok(Json(json!({
         "id": user.id,
@@ -368,41 +391,44 @@ pub async fn update_user(
     }
 
     // Fetch the user before update to track role changes
-    let old_user: Option<(String, String)> = sqlx::query_as(
-        "SELECT role, email FROM users WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_user: Option<(String, String)> =
+        sqlx::query_as("SELECT role, email FROM users WHERE id = $1 AND tenant_id = $2")
+            .bind(id)
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let (old_role, user_email) = old_user.ok_or(StatusCode::NOT_FOUND)?;
     let role_changing = input.role.as_ref().map(|r| r != &old_role).unwrap_or(false);
 
     // Require password confirmation for role changes
     if role_changing {
-        let confirm_password = input.confirm_password.as_ref()
+        let confirm_password = input
+            .confirm_password
+            .as_ref()
             .ok_or(StatusCode::BAD_REQUEST)?;
-        
+
         // Fetch the admin's password hash to verify
-        let admin_password_hash: Option<String> = sqlx::query_scalar(
-            "SELECT password_hash FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let admin_password_hash: Option<String> =
+            sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         let hash = admin_password_hash.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let parsed_hash = PasswordHash::new(&hash)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let parsed_hash =
+            PasswordHash::new(&hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Verify the admin's password
         get_argon2()
             .verify_password(confirm_password.as_bytes(), &parsed_hash)
             .map_err(|_| {
-                tracing::warn!("Role change password verification failed for admin {}", auth.user_id);
+                tracing::warn!(
+                    "Role change password verification failed for admin {}",
+                    auth.user_id
+                );
                 StatusCode::FORBIDDEN
             })?;
     }
@@ -457,9 +483,7 @@ pub async fn update_user(
         updates.join(", ")
     );
 
-    let mut db_query = sqlx::query(&query)
-        .bind(id)
-        .bind(auth.tenant_id);
+    let mut db_query = sqlx::query(&query).bind(id).bind(auth.tenant_id);
 
     if let Some(name) = input.name {
         db_query = db_query.bind(name);
@@ -505,9 +529,9 @@ pub async fn update_user(
     if role_changing {
         if let Some(ref new_role) = new_role_value {
             // Check for permission escalation (to Admin or SuperAdmin)
-            let is_escalation = matches!(new_role.as_str(), "Admin" | "SuperAdmin") 
+            let is_escalation = matches!(new_role.as_str(), "Admin" | "SuperAdmin")
                 && !matches!(old_role.as_str(), "Admin" | "SuperAdmin");
-            
+
             if is_escalation {
                 let _ = security_service::alert_permission_escalation(
                     &state.pool,
@@ -518,7 +542,8 @@ pub async fn update_user(
                     &old_role,
                     new_role,
                     auth.ip_address.as_deref(),
-                ).await;
+                )
+                .await;
             }
 
             // Get tenant for email
@@ -534,7 +559,8 @@ pub async fn update_user(
                     &user_email,
                     &old_role,
                     new_role,
-                ).await;
+                )
+                .await;
             }
         }
     }
@@ -553,7 +579,6 @@ pub async fn update_user(
         "updated_at": row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at"),
     })))
 }
-
 
 /// Deactivate user (soft delete)
 /// DELETE /api/users/:id
@@ -590,15 +615,15 @@ pub async fn delete_user(
     }
 
     // Soft delete by setting status to inactive
-    sqlx::query(
-        "UPDATE users SET status = 'inactive', updated_at = NOW() WHERE id = $1"
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("UPDATE users SET status = 'inactive', updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(json!({"success": true, "message": "User deactivated"})))
+    Ok(Json(
+        json!({"success": true, "message": "User deactivated"}),
+    ))
 }
 
 /// Permanently delete user (hard delete)
@@ -692,7 +717,7 @@ pub async fn permanent_delete_user(
         r#"
         INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, $3, 'user_permanently_deleted', 'user', $4, $5::inet)
-        "#
+        "#,
     )
     .bind(Uuid::new_v4())
     .bind(auth.tenant_id)
@@ -702,7 +727,9 @@ pub async fn permanent_delete_user(
     .execute(&state.pool)
     .await;
 
-    Ok(Json(json!({"success": true, "message": "User permanently deleted"})))
+    Ok(Json(
+        json!({"success": true, "message": "User permanently deleted"}),
+    ))
 }
 
 /// Export user data (GDPR)
@@ -715,11 +742,15 @@ pub async fn export_data(
     if let Some(ref cache) = state.cache {
         let rate_key = format!("ratelimit:export:{}", auth.user_id);
         let config = RateLimitConfig::export();
-        
+
         match check_rate_limit_atomic(cache, &rate_key, &config).await {
             Ok((allowed, count, _)) => {
                 if !allowed {
-                    tracing::warn!("Export rate limit exceeded for user: {} (count: {})", auth.user_id, count);
+                    tracing::warn!(
+                        "Export rate limit exceeded for user: {} (count: {})",
+                        auth.user_id,
+                        count
+                    );
                     return Err(StatusCode::TOO_MANY_REQUESTS);
                 }
             }
@@ -758,13 +789,16 @@ pub async fn export_data(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let activity_list: Vec<Value> = activities.iter().map(|row| {
-        json!({
-            "action": row.get::<String, _>("action"),
-            "resource_type": row.get::<String, _>("resource_type"),
-            "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at")
+    let activity_list: Vec<Value> = activities
+        .iter()
+        .map(|row| {
+            json!({
+                "action": row.get::<String, _>("action"),
+                "resource_type": row.get::<String, _>("resource_type"),
+                "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at")
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({
         "profile": {
@@ -788,15 +822,19 @@ pub async fn validate_password_against_policy(
     password: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     use crate::settings::PasswordPolicy;
-    
+
     // Fetch tenant's password policy
-    let policy_result: Option<(Value,)> = sqlx::query_as(
-        "SELECT password_policy FROM tenants WHERE id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let policy_result: Option<(Value,)> =
+        sqlx::query_as("SELECT password_policy FROM tenants WHERE id = $1")
+            .bind(tenant_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?;
 
     let policy: PasswordPolicy = match policy_result {
         Some((json_value,)) => serde_json::from_value(json_value).unwrap_or_default(),
@@ -811,8 +849,8 @@ pub async fn validate_password_against_policy(
             Json(json!({
                 "error": "Password does not meet requirements",
                 "requirements": errors
-            }))
-        ))
+            })),
+        )),
     }
 }
 
@@ -822,14 +860,14 @@ pub async fn validate_password_against_policy(
 pub struct UpdateProfileInput {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub totp_code: Option<String>,  // Required if changing email and 2FA is enabled
+    pub totp_code: Option<String>, // Required if changing email and 2FA is enabled
 }
 
 #[derive(Deserialize)]
 pub struct ChangePasswordInput {
     pub current_password: String,
     pub new_password: String,
-    pub totp_code: Option<String>,  // Required if user has 2FA enabled
+    pub totp_code: Option<String>, // Required if user has 2FA enabled
 }
 
 /// Update current user's profile (name, email)
@@ -839,26 +877,32 @@ pub async fn update_my_profile(
     Extension(auth): Extension<AuthUser>,
     Json(input): Json<UpdateProfileInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::debug!("update_my_profile called for user {} with input: {:?}", auth.user_id, input);
-    
+    tracing::debug!(
+        "update_my_profile called for user {} with input: {:?}",
+        auth.user_id,
+        input
+    );
+
     // If email is being changed, verify 2FA if enabled
     if input.email.is_some() {
         // Check if user has 2FA enabled
-        let totp_secret: Option<String> = sqlx::query_scalar(
-            "SELECT totp_secret FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+        let totp_secret: Option<String> =
+            sqlx::query_scalar("SELECT totp_secret FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
         if let Some(secret_str) = totp_secret {
             // 2FA is enabled, require verification
             let code = input.totp_code.as_ref().ok_or_else(|| {
-                tracing::warn!("Email change attempted without 2FA code for user {}", auth.user_id);
+                tracing::warn!(
+                    "Email change attempted without 2FA code for user {}",
+                    auth.user_id
+                );
                 StatusCode::FORBIDDEN
             })?;
-            
+
             // Verify the TOTP code
             let secret = Secret::Encoded(secret_str);
             let totp = TOTP::new(
@@ -866,20 +910,23 @@ pub async fn update_my_profile(
                 6,
                 1,
                 30,
-                secret.to_bytes().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                secret
+                    .to_bytes()
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
                 None,
-                "".to_string()
-            ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            
+                "".to_string(),
+            )
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
             if !totp.check_current(code).unwrap_or(false) {
                 tracing::warn!("Invalid 2FA code for email change by user {}", auth.user_id);
                 return Err(StatusCode::UNAUTHORIZED);
             }
-            
+
             tracing::info!("2FA verified for email change by user {}", auth.user_id);
         }
     }
-    
+
     let mut updates = Vec::new();
     let mut param_count = 2; // $1 is user_id
 
@@ -914,17 +961,14 @@ pub async fn update_my_profile(
         db_query = db_query.bind(email);
     }
 
-    let row = db_query
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update profile: {:?}", e);
-            if e.to_string().contains("unique") {
-                StatusCode::CONFLICT
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })?;
+    let row = db_query.fetch_one(&state.pool).await.map_err(|e| {
+        tracing::error!("Failed to update profile: {:?}", e);
+        if e.to_string().contains("unique") {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    })?;
 
     // Invalidate user cache
     if let Some(ref cache) = state.cache {
@@ -969,15 +1013,16 @@ pub async fn change_password(
                 // Verify the TOTP code
                 let secret = Secret::Encoded(secret_str);
                 let totp = TOTP::new(
-                    Algorithm::SHA1, 
-                    6, 
-                    1, 
-                    30, 
-                    secret.to_bytes().unwrap(), 
-                    None, 
-                    "".to_string()
-                ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                
+                    Algorithm::SHA1,
+                    6,
+                    1,
+                    30,
+                    secret.to_bytes().unwrap(),
+                    None,
+                    "".to_string(),
+                )
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
                 if !totp.check_current(&code).unwrap_or(false) {
                     return Ok(Json(json!({
                         "error": "invalid_2fa_code",
@@ -998,10 +1043,13 @@ pub async fn change_password(
 
     // Verify current password
     let argon2 = get_argon2();
-    let parsed_hash = PasswordHash::new(&current_hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    if argon2.verify_password(input.current_password.as_bytes(), &parsed_hash).is_err() {
+    let parsed_hash =
+        PasswordHash::new(&current_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if argon2
+        .verify_password(input.current_password.as_bytes(), &parsed_hash)
+        .is_err()
+    {
         return Err(StatusCode::UNAUTHORIZED); // Current password is wrong
     }
 
@@ -1012,7 +1060,8 @@ pub async fn change_password(
 
     // Hash new password
     let salt = SaltString::generate(&mut OsRng);
-    let new_hash = argon2.hash_password(input.new_password.as_bytes(), &salt)
+    let new_hash = argon2
+        .hash_password(input.new_password.as_bytes(), &salt)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .to_string();
 
@@ -1024,7 +1073,9 @@ pub async fn change_password(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(json!({ "success": true, "message": "Password changed successfully" })))
+    Ok(Json(
+        json!({ "success": true, "message": "Password changed successfully" }),
+    ))
 }
 
 /// Upload avatar for current user
@@ -1035,18 +1086,21 @@ pub async fn upload_avatar(
     mut multipart: Multipart,
 ) -> Result<Json<Value>, StatusCode> {
     tracing::debug!("upload_avatar called for user {}", auth.user_id);
-    
+
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         tracing::error!("Failed to get multipart field: {:?}", e);
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
         tracing::debug!("Received multipart field: name={}", name);
-        
+
         if name == "avatar" || name == "file" {
-            let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+            let content_type = field
+                .content_type()
+                .unwrap_or("application/octet-stream")
+                .to_string();
             tracing::debug!("Avatar field content_type: {}", content_type);
-            
+
             // Validate it's an image
             if !content_type.starts_with("image/") {
                 tracing::warn!("Invalid avatar content type: {}", content_type);
@@ -1054,7 +1108,7 @@ pub async fn upload_avatar(
             }
 
             let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            
+
             // Limit size to 5MB
             if data.len() > 5 * 1024 * 1024 {
                 return Err(StatusCode::PAYLOAD_TOO_LARGE);
@@ -1070,7 +1124,10 @@ pub async fn upload_avatar(
             let filename = format!("avatars/{}.{}", auth.user_id, extension);
 
             // Upload to storage
-            state.storage.upload(&filename, data.to_vec()).await
+            state
+                .storage
+                .upload(&filename, data.to_vec())
+                .await
                 .map_err(|e| {
                     tracing::error!("Failed to upload avatar: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
@@ -1096,7 +1153,10 @@ pub async fn upload_avatar(
         }
     }
 
-    tracing::warn!("No avatar field found in multipart request for user {}", auth.user_id);
+    tracing::warn!(
+        "No avatar field found in multipart request for user {}",
+        auth.user_id
+    );
     Err(StatusCode::BAD_REQUEST)
 }
 
@@ -1112,22 +1172,25 @@ pub async fn list_sessions(
         FROM user_sessions
         WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()
         ORDER BY last_active_at DESC
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
 
-    let result: Vec<Value> = sessions.iter().map(|row| {
-        json!({
-            "id": row.get::<Uuid, _>("id"),
-            "device_info": row.get::<Option<String>, _>("device_info"),
-            "ip_address": row.get::<Option<String>, _>("ip_address"),
-            "last_active_at": row.get::<DateTime<Utc>, _>("last_active_at"),
-            "created_at": row.get::<DateTime<Utc>, _>("created_at"),
+    let result: Vec<Value> = sessions
+        .iter()
+        .map(|row| {
+            json!({
+                "id": row.get::<Uuid, _>("id"),
+                "device_info": row.get::<Option<String>, _>("device_info"),
+                "ip_address": row.get::<Option<String>, _>("ip_address"),
+                "last_active_at": row.get::<DateTime<Utc>, _>("last_active_at"),
+                "created_at": row.get::<DateTime<Utc>, _>("created_at"),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({ "sessions": result })))
 }
@@ -1139,14 +1202,13 @@ pub async fn revoke_session(
     Extension(auth): Extension<AuthUser>,
     Path(session_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let result = sqlx::query(
-        "UPDATE user_sessions SET is_revoked = true WHERE id = $1 AND user_id = $2"
-    )
-    .bind(session_id)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let result =
+        sqlx::query("UPDATE user_sessions SET is_revoked = true WHERE id = $1 AND user_id = $2")
+            .bind(session_id)
+            .bind(auth.user_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);
@@ -1170,16 +1232,15 @@ pub async fn get_preferences(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // Try to get existing preferences
-    let prefs: Option<(Value,)> = sqlx::query_as(
-        "SELECT settings FROM user_preferences WHERE user_id = $1"
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch user preferences: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let prefs: Option<(Value,)> =
+        sqlx::query_as("SELECT settings FROM user_preferences WHERE user_id = $1")
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch user preferences: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     match prefs {
         Some((settings,)) => Ok(Json(settings)),
@@ -1207,7 +1268,7 @@ pub async fn update_preferences(
             settings = user_preferences.settings || $2,
             updated_at = NOW()
         RETURNING settings
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(&input.settings)
@@ -1267,7 +1328,7 @@ pub async fn suspend_user(
             suspension_reason = $2,
             updated_at = NOW() 
         WHERE id = $3
-        "#
+        "#,
     )
     .bind(input.until)
     .bind(&input.reason)
@@ -1334,7 +1395,7 @@ pub async fn unsuspend_user(
             suspension_reason = NULL,
             updated_at = NOW() 
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(id)
     .execute(&state.pool)
@@ -1391,7 +1452,7 @@ fn can_reset_password(admin_role: &str, target_role: &str) -> bool {
         "SuperAdmin" => true, // SuperAdmin can reset anyone
         "Admin" => matches!(target_role, "Manager" | "Employee"),
         "Manager" => target_role == "Employee",
-        _ => false
+        _ => false,
     }
 }
 
@@ -1418,14 +1479,13 @@ pub async fn admin_reset_password(
     }
 
     // Get target user
-    let target_user = sqlx::query(
-        "SELECT id, email, name, role, tenant_id FROM users WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user =
+        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
     let target_role: String = target_user.get("role");
     let target_tenant_id: Uuid = target_user.get("tenant_id");
@@ -1441,7 +1501,10 @@ pub async fn admin_reset_password(
     if !can_reset_password(&auth.role, &target_role) {
         tracing::warn!(
             "User {} ({}) attempted to reset password for user {} ({})",
-            auth.user_id, auth.role, id, target_role
+            auth.user_id,
+            auth.role,
+            id,
+            target_role
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -1490,7 +1553,10 @@ pub async fn admin_reset_password(
 
     tracing::info!(
         "Admin {} ({}) reset password for user {} ({})",
-        auth.user_id, auth.role, id, target_role
+        auth.user_id,
+        auth.role,
+        id,
+        target_role
     );
 
     Ok(Json(json!({
@@ -1511,14 +1577,13 @@ pub async fn send_password_reset_email(
     require_manager(&auth)?;
 
     // Get target user
-    let target_user = sqlx::query(
-        "SELECT id, email, name, role, tenant_id FROM users WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user =
+        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
     let target_role: String = target_user.get("role");
     let target_tenant_id: Uuid = target_user.get("tenant_id");
@@ -1534,14 +1599,17 @@ pub async fn send_password_reset_email(
     if !can_reset_password(&auth.role, &target_role) {
         tracing::warn!(
             "User {} ({}) attempted to send reset email to user {} ({})",
-            auth.user_id, auth.role, id, target_role
+            auth.user_id,
+            auth.role,
+            id,
+            target_role
         );
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Generate a secure random token
     let token = Uuid::new_v4().to_string();
-    
+
     // Hash the token for storage (we'll send the plain token in the email)
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = get_argon2();
@@ -1557,16 +1625,18 @@ pub async fn send_password_reset_email(
     let expires_at = Utc::now() + chrono::Duration::hours(24);
 
     // Invalidate any existing tokens for this user
-    sqlx::query("UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok();
+    sqlx::query(
+        "UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .ok();
 
     // Store the new token
     sqlx::query(
         "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, created_by) 
-         VALUES ($1, $2, $3, $4)"
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(id)
     .bind(&token_hash)
@@ -1584,8 +1654,8 @@ pub async fn send_password_reset_email(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Build reset URL (frontend will handle this route)
-    let frontend_url = std::env::var("FRONTEND_URL")
-        .unwrap_or_else(|_| format!("https://{}", tenant.domain));
+    let frontend_url =
+        std::env::var("FRONTEND_URL").unwrap_or_else(|_| format!("https://{}", tenant.domain));
     let reset_url = format!("{}/reset-password?token={}", frontend_url, token);
 
     // Build variables for email template
@@ -1601,7 +1671,9 @@ pub async fn send_password_reset_email(
         &target_email,
         "password_reset",
         variables,
-    ).await.is_ok();
+    )
+    .await
+    .is_ok();
 
     // Audit log
     sqlx::query(
@@ -1623,15 +1695,18 @@ pub async fn send_password_reset_email(
 
     tracing::info!(
         "Admin {} ({}) sent password reset email to user {} (email_sent: {})",
-        auth.user_id, auth.role, id, email_sent
+        auth.user_id,
+        auth.role,
+        id,
+        email_sent
     );
 
     Ok(Json(json!({
         "success": true,
-        "message": if email_sent { 
-            "Password reset email sent successfully" 
-        } else { 
-            "Password reset token created but email could not be sent. Please check SMTP configuration." 
+        "message": if email_sent {
+            "Password reset email sent successfully"
+        } else {
+            "Password reset token created but email could not be sent. Please check SMTP configuration."
         },
         "email_sent": email_sent
     })))
@@ -1655,14 +1730,13 @@ pub async fn admin_change_email(
     require_manager(&auth)?;
 
     // Get target user
-    let target_user = sqlx::query(
-        "SELECT id, email, name, role, tenant_id FROM users WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user =
+        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
     let target_role: String = target_user.get("role");
     let target_tenant_id: Uuid = target_user.get("tenant_id");
@@ -1678,7 +1752,10 @@ pub async fn admin_change_email(
     if !can_reset_password(&auth.role, &target_role) {
         tracing::warn!(
             "User {} ({}) attempted to change email for user {} ({})",
-            auth.user_id, auth.role, id, target_role
+            auth.user_id,
+            auth.role,
+            id,
+            target_role
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -1689,14 +1766,13 @@ pub async fn admin_change_email(
     }
 
     // Check if email is already in use
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM users WHERE email = $1 AND id != $2"
-    )
-    .bind(&input.email)
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let existing: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM users WHERE email = $1 AND id != $2")
+            .bind(&input.email)
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if existing.is_some() {
         return Err(StatusCode::CONFLICT);
@@ -1731,7 +1807,11 @@ pub async fn admin_change_email(
 
     tracing::info!(
         "Admin {} ({}) changed email for user {} from {} to {}",
-        auth.user_id, auth.role, id, old_email, input.email
+        auth.user_id,
+        auth.role,
+        id,
+        old_email,
+        input.email
     );
 
     Ok(Json(json!({

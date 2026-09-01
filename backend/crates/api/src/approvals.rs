@@ -1,18 +1,18 @@
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
-use clovalink_auth::{AuthUser, require_admin};
+use clovalink_auth::{require_admin, AuthUser};
 use clovalink_core::models::Tenant;
 use clovalink_core::notification_service;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::sync::Arc;
-use crate::AppState;
+use uuid::Uuid;
 
 // ==================== Models ====================
 
@@ -64,7 +64,7 @@ pub struct UpdatePolicyInput {
     pub name: Option<String>,
     pub scope: Option<String>,
     #[serde(default, deserialize_with = "deserialize_nullable_string")]
-    pub scope_value: Option<Option<String>>,  // None = not sent, Some(None) = explicitly null, Some(Some(v)) = value
+    pub scope_value: Option<Option<String>>, // None = not sent, Some(None) = explicitly null, Some(Some(v)) = value
     pub is_active: Option<bool>,
 }
 
@@ -125,8 +125,16 @@ pub async fn find_matching_policy(
             }
             "file_type" => {
                 if let Some(ref sv) = policy.scope_value {
-                    let file_ext = ctx.file_name.rsplit('.').next().unwrap_or("").to_lowercase();
-                    if sv.split(',').any(|ext| ext.trim().eq_ignore_ascii_case(&file_ext)) {
+                    let file_ext = ctx
+                        .file_name
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if sv
+                        .split(',')
+                        .any(|ext| ext.trim().eq_ignore_ascii_case(&file_ext))
+                    {
                         return Some(policy.clone());
                     }
                 }
@@ -175,7 +183,7 @@ pub async fn find_matching_policy_simple(
 ) -> Option<ApprovalPolicy> {
     // For resubmit, we just need any active policy — use a basic "all" check
     if let Ok(Some(policy)) = sqlx::query_as::<_, ApprovalPolicy>(
-        "SELECT * FROM approval_policies WHERE tenant_id = $1 AND is_active = true LIMIT 1"
+        "SELECT * FROM approval_policies WHERE tenant_id = $1 AND is_active = true LIMIT 1",
     )
     .bind(tenant_id)
     .fetch_optional(pool)
@@ -208,7 +216,24 @@ pub async fn list_pending(
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.page.unwrap_or(0) * limit;
 
-    let rows: Vec<(Uuid, Uuid, Uuid, Option<Uuid>, Uuid, String, Option<Uuid>, Option<DateTime<Utc>>, Option<String>, DateTime<Utc>, String, i64, Option<String>, Option<Uuid>, String, Option<String>)> = if let Some(dept_id) = query.department_id {
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        Uuid,
+        Option<Uuid>,
+        Uuid,
+        String,
+        Option<Uuid>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+        DateTime<Utc>,
+        String,
+        i64,
+        Option<String>,
+        Option<Uuid>,
+        String,
+        Option<String>,
+    )> = if let Some(dept_id) = query.department_id {
         sqlx::query_as(
             r#"SELECT ar.id, ar.file_id, ar.tenant_id, ar.policy_id, ar.requested_by, ar.status,
                       ar.decided_by, ar.decided_at, ar.rejection_reason, ar.created_at,
@@ -219,12 +244,18 @@ pub async fn list_pending(
                JOIN users u ON u.id = ar.requested_by
                WHERE ar.tenant_id = $1 AND ar.status = 'pending' AND fm.department_id = $4
                ORDER BY ar.created_at DESC
-               LIMIT $2 OFFSET $3"#
+               LIMIT $2 OFFSET $3"#,
         )
-        .bind(company_id).bind(limit).bind(offset).bind(dept_id)
+        .bind(company_id)
+        .bind(limit)
+        .bind(offset)
+        .bind(dept_id)
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to list pending approvals: {:?}", e); StatusCode::INTERNAL_SERVER_ERROR })?
+        .map_err(|e| {
+            tracing::error!("Failed to list pending approvals: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
     } else {
         sqlx::query_as(
             r#"SELECT ar.id, ar.file_id, ar.tenant_id, ar.policy_id, ar.requested_by, ar.status,
@@ -236,34 +267,42 @@ pub async fn list_pending(
                JOIN users u ON u.id = ar.requested_by
                WHERE ar.tenant_id = $1 AND ar.status = 'pending'
                ORDER BY ar.created_at DESC
-               LIMIT $2 OFFSET $3"#
+               LIMIT $2 OFFSET $3"#,
         )
-        .bind(company_id).bind(limit).bind(offset)
+        .bind(company_id)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&state.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to list pending approvals: {:?}", e); StatusCode::INTERNAL_SERVER_ERROR })?
+        .map_err(|e| {
+            tracing::error!("Failed to list pending approvals: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
     };
 
-    let approvals: Vec<Value> = rows.iter().map(|r| {
-        json!({
-            "id": r.0,
-            "file_id": r.1,
-            "tenant_id": r.2,
-            "policy_id": r.3,
-            "requested_by": r.4,
-            "status": r.5,
-            "decided_by": r.6,
-            "decided_at": r.7,
-            "rejection_reason": r.8,
-            "created_at": r.9,
-            "file_name": r.10,
-            "file_size": r.11,
-            "content_type": r.12,
-            "department_id": r.13,
-            "uploader_email": r.14,
-            "uploader_name": r.15,
+    let approvals: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.0,
+                "file_id": r.1,
+                "tenant_id": r.2,
+                "policy_id": r.3,
+                "requested_by": r.4,
+                "status": r.5,
+                "decided_by": r.6,
+                "decided_at": r.7,
+                "rejection_reason": r.8,
+                "created_at": r.9,
+                "file_name": r.10,
+                "file_size": r.11,
+                "content_type": r.12,
+                "department_id": r.13,
+                "uploader_email": r.14,
+                "uploader_name": r.15,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({ "approvals": approvals })))
 }
@@ -286,7 +325,23 @@ pub async fn list_history(
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.page.unwrap_or(0) * limit;
 
-    let rows: Vec<(Uuid, Uuid, Uuid, Uuid, String, Option<Uuid>, Option<DateTime<Utc>>, Option<String>, DateTime<Utc>, String, i64, Option<String>, String, Option<String>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        Uuid,
+        Uuid,
+        String,
+        Option<Uuid>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+        DateTime<Utc>,
+        String,
+        i64,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"SELECT ar.id, ar.file_id, ar.tenant_id, ar.requested_by, ar.status,
                   ar.decided_by, ar.decided_at, ar.rejection_reason, ar.created_at,
                   fm.name as file_name, fm.size_bytes, fm.content_type,
@@ -298,32 +353,37 @@ pub async fn list_history(
            LEFT JOIN users decider ON decider.id = ar.decided_by
            WHERE ar.tenant_id = $1 AND ar.status != 'pending'
            ORDER BY ar.decided_at DESC NULLS LAST
-           LIMIT $2 OFFSET $3"#
+           LIMIT $2 OFFSET $3"#,
     )
-    .bind(company_id).bind(limit).bind(offset)
+    .bind(company_id)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let history: Vec<Value> = rows.iter().map(|r| {
-        json!({
-            "id": r.0,
-            "file_id": r.1,
-            "tenant_id": r.2,
-            "requested_by": r.3,
-            "status": r.4,
-            "decided_by": r.5,
-            "decided_at": r.6,
-            "rejection_reason": r.7,
-            "created_at": r.8,
-            "file_name": r.9,
-            "file_size": r.10,
-            "content_type": r.11,
-            "uploader_email": r.12,
-            "uploader_name": r.13,
-            "decider_email": r.14,
+    let history: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.0,
+                "file_id": r.1,
+                "tenant_id": r.2,
+                "requested_by": r.3,
+                "status": r.4,
+                "decided_by": r.5,
+                "decided_at": r.6,
+                "rejection_reason": r.7,
+                "created_at": r.8,
+                "file_name": r.9,
+                "file_size": r.10,
+                "content_type": r.11,
+                "uploader_email": r.12,
+                "uploader_name": r.13,
+                "decider_email": r.14,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({ "history": history })))
 }
@@ -339,32 +399,45 @@ pub async fn list_my_pending(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let rows: Vec<(Uuid, Uuid, String, DateTime<Utc>, String, i64, String, Option<String>)> = sqlx::query_as(
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        String,
+        DateTime<Utc>,
+        String,
+        i64,
+        String,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"SELECT ar.id, ar.file_id, ar.status, ar.created_at,
                   fm.name as file_name, fm.size_bytes, fm.content_type, ar.rejection_reason
            FROM approval_requests ar
            JOIN files_metadata fm ON fm.id = ar.file_id
            WHERE ar.tenant_id = $1 AND ar.requested_by = $2
            AND ar.status IN ('pending', 'rejected')
-           ORDER BY ar.created_at DESC"#
+           ORDER BY ar.created_at DESC"#,
     )
-    .bind(company_id).bind(auth.user_id)
+    .bind(company_id)
+    .bind(auth.user_id)
     .fetch_all(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let items: Vec<Value> = rows.iter().map(|r| {
-        json!({
-            "id": r.0,
-            "file_id": r.1,
-            "status": r.2,
-            "created_at": r.3,
-            "file_name": r.4,
-            "file_size": r.5,
-            "content_type": r.6,
-            "rejection_reason": r.7,
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.0,
+                "file_id": r.1,
+                "status": r.2,
+                "created_at": r.3,
+                "file_name": r.4,
+                "file_size": r.5,
+                "content_type": r.6,
+                "rejection_reason": r.7,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!({ "items": items })))
 }
@@ -383,7 +456,7 @@ pub async fn get_stats(
     }
 
     let pending_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'pending'"
+        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'pending'",
     )
     .bind(company_id)
     .fetch_one(&state.pool)
@@ -391,7 +464,7 @@ pub async fn get_stats(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let approved_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'approved'"
+        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'approved'",
     )
     .bind(company_id)
     .fetch_one(&state.pool)
@@ -399,7 +472,7 @@ pub async fn get_stats(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rejected_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'rejected'"
+        "SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1 AND status = 'rejected'",
     )
     .bind(company_id)
     .fetch_one(&state.pool)
@@ -431,7 +504,7 @@ pub async fn approve_file(
         r#"UPDATE approval_requests
            SET status = 'approved', decided_by = $1, decided_at = NOW(), updated_at = NOW()
            WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
-           RETURNING file_id, requested_by"#
+           RETURNING file_id, requested_by"#,
     )
     .bind(auth.user_id)
     .bind(request_id)
@@ -512,7 +585,7 @@ pub async fn reject_file(
            SET status = 'rejected', decided_by = $1, decided_at = NOW(),
                rejection_reason = $4, updated_at = NOW()
            WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
-           RETURNING file_id, requested_by"#
+           RETURNING file_id, requested_by"#,
     )
     .bind(auth.user_id)
     .bind(request_id)
@@ -591,7 +664,8 @@ pub async fn send_for_approval(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (owner_id, approval_status, department_id, is_company_folder) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (owner_id, approval_status, department_id, is_company_folder) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
 
     // Only the file owner or an admin can send for approval
     if owner_id != auth.user_id && !matches!(auth.role.as_str(), "Admin" | "SuperAdmin") {
@@ -604,7 +678,9 @@ pub async fn send_for_approval(
     }
 
     // Find matching policy
-    let policy = find_matching_policy_simple(&state.pool, company_id, department_id, is_company_folder).await;
+    let policy =
+        find_matching_policy_simple(&state.pool, company_id, department_id, is_company_folder)
+            .await;
     let policy_id = policy.map(|p| p.id);
 
     // Set file to pending
@@ -641,23 +717,33 @@ pub async fn send_for_approval(
 
     // Notify approvers
     if let Ok(Some(tenant)) = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(company_id).fetch_optional(&state.pool).await
+        .bind(company_id)
+        .fetch_optional(&state.pool)
+        .await
     {
-        if let Ok(Some((file_name,))) = sqlx::query_as::<_, (String,)>(
-            "SELECT name FROM files_metadata WHERE id = $1"
-        ).bind(file_id).fetch_optional(&state.pool).await {
+        if let Ok(Some((file_name,))) =
+            sqlx::query_as::<_, (String,)>("SELECT name FROM files_metadata WHERE id = $1")
+                .bind(file_id)
+                .fetch_optional(&state.pool)
+                .await
+        {
             let _ = notification_service::notify_all_admins(
                 &state.pool,
                 &tenant,
                 notification_service::NotificationType::ApprovalRequired,
                 "File Sent for Approval",
                 &format!("\"{}\" has been manually sent for approval.", file_name),
-                Some(json!({"file_id": file_id, "file_name": &file_name, "sender_id": auth.user_id})),
-            ).await;
+                Some(
+                    json!({"file_id": file_id, "file_name": &file_name, "sender_id": auth.user_id}),
+                ),
+            )
+            .await;
         }
     }
 
-    Ok(Json(json!({ "status": "pending", "approval_request_id": new_request.0 })))
+    Ok(Json(
+        json!({ "status": "pending", "approval_request_id": new_request.0 }),
+    ))
 }
 
 /// POST /api/approvals/:company_id/:file_id/resubmit
@@ -681,7 +767,8 @@ pub async fn resubmit(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (owner_id, approval_status, department_id, is_company_folder) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (owner_id, approval_status, department_id, is_company_folder) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
 
     if owner_id != auth.user_id {
         return Err(StatusCode::FORBIDDEN);
@@ -691,7 +778,9 @@ pub async fn resubmit(
     }
 
     // Find matching policy
-    let policy = find_matching_policy_simple(&state.pool, company_id, department_id, is_company_folder).await;
+    let policy =
+        find_matching_policy_simple(&state.pool, company_id, department_id, is_company_folder)
+            .await;
     let policy_id = policy.map(|p| p.id);
 
     // Reset file status to pending
@@ -705,7 +794,7 @@ pub async fn resubmit(
     let new_request: (Uuid,) = sqlx::query_as(
         r#"INSERT INTO approval_requests (tenant_id, file_id, policy_id, requested_by)
            VALUES ($1, $2, $3, $4)
-           RETURNING id"#
+           RETURNING id"#,
     )
     .bind(company_id)
     .bind(file_id)
@@ -728,7 +817,9 @@ pub async fn resubmit(
     .execute(&state.pool)
     .await;
 
-    Ok(Json(json!({ "status": "pending", "approval_request_id": new_request.0 })))
+    Ok(Json(
+        json!({ "status": "pending", "approval_request_id": new_request.0 }),
+    ))
 }
 
 // ==================== Policy CRUD ====================
@@ -745,7 +836,7 @@ pub async fn list_policies(
     require_admin(&auth)?;
 
     let policies: Vec<ApprovalPolicy> = sqlx::query_as(
-        "SELECT * FROM approval_policies WHERE tenant_id = $1 ORDER BY created_at ASC"
+        "SELECT * FROM approval_policies WHERE tenant_id = $1 ORDER BY created_at ASC",
     )
     .bind(company_id)
     .fetch_all(&state.pool)
@@ -768,10 +859,23 @@ pub async fn create_policy(
     require_admin(&auth)?;
 
     // Validate scope
-    if !matches!(input.scope.as_str(), "all" | "department" | "company_folder" | "file_type" | "file_size" | "role" | "private_files") {
+    if !matches!(
+        input.scope.as_str(),
+        "all"
+            | "department"
+            | "company_folder"
+            | "file_type"
+            | "file_size"
+            | "role"
+            | "private_files"
+    ) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if matches!(input.scope.as_str(), "department" | "file_type" | "file_size" | "role") && input.scope_value.is_none() {
+    if matches!(
+        input.scope.as_str(),
+        "department" | "file_type" | "file_size" | "role"
+    ) && input.scope_value.is_none()
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     if input.name.trim().is_empty() || input.name.len() > 255 {
@@ -781,7 +885,7 @@ pub async fn create_policy(
     let policy: ApprovalPolicy = sqlx::query_as(
         r#"INSERT INTO approval_policies (tenant_id, name, scope, scope_value)
            VALUES ($1, $2, $3, $4)
-           RETURNING *"#
+           RETURNING *"#,
     )
     .bind(company_id)
     .bind(input.name.trim())
@@ -823,7 +927,16 @@ pub async fn update_policy(
     require_admin(&auth)?;
 
     if let Some(ref scope) = input.scope {
-        if !matches!(scope.as_str(), "all" | "department" | "company_folder" | "file_type" | "file_size" | "role" | "private_files") {
+        if !matches!(
+            scope.as_str(),
+            "all"
+                | "department"
+                | "company_folder"
+                | "file_type"
+                | "file_size"
+                | "role"
+                | "private_files"
+        ) {
             return Err(StatusCode::BAD_REQUEST);
         }
     }
@@ -896,14 +1009,12 @@ pub async fn delete_policy(
     }
     require_admin(&auth)?;
 
-    let result = sqlx::query(
-        "DELETE FROM approval_policies WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(policy_id)
-    .bind(company_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let result = sqlx::query("DELETE FROM approval_policies WHERE id = $1 AND tenant_id = $2")
+        .bind(policy_id)
+        .bind(company_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);

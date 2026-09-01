@@ -5,9 +5,13 @@ members = [
     "crates/auth",
     "crates/storage",
     "crates/extensions",
+    "crates/types",
     "crates/ai",
 ]
 resolver = "2"
+
+[workspace.package]
+edition = "2021"
 
 [workspace.dependencies]
 
@@ -58,6 +62,11 @@ toolkit-rs = { version = "1.0.31", features = [
 
 # Error handling
 thiserror = "2"
+anyhow = "1"
+log = "0.4"
+config = "0.15"
+colored = "3"
+moka-cache = "1.1.2"
 
 # HTTP Client
 reqwest = { version = "0.12", features = [

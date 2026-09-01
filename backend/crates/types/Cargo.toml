@@ -1,0 +1,20 @@
+[package]
+name = "types"
+version = "0.1.0" 
+edition.workspace = true 
+
+[dependencies]  
+toolkit-rs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bytes.workspace = true
+anyhow.workspace = true 
+chrono.workspace = true 
+tokio.workspace = true  
+log.workspace = true
+config.workspace = true
+reqwest.workspace = true
+colored.workspace = true
+moka-cache.workspace = true
+blake3.workspace = true
+ 

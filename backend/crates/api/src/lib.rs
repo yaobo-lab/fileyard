@@ -1,0 +1,42 @@
+#![allow(deprecated)]
+
+mod ai;
+mod api_usage;
+pub mod app;
+pub mod approvals;
+mod audit;
+mod auth_handlers;
+mod comments;
+pub mod compliance;
+mod cron;
+mod dashboard;
+mod departments;
+mod discord;
+mod email_templates;
+mod extensions;
+mod file_requests;
+mod global_settings;
+mod groups;
+mod handlers;
+mod health;
+pub mod middleware;
+mod notifications;
+mod oidc;
+mod password;
+mod roles;
+mod saml;
+mod saml_crypto;
+mod saml_xml;
+mod search;
+mod security;
+mod settings;
+mod settings_backup;
+mod sharing;
+mod sso_common;
+mod sso_mappings;
+mod tenants;
+mod text_extract;
+mod users;
+mod virus_scan;
+
+pub use app::AppState;

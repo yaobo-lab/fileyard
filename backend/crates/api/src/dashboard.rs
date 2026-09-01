@@ -1,15 +1,10 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    Extension,
-};
+use crate::AppState;
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
+use clovalink_auth::{require_admin, AuthUser};
+use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use clovalink_auth::{AuthUser, require_admin};
 use std::sync::Arc;
-use crate::AppState;
-use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
 
 /// Cached dashboard stats response
 #[derive(Serialize, Deserialize, Clone)]
@@ -26,7 +21,7 @@ pub async fn get_dashboard_stats(
 ) -> Result<Json<Value>, StatusCode> {
     // SECURITY: Dashboard is Admin/SuperAdmin only
     require_admin(&auth)?;
-    
+
     // Check cache first - use role-specific cache key since SuperAdmin sees different data
     let cache_key = cache_keys::dashboard_stats(auth.tenant_id, &auth.role);
     if let Some(ref cache) = state.cache {
@@ -34,7 +29,7 @@ pub async fn get_dashboard_stats(
             return Ok(Json(cached.data));
         }
     }
-    
+
     // Get tenant storage distribution (for SuperAdmin, show all tenants; otherwise show current tenant)
     // Calculate actual storage from files_metadata instead of using stale tenants.storage_used_bytes
     let storage_distribution = if auth.role == "SuperAdmin" {
@@ -77,7 +72,10 @@ pub async fn get_dashboard_stats(
     };
 
     // Calculate total storage for percentage calculation
-    let total_storage: i64 = storage_distribution.iter().map(|(_, _, used, _)| used).sum();
+    let total_storage: i64 = storage_distribution
+        .iter()
+        .map(|(_, _, used, _)| used)
+        .sum();
 
     let storage_data: Vec<Value> = storage_distribution
         .iter()
@@ -159,7 +157,7 @@ pub async fn get_dashboard_stats(
         SELECT COUNT(*) 
         FROM file_requests 
         WHERE tenant_id = $1 AND status = 'active' AND expires_at > NOW()
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -175,7 +173,7 @@ pub async fn get_dashboard_stats(
         SELECT COUNT(*) 
         FROM files_metadata 
         WHERE tenant_id = $1 AND is_deleted = false
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -188,7 +186,7 @@ pub async fn get_dashboard_stats(
         SELECT COUNT(*) 
         FROM users 
         WHERE tenant_id = $1 AND status = 'active'
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -197,12 +195,10 @@ pub async fn get_dashboard_stats(
 
     // Get company count (for SuperAdmin)
     let company_count: (i64,) = if auth.role == "SuperAdmin" {
-        sqlx::query_as(
-            r#"SELECT COUNT(*) FROM tenants WHERE status = 'active'"#
-        )
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or((0,))
+        sqlx::query_as(r#"SELECT COUNT(*) FROM tenants WHERE status = 'active'"#)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or((0,))
     } else {
         (1,) // Just their own tenant
     };
@@ -215,7 +211,7 @@ pub async fn get_dashboard_stats(
         WHERE tenant_id = $1 
         AND is_deleted = false 
         AND is_directory = false
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -223,13 +219,12 @@ pub async fn get_dashboard_stats(
     .unwrap_or((0,));
 
     // Get storage quota for current tenant
-    let tenant_quota: (Option<i64>,) = sqlx::query_as(
-        "SELECT storage_quota_bytes FROM tenants WHERE id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((None,));
+    let tenant_quota: (Option<i64>,) =
+        sqlx::query_as("SELECT storage_quota_bytes FROM tenants WHERE id = $1")
+            .bind(auth.tenant_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or((None,));
 
     let response = json!({
         "storage_distribution": storage_data,
@@ -247,13 +242,17 @@ pub async fn get_dashboard_stats(
             "storage_quota_formatted": tenant_quota.0.map(format_bytes)
         }
     });
-    
+
     // Cache the response for 60 seconds
     if let Some(ref cache) = state.cache {
-        let cache_data = DashboardStatsCache { data: response.clone() };
-        let _ = cache.set(&cache_key, &cache_data, cache_ttl::DASHBOARD).await;
+        let cache_data = DashboardStatsCache {
+            data: response.clone(),
+        };
+        let _ = cache
+            .set(&cache_key, &cache_data, cache_ttl::DASHBOARD)
+            .await;
     }
-    
+
     Ok(Json(response))
 }
 
@@ -279,7 +278,7 @@ pub async fn get_file_types(
         GROUP BY content_type
         ORDER BY count DESC
         LIMIT 10
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_all(&state.pool)
@@ -295,7 +294,7 @@ pub async fn get_file_types(
         SELECT COUNT(*) 
         FROM files_metadata 
         WHERE tenant_id = $1 AND is_deleted = false AND is_directory = false
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -325,9 +324,13 @@ pub async fn get_file_types(
 fn get_file_type_label(content_type: &str) -> String {
     match content_type {
         "application/pdf" => "PDF".to_string(),
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "Documents".to_string(),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            "Documents".to_string()
+        }
         "application/msword" => "Documents".to_string(),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "Spreadsheets".to_string(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+            "Spreadsheets".to_string()
+        }
         "application/vnd.ms-excel" => "Spreadsheets".to_string(),
         "text/plain" => "Text Files".to_string(),
         "text/csv" => "CSV".to_string(),
@@ -375,17 +378,14 @@ pub async fn get_replication_status(
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
-    let status = clovalink_core::replication::get_status(
-        &state.pool,
-        &state.replication_config
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get replication status: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    
+
+    let status = clovalink_core::replication::get_status(&state.pool, &state.replication_config)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get replication status: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     Ok(Json(json!(status)))
 }
 
@@ -409,23 +409,19 @@ pub async fn get_replication_jobs(
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
     let status_filter = query.status.as_deref();
-    
-    let jobs = clovalink_core::replication::get_pending_jobs(
-        &state.pool,
-        status_filter,
-        limit,
-        offset
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get replication jobs: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    
+
+    let jobs =
+        clovalink_core::replication::get_pending_jobs(&state.pool, status_filter, limit, offset)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get replication jobs: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
     Ok(Json(json!({
         "jobs": jobs,
         "limit": limit,
@@ -444,16 +440,16 @@ pub async fn retry_failed_jobs(
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let count = clovalink_core::replication::retry_failed_jobs(&state.pool)
         .await
         .map_err(|e| {
             tracing::error!("Failed to retry failed jobs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     tracing::info!(target: "replication", "Reset {} failed jobs for retry", count);
-    
+
     Ok(Json(json!({
         "message": "Failed jobs reset for retry",
         "jobs_reset": count

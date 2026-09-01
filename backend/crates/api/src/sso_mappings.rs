@@ -15,8 +15,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::{require_super_admin, AuthUser};
 use crate::AppState;
+use clovalink_auth::{require_super_admin, AuthUser};
 
 // ==================== Models ====================
 
@@ -108,12 +108,18 @@ pub async fn create_mapping(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     if protocol != "oidc" && protocol != "saml" {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid protocol"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid protocol"})),
+        ));
     }
 
     let match_type = input.match_type.unwrap_or_else(|| "exact".to_string());
     if !["exact", "contains", "regex"].contains(&match_type.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid match_type. Must be: exact, contains, regex"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid match_type. Must be: exact, contains, regex"})),
+        ));
     }
 
     // Validate regex if match_type is regex (with size limit to prevent ReDoS)
@@ -122,7 +128,10 @@ pub async fn create_mapping(
             .size_limit(10_000)
             .build()
         {
-            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid regex: {}", e)}))));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid regex: {}", e)})),
+            ));
         }
     }
 
@@ -154,9 +163,15 @@ pub async fn create_mapping(
     .map_err(|e| {
         tracing::error!("Failed to create mapping: {:?}", e);
         if e.to_string().contains("duplicate") {
-            (StatusCode::CONFLICT, Json(json!({"error": "Mapping already exists for this attribute name and value"})))
+            (
+                StatusCode::CONFLICT,
+                Json(json!({"error": "Mapping already exists for this attribute name and value"})),
+            )
         } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create mapping"})))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to create mapping"})),
+            )
         }
     })?;
 
@@ -174,20 +189,32 @@ pub async fn update_mapping(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Verify mapping belongs to this tenant
-    let existing: Option<AttributeMapping> = sqlx::query_as(
-        "SELECT * FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(mapping_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let existing: Option<AttributeMapping> =
+        sqlx::query_as("SELECT * FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2")
+            .bind(mapping_id)
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?;
 
-    let existing = existing.ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Mapping not found"}))))?;
+    let existing = existing.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Mapping not found"})),
+        )
+    })?;
 
     let match_type = input.match_type.unwrap_or(existing.match_type);
     if !["exact", "contains", "regex"].contains(&match_type.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid match_type"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid match_type"})),
+        ));
     }
 
     let attr_value = input.attribute_value.unwrap_or(existing.attribute_value);
@@ -196,7 +223,10 @@ pub async fn update_mapping(
             .size_limit(10_000)
             .build()
         {
-            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": format!("Invalid regex: {}", e)}))));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid regex: {}", e)})),
+            ));
         }
     }
 
@@ -221,7 +251,11 @@ pub async fn update_mapping(
     .bind(&attr_value)
     .bind(&match_type)
     .bind(input.target_role.unwrap_or(existing.target_role))
-    .bind(input.target_custom_role_id.or(existing.target_custom_role_id))
+    .bind(
+        input
+            .target_custom_role_id
+            .or(existing.target_custom_role_id),
+    )
     .bind(input.target_department_id.or(existing.target_department_id))
     .bind(input.priority.unwrap_or(existing.priority))
     .bind(input.enabled.unwrap_or(existing.enabled))
@@ -229,7 +263,10 @@ pub async fn update_mapping(
     .await
     .map_err(|e| {
         tracing::error!("Failed to update mapping: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update mapping"})))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to update mapping"})),
+        )
     })?;
 
     Ok(Json(mapping))
@@ -244,17 +281,23 @@ pub async fn delete_mapping(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
-    let result = sqlx::query(
-        "DELETE FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(mapping_id)
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
+    let result = sqlx::query("DELETE FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2")
+        .bind(mapping_id)
+        .bind(auth.tenant_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?;
 
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Mapping not found"}))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Mapping not found"})),
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)

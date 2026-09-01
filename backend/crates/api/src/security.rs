@@ -11,12 +11,12 @@ use axum::{
     response::Json,
     Extension,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 use crate::AppState;
 use clovalink_auth::AuthUser;
@@ -105,7 +105,7 @@ pub async fn list_alerts(
                 END,
                 sa.created_at DESC
             LIMIT $4 OFFSET $5
-            "#
+            "#,
         )
         .bind(&params.severity)
         .bind(&params.alert_type)
@@ -141,7 +141,7 @@ pub async fn list_alerts(
                 END,
                 sa.created_at DESC
             LIMIT $5 OFFSET $6
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .bind(&params.severity)
@@ -165,7 +165,7 @@ pub async fn list_alerts(
             WHERE ($1::text IS NULL OR severity = $1)
             AND ($2::text IS NULL OR alert_type = $2)
             AND ($3::boolean IS NULL OR resolved = $3)
-            "#
+            "#,
         )
         .bind(&params.severity)
         .bind(&params.alert_type)
@@ -181,7 +181,7 @@ pub async fn list_alerts(
             AND ($2::text IS NULL OR severity = $2)
             AND ($3::text IS NULL OR alert_type = $3)
             AND ($4::boolean IS NULL OR resolved = $4)
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .bind(&params.severity)
@@ -270,9 +270,10 @@ pub async fn get_alert_stats(
     let is_superadmin = auth.role == "SuperAdmin";
 
     // Get counts by severity
-    let (total, critical, high, medium, low, unresolved): (i64, i64, i64, i64, i64, i64) = if is_superadmin {
-        sqlx::query_as(
-            r#"
+    let (total, critical, high, medium, low, unresolved): (i64, i64, i64, i64, i64, i64) =
+        if is_superadmin {
+            sqlx::query_as(
+                r#"
             SELECT 
                 COUNT(*),
                 COUNT(*) FILTER (WHERE severity = 'critical'),
@@ -281,14 +282,14 @@ pub async fn get_alert_stats(
                 COUNT(*) FILTER (WHERE severity = 'low'),
                 COUNT(*) FILTER (WHERE resolved = false)
             FROM security_alerts
-            "#
-        )
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        sqlx::query_as(
-            r#"
+            "#,
+            )
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        } else {
+            sqlx::query_as(
+                r#"
             SELECT 
                 COUNT(*),
                 COUNT(*) FILTER (WHERE severity = 'critical'),
@@ -298,13 +299,13 @@ pub async fn get_alert_stats(
                 COUNT(*) FILTER (WHERE resolved = false)
             FROM security_alerts
             WHERE tenant_id = $1
-            "#
-        )
-        .bind(auth.tenant_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    };
+            "#,
+            )
+            .bind(auth.tenant_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        };
 
     // Get counts by type
     let by_type: Vec<TypeCount> = if is_superadmin {
@@ -315,7 +316,7 @@ pub async fn get_alert_stats(
             WHERE resolved = false
             GROUP BY alert_type
             ORDER BY count DESC
-            "#
+            "#,
         )
         .fetch_all(&state.pool)
         .await
@@ -328,7 +329,7 @@ pub async fn get_alert_stats(
             WHERE tenant_id = $1 AND resolved = false
             GROUP BY alert_type
             ORDER BY count DESC
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .fetch_all(&state.pool)
@@ -360,13 +361,12 @@ pub async fn resolve_alert(
     }
 
     // Verify access to this alert
-    let alert: Option<(Option<Uuid>,)> = sqlx::query_as(
-        "SELECT tenant_id FROM security_alerts WHERE id = $1"
-    )
-    .bind(alert_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let alert: Option<(Option<Uuid>,)> =
+        sqlx::query_as("SELECT tenant_id FROM security_alerts WHERE id = $1")
+            .bind(alert_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let alert = alert.ok_or(StatusCode::NOT_FOUND)?;
 
@@ -385,7 +385,7 @@ pub async fn resolve_alert(
         UPDATE security_alerts 
         SET resolved = true, resolved_by = $1, resolved_at = NOW()
         WHERE id = $2
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(alert_id)
@@ -398,7 +398,7 @@ pub async fn resolve_alert(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, ip_address)
         VALUES ($1, $2, 'security_alert_resolved', 'security_alert', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -408,7 +408,9 @@ pub async fn resolve_alert(
     .await
     .ok();
 
-    Ok(Json(json!({ "success": true, "message": "Alert resolved" })))
+    Ok(Json(
+        json!({ "success": true, "message": "Alert resolved" }),
+    ))
 }
 
 /// Dismiss an alert (mark as false positive)
@@ -424,13 +426,12 @@ pub async fn dismiss_alert(
     }
 
     // Verify access to this alert
-    let alert: Option<(Option<Uuid>,)> = sqlx::query_as(
-        "SELECT tenant_id FROM security_alerts WHERE id = $1"
-    )
-    .bind(alert_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let alert: Option<(Option<Uuid>,)> =
+        sqlx::query_as("SELECT tenant_id FROM security_alerts WHERE id = $1")
+            .bind(alert_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let alert = alert.ok_or(StatusCode::NOT_FOUND)?;
 
@@ -455,7 +456,7 @@ pub async fn dismiss_alert(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, ip_address)
         VALUES ($1, $2, 'security_alert_dismissed', 'security_alert', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -465,7 +466,9 @@ pub async fn dismiss_alert(
     .await
     .ok();
 
-    Ok(Json(json!({ "success": true, "message": "Alert dismissed" })))
+    Ok(Json(
+        json!({ "success": true, "message": "Alert dismissed" }),
+    ))
 }
 
 /// Bulk action on alerts
@@ -498,7 +501,7 @@ pub async fn bulk_alert_action(
             r#"
             SELECT COUNT(*) FROM security_alerts 
             WHERE id = ANY($1) AND (tenant_id IS NULL OR tenant_id != $2)
-            "#
+            "#,
         )
         .bind(&payload.ids)
         .bind(auth.tenant_id)
@@ -519,7 +522,7 @@ pub async fn bulk_alert_action(
                     UPDATE security_alerts 
                     SET resolved = true, resolved_by = $1, resolved_at = NOW()
                     WHERE id = ANY($2)
-                    "#
+                    "#,
                 )
                 .bind(auth.user_id)
                 .bind(&payload.ids)
@@ -531,7 +534,7 @@ pub async fn bulk_alert_action(
                     UPDATE security_alerts 
                     SET resolved = true, resolved_by = $1, resolved_at = NOW()
                     WHERE id = ANY($2) AND tenant_id = $3
-                    "#
+                    "#,
                 )
                 .bind(auth.user_id)
                 .bind(&payload.ids)
@@ -539,7 +542,9 @@ pub async fn bulk_alert_action(
                 .execute(&state.pool)
                 .await
             };
-            result.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.rows_affected()
+            result
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .rows_affected()
         }
         "dismiss" => {
             let result = if is_superadmin {
@@ -554,7 +559,9 @@ pub async fn bulk_alert_action(
                     .execute(&state.pool)
                     .await
             };
-            result.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.rows_affected()
+            result
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .rows_affected()
         }
         _ => return Err(StatusCode::BAD_REQUEST),
     };
@@ -564,7 +571,7 @@ pub async fn bulk_alert_action(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, $3, 'security_alert', $4, $5::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -575,8 +582,8 @@ pub async fn bulk_alert_action(
     .await
     .ok();
 
-    Ok(Json(json!({ 
-        "success": true, 
+    Ok(Json(json!({
+        "success": true,
         "affected": affected,
         "message": format!("{} alerts {}", affected, if payload.action == "resolve" { "resolved" } else { "dismissed" })
     })))
@@ -598,7 +605,7 @@ pub async fn get_alert_badge(
             r#"
             SELECT COUNT(*) FROM security_alerts
             WHERE resolved = false AND severity IN ('critical', 'high')
-            "#
+            "#,
         )
         .fetch_one(&state.pool)
         .await
@@ -608,7 +615,7 @@ pub async fn get_alert_badge(
             r#"
             SELECT COUNT(*) FROM security_alerts
             WHERE tenant_id = $1 AND resolved = false AND severity IN ('critical', 'high')
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .fetch_one(&state.pool)
@@ -618,4 +625,3 @@ pub async fn get_alert_badge(
 
     Ok(Json(json!({ "count": count.0 })))
 }
-

@@ -18,8 +18,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::middleware::AuthUser;
 use crate::AppState;
+use clovalink_auth::middleware::AuthUser;
 
 // ==================== Configuration ====================
 
@@ -36,7 +36,7 @@ impl DiscordConfig {
         let client_id = std::env::var("DISCORD_CLIENT_ID").ok()?;
         let client_secret = std::env::var("DISCORD_CLIENT_SECRET").ok()?;
         let redirect_uri = std::env::var("DISCORD_REDIRECT_URI").ok()?;
-        
+
         Some(Self {
             client_id,
             client_secret,
@@ -108,14 +108,13 @@ pub async fn get_discord_settings(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<TenantDiscordSettings>, StatusCode> {
-    let settings: Option<(bool,)> = sqlx::query_as(
-        "SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let settings: Option<(bool,)> =
+        sqlx::query_as("SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1")
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(TenantDiscordSettings {
         enabled: settings.map(|s| s.0).unwrap_or(false),
     }))
@@ -131,9 +130,9 @@ pub async fn update_discord_settings(
     if auth.role != "Admin" && auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let enabled = input["enabled"].as_bool().unwrap_or(false);
-    
+
     sqlx::query(
         r#"
         INSERT INTO tenant_discord_settings (tenant_id, enabled)
@@ -141,14 +140,14 @@ pub async fn update_discord_settings(
         ON CONFLICT (tenant_id) DO UPDATE SET
             enabled = EXCLUDED.enabled,
             updated_at = NOW()
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(enabled)
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(json!({ "enabled": enabled })))
 }
 
@@ -160,8 +159,9 @@ pub async fn get_connection_status(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<DiscordConnectionStatus>, StatusCode> {
-    let connection: Option<(String, Option<String>, bool, bool, bool, bool, bool)> = sqlx::query_as(
-        r#"
+    let connection: Option<(String, Option<String>, bool, bool, bool, bool, bool)> =
+        sqlx::query_as(
+            r#"
         SELECT 
             discord_username,
             discord_avatar,
@@ -172,16 +172,25 @@ pub async fn get_connection_status(
             notify_file_requests
         FROM user_discord_connections
         WHERE user_id = $1
-        "#
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+        "#,
+        )
+        .bind(auth.user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     match connection {
-        Some((username, avatar, dm_enabled, file_shared, file_uploaded, comments, file_requests)) => {
-            let avatar_url = avatar.map(|a| format!("https://cdn.discordapp.com/avatars/{}/{}.png", username, a));
+        Some((
+            username,
+            avatar,
+            dm_enabled,
+            file_shared,
+            file_uploaded,
+            comments,
+            file_requests,
+        )) => {
+            let avatar_url = avatar
+                .map(|a| format!("https://cdn.discordapp.com/avatars/{}/{}.png", username, a));
             Ok(Json(DiscordConnectionStatus {
                 connected: true,
                 discord_username: Some(username),
@@ -193,18 +202,16 @@ pub async fn get_connection_status(
                 notify_file_requests: file_requests,
             }))
         }
-        None => {
-            Ok(Json(DiscordConnectionStatus {
-                connected: false,
-                discord_username: None,
-                discord_avatar_url: None,
-                dm_notifications_enabled: true,
-                notify_file_shared: true,
-                notify_file_uploaded: true,
-                notify_comments: true,
-                notify_file_requests: true,
-            }))
-        }
+        None => Ok(Json(DiscordConnectionStatus {
+            connected: false,
+            discord_username: None,
+            discord_avatar_url: None,
+            dm_notifications_enabled: true,
+            notify_file_shared: true,
+            notify_file_uploaded: true,
+            notify_comments: true,
+            notify_file_requests: true,
+        })),
     }
 }
 
@@ -218,30 +225,40 @@ pub async fn start_oauth(
 ) -> Result<Redirect, (StatusCode, Json<Value>)> {
     // Check if Discord is configured
     let config = DiscordConfig::from_env().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({
-            "error": "Discord integration is not configured"
-        })))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": "Discord integration is not configured"
+            })),
+        )
     })?;
-    
+
     // Check if Discord is enabled for tenant
-    let enabled: Option<(bool,)> = sqlx::query_as(
-        "SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?;
-    
+    let enabled: Option<(bool,)> =
+        sqlx::query_as("SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1")
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Database error"})),
+                )
+            })?;
+
     if !enabled.map(|e| e.0).unwrap_or(false) {
-        return Err((StatusCode::FORBIDDEN, Json(json!({
-            "error": "Discord is not enabled for your organization"
-        }))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Discord is not enabled for your organization"
+            })),
+        ));
     }
-    
+
     // Generate state token for CSRF protection
     let state_token = format!("{}", Uuid::new_v4());
     let expires_at = Utc::now() + Duration::minutes(10);
-    
+
     sqlx::query(
         "INSERT INTO discord_oauth_states (state, user_id, tenant_id, expires_at) VALUES ($1, $2, $3, $4)"
     )
@@ -252,7 +269,7 @@ pub async fn start_oauth(
     .execute(&state.pool)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create OAuth state"}))))?;
-    
+
     // Build Discord OAuth URL
     let oauth_url = format!(
         "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}",
@@ -260,7 +277,7 @@ pub async fn start_oauth(
         urlencoding::encode(&config.redirect_uri),
         state_token
     );
-    
+
     Ok(Redirect::temporary(&oauth_url))
 }
 
@@ -275,10 +292,14 @@ pub async fn oauth_callback(
         tracing::warn!("Discord OAuth error: {}", error);
         return Ok(Redirect::temporary("/settings?discord=error"));
     }
-    
-    let code = params.code.ok_or((StatusCode::BAD_REQUEST, "Missing code".to_string()))?;
-    let state_token = params.state.ok_or((StatusCode::BAD_REQUEST, "Missing state".to_string()))?;
-    
+
+    let code = params
+        .code
+        .ok_or((StatusCode::BAD_REQUEST, "Missing code".to_string()))?;
+    let state_token = params
+        .state
+        .ok_or((StatusCode::BAD_REQUEST, "Missing state".to_string()))?;
+
     // Validate state token
     let state_record: Option<(Uuid, Uuid)> = sqlx::query_as(
         "SELECT user_id, tenant_id FROM discord_oauth_states WHERE state = $1 AND expires_at > NOW()"
@@ -287,18 +308,24 @@ pub async fn oauth_callback(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
-    
-    let (user_id, tenant_id) = state_record.ok_or((StatusCode::BAD_REQUEST, "Invalid or expired state".to_string()))?;
-    
+
+    let (user_id, tenant_id) = state_record.ok_or((
+        StatusCode::BAD_REQUEST,
+        "Invalid or expired state".to_string(),
+    ))?;
+
     // Delete used state token
     let _ = sqlx::query("DELETE FROM discord_oauth_states WHERE state = $1")
         .bind(&state_token)
         .execute(&state.pool)
         .await;
-    
+
     // Get Discord config
-    let config = DiscordConfig::from_env().ok_or((StatusCode::SERVICE_UNAVAILABLE, "Discord not configured".to_string()))?;
-    
+    let config = DiscordConfig::from_env().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Discord not configured".to_string(),
+    ))?;
+
     // Exchange code for token
     let client = Client::new();
     let token_response = client
@@ -313,18 +340,20 @@ pub async fn oauth_callback(
         .send()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Discord API error: {}", e)))?;
-    
+
     if !token_response.status().is_success() {
         let error_text = token_response.text().await.unwrap_or_default();
         tracing::error!("Discord token exchange failed: {}", error_text);
         return Ok(Redirect::temporary("/settings?discord=error"));
     }
-    
-    let tokens: DiscordTokenResponse = token_response
-        .json()
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "Invalid Discord response".to_string()))?;
-    
+
+    let tokens: DiscordTokenResponse = token_response.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            "Invalid Discord response".to_string(),
+        )
+    })?;
+
     // Get user info from Discord
     let user_response = client
         .get("https://discord.com/api/v10/users/@me")
@@ -332,19 +361,21 @@ pub async fn oauth_callback(
         .send()
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Discord API error: {}", e)))?;
-    
+
     if !user_response.status().is_success() {
         return Ok(Redirect::temporary("/settings?discord=error"));
     }
-    
-    let discord_user: DiscordUser = user_response
-        .json()
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "Invalid Discord user response".to_string()))?;
-    
+
+    let discord_user: DiscordUser = user_response.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            "Invalid Discord user response".to_string(),
+        )
+    })?;
+
     // Calculate token expiration
     let expires_at = Utc::now() + Duration::seconds(tokens.expires_in);
-    
+
     // Store connection (upsert)
     // NOTE: In production, encrypt access_token and refresh_token before storing
     sqlx::query(
@@ -379,9 +410,9 @@ pub async fn oauth_callback(
         tracing::error!("Failed to store Discord connection: {:?}", e);
         (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save connection".to_string())
     })?;
-    
+
     tracing::info!(user_id = %user_id, discord_user = %discord_user.username, "Discord account connected");
-    
+
     Ok(Redirect::temporary("/settings?discord=connected"))
 }
 
@@ -396,9 +427,9 @@ pub async fn disconnect(
         .execute(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     tracing::info!(user_id = %auth.user_id, "Discord account disconnected");
-    
+
     Ok(Json(json!({ "success": true })))
 }
 
@@ -411,12 +442,14 @@ pub async fn update_preferences(
     Extension(auth): Extension<AuthUser>,
     Json(input): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let dm_notifications_enabled = input.get("dm_notifications_enabled").and_then(|v| v.as_bool());
+    let dm_notifications_enabled = input
+        .get("dm_notifications_enabled")
+        .and_then(|v| v.as_bool());
     let notify_file_shared = input.get("notify_file_shared").and_then(|v| v.as_bool());
     let notify_file_uploaded = input.get("notify_file_uploaded").and_then(|v| v.as_bool());
     let notify_comments = input.get("notify_comments").and_then(|v| v.as_bool());
     let notify_file_requests = input.get("notify_file_requests").and_then(|v| v.as_bool());
-    
+
     sqlx::query(
         r#"
         UPDATE user_discord_connections
@@ -428,7 +461,7 @@ pub async fn update_preferences(
             notify_file_requests = COALESCE($6, notify_file_requests),
             updated_at = NOW()
         WHERE user_id = $1
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(dm_notifications_enabled)
@@ -439,7 +472,7 @@ pub async fn update_preferences(
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(json!({ "success": true })))
 }
 
@@ -449,15 +482,14 @@ pub async fn update_preferences(
 
 /// Check if Discord is enabled for a tenant
 pub async fn is_discord_enabled(pool: &sqlx::PgPool, tenant_id: Uuid) -> bool {
-    let enabled: Option<(bool,)> = sqlx::query_as(
-        "SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    
+    let enabled: Option<(bool,)> =
+        sqlx::query_as("SELECT enabled FROM tenant_discord_settings WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+
     enabled.map(|e| e.0).unwrap_or(false)
 }
 
@@ -482,21 +514,28 @@ pub async fn send_dm(
             notify_file_requests
         FROM user_discord_connections
         WHERE user_id = $1
-        "#
+        "#,
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| format!("Database error: {}", e))?;
-    
-    let (discord_user_id, access_token, dm_enabled, file_shared, file_uploaded, comments, file_requests) = 
-        connection.ok_or("User not connected to Discord")?;
-    
+
+    let (
+        discord_user_id,
+        access_token,
+        dm_enabled,
+        file_shared,
+        file_uploaded,
+        comments,
+        file_requests,
+    ) = connection.ok_or("User not connected to Discord")?;
+
     // Check if notifications are enabled for this event type
     if !dm_enabled {
         return Ok(()); // DMs disabled, silently skip
     }
-    
+
     let should_send = match event_type {
         "file_shared" => file_shared,
         "file_uploaded" => file_uploaded,
@@ -504,11 +543,11 @@ pub async fn send_dm(
         "file_request" => file_requests,
         _ => true,
     };
-    
+
     if !should_send {
         return Ok(()); // This notification type disabled
     }
-    
+
     // Create DM channel
     let client = Client::new();
     let channel_response = client
@@ -518,29 +557,35 @@ pub async fn send_dm(
         .send()
         .await
         .map_err(|e| format!("Discord API error: {}", e))?;
-    
+
     if !channel_response.status().is_success() {
         let error = channel_response.text().await.unwrap_or_default();
         return Err(format!("Failed to create DM channel: {}", error));
     }
-    
-    let channel: Value = channel_response.json().await.map_err(|_| "Invalid channel response")?;
+
+    let channel: Value = channel_response
+        .json()
+        .await
+        .map_err(|_| "Invalid channel response")?;
     let channel_id = channel["id"].as_str().ok_or("Missing channel ID")?;
-    
+
     // Send message
     let message_response = client
-        .post(format!("https://discord.com/api/v10/channels/{}/messages", channel_id))
+        .post(format!(
+            "https://discord.com/api/v10/channels/{}/messages",
+            channel_id
+        ))
         .header("Authorization", format!("Bearer {}", access_token))
         .json(&json!({ "content": message }))
         .send()
         .await
         .map_err(|e| format!("Discord API error: {}", e))?;
-    
+
     if !message_response.status().is_success() {
         let error = message_response.text().await.unwrap_or_default();
         return Err(format!("Failed to send message: {}", error));
     }
-    
+
     tracing::info!(user_id = %user_id, event = %event_type, "Discord DM sent");
     Ok(())
 }
@@ -557,7 +602,7 @@ pub async fn test_connection(
         "test",
         "🎉 **ClovaLink Test Message**\n\nYour Discord notifications are working! You'll receive messages here when files are shared with you."
     ).await;
-    
+
     match result {
         Ok(()) => Ok(Json(json!({ "success": true }))),
         Err(e) => {
@@ -581,12 +626,12 @@ pub async fn notify_file_upload(
     if !is_discord_enabled(pool, tenant_id).await {
         return;
     }
-    
+
     let message = format!(
         "📁 **New File Uploaded**\n\n**{}** uploaded `{}` to your file request \"{}\".",
         uploader_name, file_name, request_name
     );
-    
+
     if let Err(e) = send_dm(pool, user_id, "file_uploaded", &message).await {
         tracing::debug!(user_id = %user_id, error = %e, "Discord file upload notification failed");
     }
@@ -604,7 +649,7 @@ pub async fn notify_file_shared(
     if !is_discord_enabled(pool, tenant_id).await {
         return;
     }
-    
+
     let message = if let Some(link) = share_link {
         format!(
             "🔗 **File Shared With You**\n\n**{}** shared `{}` with you.\n\nView: {}",
@@ -616,7 +661,7 @@ pub async fn notify_file_shared(
             sharer_name, file_name
         )
     };
-    
+
     if let Err(e) = send_dm(pool, recipient_id, "file_shared", &message).await {
         tracing::debug!(user_id = %recipient_id, error = %e, "Discord file shared notification failed");
     }
@@ -634,18 +679,18 @@ pub async fn notify_comment(
     if !is_discord_enabled(pool, tenant_id).await {
         return;
     }
-    
+
     let preview = if comment_preview.len() > 100 {
         format!("{}...", &comment_preview[..100])
     } else {
         comment_preview.to_string()
     };
-    
+
     let message = format!(
         "💬 **New Comment**\n\n**{}** commented on `{}`:\n> {}",
         commenter_name, file_name, preview
     );
-    
+
     if let Err(e) = send_dm(pool, owner_id, "comment", &message).await {
         tracing::debug!(user_id = %owner_id, error = %e, "Discord comment notification failed");
     }
@@ -664,18 +709,17 @@ pub async fn notify_file_request(
     if !is_discord_enabled(pool, tenant_id).await {
         return;
     }
-    
+
     let expiry_text = expires_at
         .map(|e| format!("\n\nExpires: {}", e))
         .unwrap_or_default();
-    
+
     let message = format!(
         "📨 **New File Request**\n\n**{}** is requesting files for \"{}\"{}",
         requester_name, request_name, expiry_text
     );
-    
+
     if let Err(e) = send_dm(pool, recipient_id, "file_request", &message).await {
         tracing::debug!(user_id = %recipient_id, error = %e, "Discord file request notification failed");
     }
 }
-

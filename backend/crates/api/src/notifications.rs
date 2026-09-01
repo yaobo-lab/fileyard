@@ -1,17 +1,17 @@
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use chrono::{DateTime, Utc};
+use clovalink_auth::{require_admin, AuthUser};
+use clovalink_core::notification_service::{Notification, NotificationPreference};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
 use std::sync::Arc;
-use clovalink_auth::{AuthUser, require_admin};
-use clovalink_core::notification_service::{Notification, NotificationPreference};
-use crate::AppState;
+use uuid::Uuid;
 
 // ==================== Tenant Notification Settings ====================
 
@@ -25,20 +25,20 @@ pub struct TenantNotificationSetting {
     pub in_app_enforced: bool,
     pub default_email: bool,
     pub default_in_app: bool,
-    pub role: Option<String>,  // NULL = all roles, specific value = role-specific
+    pub role: Option<String>, // NULL = all roles, specific value = role-specific
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TenantSettingsQuery {
-    pub role: Option<String>,  // Filter by role (NULL for global settings)
+    pub role: Option<String>, // Filter by role (NULL for global settings)
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTenantSettingsInput {
     pub settings: Vec<TenantSettingUpdate>,
-    pub role: Option<String>,  // Which role to update (NULL for global)
+    pub role: Option<String>, // Which role to update (NULL for global)
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,7 +107,7 @@ pub async fn list_notifications(
             WHERE user_id = $1 AND is_read = false
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3
-            "#
+            "#,
         )
         .bind(auth.user_id)
         .bind(limit)
@@ -125,7 +125,7 @@ pub async fn list_notifications(
             WHERE user_id = $1
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3
-            "#
+            "#,
         )
         .bind(auth.user_id)
         .bind(limit)
@@ -154,13 +154,12 @@ pub async fn list_notifications(
     };
 
     // Get unread count
-    let unread_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false"
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let unread_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false")
+            .bind(auth.user_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or((0,));
 
     Ok(Json(NotificationListResponse {
         notifications,
@@ -177,13 +176,12 @@ pub async fn get_unread_count(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false"
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false")
+            .bind(auth.user_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or((0,));
 
     Ok(Json(json!({ "unread_count": count.0 })))
 }
@@ -195,17 +193,16 @@ pub async fn mark_as_read(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let result = sqlx::query(
-        "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2"
-    )
-    .bind(notification_id)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to mark notification as read: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let result =
+        sqlx::query("UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2")
+            .bind(notification_id)
+            .bind(auth.user_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to mark notification as read: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);
@@ -221,7 +218,7 @@ pub async fn mark_all_as_read(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     let result = sqlx::query(
-        "UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false"
+        "UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false",
     )
     .bind(auth.user_id)
     .execute(&state.pool)
@@ -231,9 +228,9 @@ pub async fn mark_all_as_read(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(Json(json!({ 
-        "success": true, 
-        "marked_count": result.rows_affected() 
+    Ok(Json(json!({
+        "success": true,
+        "marked_count": result.rows_affected()
     })))
 }
 
@@ -244,17 +241,15 @@ pub async fn delete_notification(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let result = sqlx::query(
-        "DELETE FROM notifications WHERE id = $1 AND user_id = $2"
-    )
-    .bind(notification_id)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to delete notification: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let result = sqlx::query("DELETE FROM notifications WHERE id = $1 AND user_id = $2")
+        .bind(notification_id)
+        .bind(auth.user_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete notification: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);
@@ -271,7 +266,7 @@ pub async fn get_preferences(
 ) -> Result<Json<Vec<NotificationPreference>>, StatusCode> {
     // Get existing preferences
     let preferences: Vec<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type"
+        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
     )
     .bind(auth.user_id)
     .fetch_all(&state.pool)
@@ -308,7 +303,7 @@ pub async fn get_preferences(
 
         // Fetch again
         let preferences: Vec<NotificationPreference> = sqlx::query_as(
-            "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type"
+            "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
         )
         .bind(auth.user_id)
         .fetch_all(&state.pool)
@@ -335,7 +330,7 @@ pub async fn update_preferences(
         // Build dynamic update query
         let mut updates = Vec::new();
         let mut bind_index = 3; // user_id is $1, event_type is $2
-        
+
         if pref.email_enabled.is_some() {
             updates.push(format!("email_enabled = ${}", bind_index));
             bind_index += 1;
@@ -381,8 +376,7 @@ pub async fn update_preferences(
 
 /// Get notification preference labels for UI
 /// GET /api/notifications/preference-labels
-pub async fn get_preference_labels(
-) -> Result<Json<Value>, StatusCode> {
+pub async fn get_preference_labels() -> Result<Json<Value>, StatusCode> {
     Ok(Json(json!([
         {
             "event_type": "file_upload",
@@ -429,7 +423,7 @@ pub async fn get_tenant_notification_settings(
 ) -> Result<Json<Value>, StatusCode> {
     // Check permissions - must be admin of the tenant
     require_admin(&auth)?;
-    
+
     // Verify user has access to this tenant
     if auth.tenant_id != tenant_id && auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
@@ -488,60 +482,64 @@ pub async fn get_tenant_notification_settings(
     })?;
 
     // Group settings by role
-    let global_settings: Vec<&TenantNotificationSetting> = all_settings.iter()
-        .filter(|s| s.role.is_none())
-        .collect();
-    
-    let role_settings: std::collections::HashMap<String, Vec<&TenantNotificationSetting>> = all_settings.iter()
-        .filter(|s| s.role.is_some())
-        .fold(std::collections::HashMap::new(), |mut acc, s| {
-            if let Some(ref role) = s.role {
-                acc.entry(role.clone()).or_insert_with(Vec::new).push(s);
-            }
-            acc
-        });
+    let global_settings: Vec<&TenantNotificationSetting> =
+        all_settings.iter().filter(|s| s.role.is_none()).collect();
+
+    let role_settings: std::collections::HashMap<String, Vec<&TenantNotificationSetting>> =
+        all_settings.iter().filter(|s| s.role.is_some()).fold(
+            std::collections::HashMap::new(),
+            |mut acc, s| {
+                if let Some(ref role) = s.role {
+                    acc.entry(role.clone()).or_insert_with(Vec::new).push(s);
+                }
+                acc
+            },
+        );
 
     // If a specific role is requested, return just those settings with inheritance info
     if let Some(ref role) = query.role {
         let role_specific = role_settings.get(role).cloned().unwrap_or_default();
-        
+
         // Build effective settings for this role (merging with global)
-        let effective: Vec<Value> = event_types.iter().map(|et| {
-            let global = global_settings.iter().find(|s| s.event_type == *et);
-            let specific = role_specific.iter().find(|s| s.event_type == *et);
-            
-            let (setting, inherited) = match (specific, global) {
-                (Some(s), _) => (Some(*s), false),
-                (None, Some(g)) => (Some(*g), true),
-                (None, None) => (None, true),
-            };
-            
-            if let Some(s) = setting {
-                json!({
-                    "id": s.id,
-                    "event_type": s.event_type,
-                    "enabled": s.enabled,
-                    "email_enforced": s.email_enforced,
-                    "in_app_enforced": s.in_app_enforced,
-                    "default_email": s.default_email,
-                    "default_in_app": s.default_in_app,
-                    "role": role,
-                    "inherited": inherited
-                })
-            } else {
-                json!({
-                    "event_type": et,
-                    "enabled": true,
-                    "email_enforced": false,
-                    "in_app_enforced": false,
-                    "default_email": true,
-                    "default_in_app": true,
-                    "role": role,
-                    "inherited": true
-                })
-            }
-        }).collect();
-        
+        let effective: Vec<Value> = event_types
+            .iter()
+            .map(|et| {
+                let global = global_settings.iter().find(|s| s.event_type == *et);
+                let specific = role_specific.iter().find(|s| s.event_type == *et);
+
+                let (setting, inherited) = match (specific, global) {
+                    (Some(s), _) => (Some(*s), false),
+                    (None, Some(g)) => (Some(*g), true),
+                    (None, None) => (None, true),
+                };
+
+                if let Some(s) = setting {
+                    json!({
+                        "id": s.id,
+                        "event_type": s.event_type,
+                        "enabled": s.enabled,
+                        "email_enforced": s.email_enforced,
+                        "in_app_enforced": s.in_app_enforced,
+                        "default_email": s.default_email,
+                        "default_in_app": s.default_in_app,
+                        "role": role,
+                        "inherited": inherited
+                    })
+                } else {
+                    json!({
+                        "event_type": et,
+                        "enabled": true,
+                        "email_enforced": false,
+                        "in_app_enforced": false,
+                        "default_email": true,
+                        "default_in_app": true,
+                        "role": role,
+                        "inherited": true
+                    })
+                }
+            })
+            .collect();
+
         return Ok(Json(json!({
             "role": role,
             "settings": effective
@@ -566,7 +564,7 @@ pub async fn update_tenant_notification_settings(
 ) -> Result<Json<Value>, StatusCode> {
     // Check permissions - must be admin of the tenant
     require_admin(&auth)?;
-    
+
     // Verify user has access to this tenant
     if auth.tenant_id != tenant_id && auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
@@ -642,7 +640,8 @@ pub async fn update_tenant_notification_settings(
 
     // Return updated settings for the same role
     let query = TenantSettingsQuery { role: target_role };
-    get_tenant_notification_settings(State(state), Extension(auth), Path(tenant_id), Query(query)).await
+    get_tenant_notification_settings(State(state), Extension(auth), Path(tenant_id), Query(query))
+        .await
 }
 
 /// Get user preferences with company settings overlay
@@ -654,7 +653,7 @@ pub async fn get_preferences_with_company_settings(
 ) -> Result<Json<Value>, StatusCode> {
     // Get user preferences
     let user_prefs: Vec<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type"
+        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
     )
     .bind(auth.user_id)
     .fetch_all(&state.pool)
@@ -685,7 +684,7 @@ pub async fn get_preferences_with_company_settings(
     // Get role-specific settings first, then fall back to global
     let event_types = vec![
         "file_upload",
-        "request_expiring", 
+        "request_expiring",
         "user_action",
         "compliance_alert",
         "storage_warning",
@@ -694,27 +693,32 @@ pub async fn get_preferences_with_company_settings(
 
     // Build effective company settings map for the user's role
     let mut company_settings_map = serde_json::Map::new();
-    
+
     for event_type in event_types {
         // Find role-specific setting first
-        let role_setting = all_settings.iter()
+        let role_setting = all_settings
+            .iter()
             .find(|s| s.event_type == event_type && s.role.as_deref() == Some(&auth.role));
-        
+
         // Fall back to global setting
-        let global_setting = all_settings.iter()
+        let global_setting = all_settings
+            .iter()
             .find(|s| s.event_type == event_type && s.role.is_none());
-        
+
         let effective = role_setting.or(global_setting);
-        
+
         if let Some(s) = effective {
-            company_settings_map.insert(event_type.to_string(), json!({
-                "enabled": s.enabled,
-                "email_enforced": s.email_enforced,
-                "in_app_enforced": s.in_app_enforced,
-                "default_email": s.default_email,
-                "default_in_app": s.default_in_app,
-                "role_specific": role_setting.is_some()
-            }));
+            company_settings_map.insert(
+                event_type.to_string(),
+                json!({
+                    "enabled": s.enabled,
+                    "email_enforced": s.email_enforced,
+                    "in_app_enforced": s.in_app_enforced,
+                    "default_email": s.default_email,
+                    "default_in_app": s.default_in_app,
+                    "role_specific": role_setting.is_some()
+                }),
+            );
         }
     }
 

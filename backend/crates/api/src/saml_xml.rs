@@ -64,13 +64,22 @@ pub fn generate_authn_request(
     root.push_attribute(("IssueInstant", issue_instant.as_str()));
     root.push_attribute(("Destination", idp_sso_url));
     root.push_attribute(("AssertionConsumerServiceURL", acs_url));
-    root.push_attribute(("ProtocolBinding", "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"));
+    root.push_attribute((
+        "ProtocolBinding",
+        "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+    ));
     writer.write_event(Event::Start(root)).ok();
 
     // Issuer
-    writer.write_event(Event::Start(BytesStart::new("saml:Issuer"))).ok();
-    writer.write_event(Event::Text(BytesText::new(sp_entity_id))).ok();
-    writer.write_event(Event::End(BytesEnd::new("saml:Issuer"))).ok();
+    writer
+        .write_event(Event::Start(BytesStart::new("saml:Issuer")))
+        .ok();
+    writer
+        .write_event(Event::Text(BytesText::new(sp_entity_id)))
+        .ok();
+    writer
+        .write_event(Event::End(BytesEnd::new("saml:Issuer")))
+        .ok();
 
     // NameIDPolicy
     let mut nid_policy = BytesStart::new("samlp:NameIDPolicy");
@@ -78,7 +87,9 @@ pub fn generate_authn_request(
     nid_policy.push_attribute(("AllowCreate", "true"));
     writer.write_event(Event::Empty(nid_policy)).ok();
 
-    writer.write_event(Event::End(BytesEnd::new("samlp:AuthnRequest"))).ok();
+    writer
+        .write_event(Event::End(BytesEnd::new("samlp:AuthnRequest")))
+        .ok();
 
     String::from_utf8(writer.into_inner().into_inner()).unwrap_or_default()
 }
@@ -143,7 +154,10 @@ pub fn generate_sp_metadata(
     let mut sp_sso = BytesStart::new("md:SPSSODescriptor");
     sp_sso.push_attribute(("AuthnRequestsSigned", "false"));
     sp_sso.push_attribute(("WantAssertionsSigned", "true"));
-    sp_sso.push_attribute(("protocolSupportEnumeration", "urn:oasis:names:tc:SAML:2.0:protocol"));
+    sp_sso.push_attribute((
+        "protocolSupportEnumeration",
+        "urn:oasis:names:tc:SAML:2.0:protocol",
+    ));
     writer.write_event(Event::Start(sp_sso)).ok();
 
     // Signing certificate (if provided)
@@ -158,20 +172,42 @@ pub fn generate_sp_metadata(
         kd.push_attribute(("use", "signing"));
         writer.write_event(Event::Start(kd)).ok();
 
-        writer.write_event(Event::Start(BytesStart::new("ds:KeyInfo"))).ok();
-        writer.write_event(Event::Start(BytesStart::new("ds:X509Data"))).ok();
-        writer.write_event(Event::Start(BytesStart::new("ds:X509Certificate"))).ok();
-        writer.write_event(Event::Text(BytesText::new(&cert_b64))).ok();
-        writer.write_event(Event::End(BytesEnd::new("ds:X509Certificate"))).ok();
-        writer.write_event(Event::End(BytesEnd::new("ds:X509Data"))).ok();
-        writer.write_event(Event::End(BytesEnd::new("ds:KeyInfo"))).ok();
-        writer.write_event(Event::End(BytesEnd::new("md:KeyDescriptor"))).ok();
+        writer
+            .write_event(Event::Start(BytesStart::new("ds:KeyInfo")))
+            .ok();
+        writer
+            .write_event(Event::Start(BytesStart::new("ds:X509Data")))
+            .ok();
+        writer
+            .write_event(Event::Start(BytesStart::new("ds:X509Certificate")))
+            .ok();
+        writer
+            .write_event(Event::Text(BytesText::new(&cert_b64)))
+            .ok();
+        writer
+            .write_event(Event::End(BytesEnd::new("ds:X509Certificate")))
+            .ok();
+        writer
+            .write_event(Event::End(BytesEnd::new("ds:X509Data")))
+            .ok();
+        writer
+            .write_event(Event::End(BytesEnd::new("ds:KeyInfo")))
+            .ok();
+        writer
+            .write_event(Event::End(BytesEnd::new("md:KeyDescriptor")))
+            .ok();
     }
 
     // NameIDFormat
-    writer.write_event(Event::Start(BytesStart::new("md:NameIDFormat"))).ok();
-    writer.write_event(Event::Text(BytesText::new(nameid_format))).ok();
-    writer.write_event(Event::End(BytesEnd::new("md:NameIDFormat"))).ok();
+    writer
+        .write_event(Event::Start(BytesStart::new("md:NameIDFormat")))
+        .ok();
+    writer
+        .write_event(Event::Text(BytesText::new(nameid_format)))
+        .ok();
+    writer
+        .write_event(Event::End(BytesEnd::new("md:NameIDFormat")))
+        .ok();
 
     // AssertionConsumerService
     let mut acs = BytesStart::new("md:AssertionConsumerService");
@@ -181,8 +217,12 @@ pub fn generate_sp_metadata(
     acs.push_attribute(("isDefault", "true"));
     writer.write_event(Event::Empty(acs)).ok();
 
-    writer.write_event(Event::End(BytesEnd::new("md:SPSSODescriptor"))).ok();
-    writer.write_event(Event::End(BytesEnd::new("md:EntityDescriptor"))).ok();
+    writer
+        .write_event(Event::End(BytesEnd::new("md:SPSSODescriptor")))
+        .ok();
+    writer
+        .write_event(Event::End(BytesEnd::new("md:EntityDescriptor")))
+        .ok();
 
     String::from_utf8(writer.into_inner().into_inner()).unwrap_or_default()
 }
@@ -195,8 +235,7 @@ pub fn parse_saml_response(base64_xml: &str) -> Result<SamlResponse, String> {
         .decode(base64_xml.replace(char::is_whitespace, ""))
         .map_err(|e| format!("Base64 decode error: {}", e))?;
 
-    let xml = String::from_utf8(xml_bytes)
-        .map_err(|e| format!("UTF-8 decode error: {}", e))?;
+    let xml = String::from_utf8(xml_bytes).map_err(|e| format!("UTF-8 decode error: {}", e))?;
 
     parse_saml_response_xml(&xml)
 }
@@ -281,7 +320,8 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "Value" {
-                                response.status_code = String::from_utf8_lossy(&attr.value).to_string();
+                                response.status_code =
+                                    String::from_utf8_lossy(&attr.value).to_string();
                             }
                         }
                     }
@@ -291,7 +331,8 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "Format" {
-                                assertion.name_id_format = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                assertion.name_id_format =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -302,10 +343,14 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                             let val = String::from_utf8_lossy(&attr.value).to_string();
                             match key.as_str() {
                                 "NotBefore" => {
-                                    assertion.not_before = DateTime::parse_from_rfc3339(&val).ok().map(|d| d.with_timezone(&Utc));
+                                    assertion.not_before = DateTime::parse_from_rfc3339(&val)
+                                        .ok()
+                                        .map(|d| d.with_timezone(&Utc));
                                 }
                                 "NotOnOrAfter" => {
-                                    assertion.not_on_or_after = DateTime::parse_from_rfc3339(&val).ok().map(|d| d.with_timezone(&Utc));
+                                    assertion.not_on_or_after = DateTime::parse_from_rfc3339(&val)
+                                        .ok()
+                                        .map(|d| d.with_timezone(&Utc));
                                 }
                                 _ => {}
                             }
@@ -321,7 +366,8 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "SessionIndex" {
-                                assertion.session_index = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                assertion.session_index =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -330,7 +376,8 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "Name" {
-                                current_attr_name = String::from_utf8_lossy(&attr.value).to_string();
+                                current_attr_name =
+                                    String::from_utf8_lossy(&attr.value).to_string();
                                 current_attr_values.clear();
                             }
                         }
@@ -397,10 +444,9 @@ fn parse_saml_response_xml(xml: &str) -> Result<SamlResponse, String> {
                     "AttributeStatement" => in_attribute_statement = false,
                     "Attribute" if in_attribute_statement => {
                         if !current_attr_name.is_empty() {
-                            assertion.attributes.insert(
-                                current_attr_name.clone(),
-                                current_attr_values.clone(),
-                            );
+                            assertion
+                                .attributes
+                                .insert(current_attr_name.clone(), current_attr_values.clone());
                         }
                         current_attr_name.clear();
                         current_attr_values.clear();

@@ -39,13 +39,13 @@ impl ApiUsageWriter {
     /// Create a new API usage writer with a background batch processor
     pub fn new(pool: PgPool) -> Self {
         let (sender, receiver) = mpsc::channel::<ApiMetric>(10000);
-        
+
         // Spawn background task to batch write metrics
         tokio::spawn(batch_writer(pool, receiver));
-        
+
         Self { sender }
     }
-    
+
     /// Record a metric (non-blocking)
     pub fn record(&self, metric: ApiMetric) {
         // Use try_send to avoid blocking - if channel is full, drop the metric
@@ -61,16 +61,13 @@ async fn batch_writer(pool: PgPool, mut receiver: mpsc::Receiver<ApiMetric>) {
     let mut last_flush = Instant::now();
     let flush_interval = std::time::Duration::from_secs(5);
     let batch_size = 100;
-    
+
     loop {
         // Try to receive with timeout
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            receiver.recv()
-        ).await {
+        match tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
             Ok(Some(metric)) => {
                 buffer.push(metric);
-                
+
                 // Flush if buffer is full
                 if buffer.len() >= batch_size {
                     flush_metrics(&pool, &mut buffer).await;
@@ -100,12 +97,12 @@ async fn flush_metrics(pool: &PgPool, buffer: &mut Vec<ApiMetric>) {
     if buffer.is_empty() {
         return;
     }
-    
+
     // Build batch insert query
     let mut query_builder = sqlx::QueryBuilder::new(
         "INSERT INTO api_usage (tenant_id, user_id, endpoint, method, status_code, response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent, error_message) "
     );
-    
+
     query_builder.push_values(buffer.iter(), |mut b, metric| {
         b.push_bind(metric.tenant_id)
             .push_bind(metric.user_id)
@@ -119,7 +116,7 @@ async fn flush_metrics(pool: &PgPool, buffer: &mut Vec<ApiMetric>) {
             .push_bind(&metric.user_agent)
             .push_bind(&metric.error_message);
     });
-    
+
     match query_builder.build().execute(pool).await {
         Ok(_) => {
             tracing::debug!("Flushed {} API usage metrics to database", buffer.len());
@@ -128,7 +125,7 @@ async fn flush_metrics(pool: &PgPool, buffer: &mut Vec<ApiMetric>) {
             tracing::error!("Failed to write API usage metrics: {:?}", e);
         }
     }
-    
+
     buffer.clear();
 }
 
@@ -170,11 +167,12 @@ fn extract_user_agent(req: &Request) -> Option<String> {
 fn normalize_endpoint(path: &str) -> String {
     // Replace UUIDs with placeholder
     let uuid_regex = regex::Regex::new(
-        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    ).unwrap();
-    
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+    )
+    .unwrap();
+
     let normalized = uuid_regex.replace_all(path, "{id}");
-    
+
     // Replace numeric IDs
     let id_regex = regex::Regex::new(r"/\d+(?:/|$)").unwrap();
     id_regex.replace_all(&normalized, "/{id}/").to_string()
@@ -213,14 +211,14 @@ impl Default for SamplingConfig {
 /// Decide whether to sample this request
 fn should_sample(endpoint: &str) -> bool {
     let config = SamplingConfig::default();
-    
+
     // Always sample high-priority endpoints
     for prefix in &config.high_priority_endpoints {
         if endpoint.starts_with(prefix) {
             return true;
         }
     }
-    
+
     // Sample based on rate
     if config.default_rate >= 1.0 {
         true
@@ -236,7 +234,7 @@ pub struct ApiUsageState {
 }
 
 /// Middleware that tracks API usage metrics
-/// 
+///
 /// Note: This middleware runs BEFORE auth middleware in the tower stack,
 /// but we extract auth info from RESPONSE extensions after the inner handlers complete.
 pub async fn api_usage_middleware(
@@ -248,15 +246,15 @@ pub async fn api_usage_middleware(
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let normalized_endpoint = normalize_endpoint(&path);
-    
+
     // Check if we should sample this request
     if !should_sample(&normalized_endpoint) {
         return next.run(req).await;
     }
-    
+
     let ip_address = extract_ip(&req);
     let user_agent = extract_user_agent(&req);
-    
+
     // Get request size from content-length header
     let request_size = req
         .headers()
@@ -264,16 +262,16 @@ pub async fn api_usage_middleware(
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
-    
+
     // Run the actual request (auth middleware will add AuthUser to response extensions)
     let response = next.run(req).await;
-    
+
     // Extract user info from response extensions (added by auth middleware)
     let (tenant_id, user_id) = extract_user_info_from_response(&response);
-    
+
     let elapsed = start.elapsed();
     let status_code = response.status().as_u16();
-    
+
     // Get response size from content-length header
     let response_size = response
         .headers()
@@ -281,32 +279,35 @@ pub async fn api_usage_middleware(
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
-    
+
     // Generate error message for error responses
     let error_message = if status_code >= 400 {
         // Map common status codes to human-readable messages
-        Some(match status_code {
-            400 => "Bad Request",
-            401 => "Unauthorized - Invalid or missing authentication",
-            403 => "Forbidden - Access denied",
-            404 => "Not Found",
-            405 => "Method Not Allowed",
-            408 => "Request Timeout",
-            409 => "Conflict",
-            413 => "Payload Too Large",
-            415 => "Unsupported Media Type",
-            422 => "Unprocessable Entity - Validation failed",
-            429 => "Too Many Requests - Rate limited",
-            500 => "Internal Server Error",
-            502 => "Bad Gateway",
-            503 => "Service Unavailable",
-            504 => "Gateway Timeout",
-            _ => "Unknown Error",
-        }.to_string())
+        Some(
+            match status_code {
+                400 => "Bad Request",
+                401 => "Unauthorized - Invalid or missing authentication",
+                403 => "Forbidden - Access denied",
+                404 => "Not Found",
+                405 => "Method Not Allowed",
+                408 => "Request Timeout",
+                409 => "Conflict",
+                413 => "Payload Too Large",
+                415 => "Unsupported Media Type",
+                422 => "Unprocessable Entity - Validation failed",
+                429 => "Too Many Requests - Rate limited",
+                500 => "Internal Server Error",
+                502 => "Bad Gateway",
+                503 => "Service Unavailable",
+                504 => "Gateway Timeout",
+                _ => "Unknown Error",
+            }
+            .to_string(),
+        )
     } else {
         None
     };
-    
+
     // Record the metric
     state.writer.record(ApiMetric {
         tenant_id,
@@ -321,7 +322,6 @@ pub async fn api_usage_middleware(
         user_agent,
         error_message,
     });
-    
+
     response
 }
-

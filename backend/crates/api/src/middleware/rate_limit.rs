@@ -1,10 +1,10 @@
 //! Redis-based rate limiting middleware for API endpoints
-//! 
+//!
 //! Security features:
 //! - Atomic INCR+EXPIRE for race-condition-free rate limiting
 //! - Trusted proxy mode for correct client IP extraction
 //! - Configurable limits per endpoint type
-//! 
+//!
 //! Provides configurable rate limits per endpoint type:
 //! - Login: 5 attempts/min per IP (prevent brute force)
 //! - File upload: 100/hour per user
@@ -40,14 +40,14 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
         let trust_all = std::env::var("TRUST_ALL_PROXIES")
             .map(|v| v.to_lowercase() == "true")
             .unwrap_or(false);
-        
+
         if trust_all {
             tracing::warn!(
                 "TRUST_ALL_PROXIES is enabled - X-Forwarded-For will be trusted from any source. \
                 This is dangerous in production!"
             );
         }
-        
+
         let trusted_ips: Vec<IpAddr> = std::env::var("TRUSTED_PROXY_IPS")
             .unwrap_or_default()
             .split(',')
@@ -65,12 +65,15 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
                 }
             })
             .collect();
-        
+
         if !trusted_ips.is_empty() {
             tracing::info!("Trusted proxy IPs configured: {:?}", trusted_ips);
         }
-        
-        TrustedProxyConfig { trusted_ips, trust_all }
+
+        TrustedProxyConfig {
+            trusted_ips,
+            trust_all,
+        }
     })
 }
 
@@ -116,7 +119,7 @@ impl RateLimitConfig {
             window_seconds: 60, // 60 per minute
         }
     }
-    
+
     /// Global per-IP rate limit - applies to ALL requests
     /// Configurable via environment variables
     pub fn global() -> Self {
@@ -124,7 +127,7 @@ impl RateLimitConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(200);
-        
+
         Self {
             max_requests: burst_size, // Allow burst up to this
             window_seconds: 1,        // Per second
@@ -147,7 +150,9 @@ impl RateLimitKey {
     pub fn to_redis_key(&self, prefix: &str) -> String {
         match self {
             RateLimitKey::Ip(ip) => format!("clovalink:ratelimit:{}:ip:{}", prefix, ip),
-            RateLimitKey::User(user_id) => format!("clovalink:ratelimit:{}:user:{}", prefix, user_id),
+            RateLimitKey::User(user_id) => {
+                format!("clovalink:ratelimit:{}:user:{}", prefix, user_id)
+            }
             RateLimitKey::IpPath(ip, path) => {
                 let path_hash = path.replace('/', "_");
                 format!("clovalink:ratelimit:{}:ip:{}:{}", prefix, ip, path_hash)
@@ -157,11 +162,11 @@ impl RateLimitKey {
 }
 
 /// Atomic rate limit check using Redis INCR + EXPIRE
-/// 
+///
 /// This is race-condition free because:
 /// 1. INCR is atomic and returns the new value
 /// 2. EXPIRE with NX only sets expiry if not already set
-/// 
+///
 /// Returns (is_allowed, current_count, remaining)
 pub async fn check_rate_limit_atomic(
     cache: &clovalink_core::cache::Cache,
@@ -170,16 +175,18 @@ pub async fn check_rate_limit_atomic(
 ) -> Result<(bool, u32, u32), String> {
     // Use Redis connection directly for atomic operations
     // Note: Dereference the guard to get the actual ConnectionManager
-    let mut conn = cache.get_connection().await
+    let mut conn = cache
+        .get_connection()
+        .await
         .map_err(|e| format!("Failed to get Redis connection: {}", e))?;
-    
+
     // Atomic increment - INCR creates key with value 1 if it doesn't exist
     let new_count: u32 = redis::cmd("INCR")
         .arg(key)
         .query_async(&mut *conn)
         .await
         .map_err(|e| format!("INCR failed: {}", e))?;
-    
+
     // Set expiry only if this is a new key (NX = only if not exists)
     // This ensures the window doesn't reset on each request
     if new_count == 1 {
@@ -190,27 +197,27 @@ pub async fn check_rate_limit_atomic(
             .await
             .map_err(|e| format!("EXPIRE failed: {}", e))?;
     }
-    
+
     let is_allowed = new_count <= config.max_requests;
     let remaining = config.max_requests.saturating_sub(new_count);
-    
+
     Ok((is_allowed, new_count, remaining))
 }
 
 /// Extract client IP from request, respecting trusted proxy configuration
-/// 
+///
 /// Security:
 /// - Only trusts X-Forwarded-For from configured trusted proxies
 /// - Falls back to direct connection IP otherwise
 pub fn extract_client_ip(headers: &HeaderMap, connection_ip: Option<IpAddr>) -> String {
     let proxy_config = get_trusted_proxy_config();
-    
+
     // Check if the connection is from a trusted proxy
     let from_trusted_proxy = match connection_ip {
         Some(ip) => proxy_config.trust_all || proxy_config.trusted_ips.contains(&ip),
         None => proxy_config.trust_all, // No connection info, only trust if trust_all
     };
-    
+
     if from_trusted_proxy {
         // Trust X-Forwarded-For header
         if let Some(forwarded) = headers.get("x-forwarded-for") {
@@ -225,7 +232,7 @@ pub fn extract_client_ip(headers: &HeaderMap, connection_ip: Option<IpAddr>) -> 
                 }
             }
         }
-        
+
         // Try X-Real-IP header
         if let Some(real_ip) = headers.get("x-real-ip") {
             if let Ok(value) = real_ip.to_str() {
@@ -235,7 +242,7 @@ pub fn extract_client_ip(headers: &HeaderMap, connection_ip: Option<IpAddr>) -> 
             }
         }
     }
-    
+
     // Fall back to connection address (most secure)
     connection_ip
         .map(|ip| ip.to_string())
@@ -250,18 +257,22 @@ pub async fn rate_limit_login(
     next: Next,
 ) -> Response {
     let config = RateLimitConfig::login();
-    
+
     let headers = request.headers().clone();
     let ip = extract_client_ip(&headers, Some(addr.ip()));
     let path = request.uri().path().to_string();
-    
+
     let key = RateLimitKey::IpPath(ip.clone(), path).to_redis_key("login");
-    
+
     if let Some(ref cache) = state.cache {
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!("Rate limit exceeded for login from IP: {} (count: {})", ip, count);
+                    tracing::warn!(
+                        "Rate limit exceeded for login from IP: {} (count: {})",
+                        ip,
+                        count
+                    );
                     return rate_limit_response(config.window_seconds, remaining);
                 }
             }
@@ -271,7 +282,7 @@ pub async fn rate_limit_login(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
@@ -284,12 +295,16 @@ pub async fn rate_limit_upload(
 ) -> Response {
     let config = RateLimitConfig::upload();
     let key = RateLimitKey::User(auth.user_id.to_string()).to_redis_key("upload");
-    
+
     if let Some(ref cache) = state.cache {
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!("Upload rate limit exceeded for user: {} (count: {})", auth.user_id, count);
+                    tracing::warn!(
+                        "Upload rate limit exceeded for user: {} (count: {})",
+                        auth.user_id,
+                        count
+                    );
                     return rate_limit_response(config.window_seconds, remaining);
                 }
             }
@@ -298,7 +313,7 @@ pub async fn rate_limit_upload(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
@@ -311,12 +326,16 @@ pub async fn rate_limit_api(
 ) -> Response {
     let config = RateLimitConfig::api();
     let key = RateLimitKey::User(auth.user_id.to_string()).to_redis_key("api");
-    
+
     if let Some(ref cache) = state.cache {
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!("API rate limit exceeded for user: {} (count: {})", auth.user_id, count);
+                    tracing::warn!(
+                        "API rate limit exceeded for user: {} (count: {})",
+                        auth.user_id,
+                        count
+                    );
                     return rate_limit_response(config.window_seconds, remaining);
                 }
             }
@@ -325,7 +344,7 @@ pub async fn rate_limit_api(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
@@ -337,16 +356,20 @@ pub async fn rate_limit_public(
     next: Next,
 ) -> Response {
     let config = RateLimitConfig::public();
-    
+
     let headers = request.headers().clone();
     let ip = extract_client_ip(&headers, Some(addr.ip()));
     let key = RateLimitKey::Ip(ip.clone()).to_redis_key("public");
-    
+
     if let Some(ref cache) = state.cache {
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!("Public rate limit exceeded for IP: {} (count: {})", ip, count);
+                    tracing::warn!(
+                        "Public rate limit exceeded for IP: {} (count: {})",
+                        ip,
+                        count
+                    );
                     return rate_limit_response(config.window_seconds, remaining);
                 }
             }
@@ -355,7 +378,7 @@ pub async fn rate_limit_public(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
@@ -373,28 +396,31 @@ pub async fn rate_limit_global(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100);
-    
+
     let burst_size: u32 = std::env::var("PER_IP_BURST_SIZE")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(200);
-    
+
     let config = RateLimitConfig {
         max_requests: burst_size,
         window_seconds: 1, // Per-second limiting
     };
-    
+
     let headers = request.headers().clone();
     let ip = extract_client_ip(&headers, Some(addr.ip()));
     let key = RateLimitKey::Ip(ip.clone()).to_redis_key("global");
-    
+
     if let Some(ref cache) = state.cache {
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
                     tracing::warn!(
                         "Global rate limit exceeded for IP: {} ({}req/s, limit: {}/s, burst: {})",
-                        ip, count, requests_per_sec, burst_size
+                        ip,
+                        count,
+                        requests_per_sec,
+                        burst_size
                     );
                     return rate_limit_response(1, remaining);
                 }
@@ -405,7 +431,7 @@ pub async fn rate_limit_global(
             }
         }
     }
-    
+
     next.run(request).await
 }
 
@@ -417,7 +443,7 @@ fn rate_limit_response(retry_after: u64, remaining: u32) -> Response {
         "retry_after_seconds": retry_after,
         "remaining": remaining,
     });
-    
+
     (
         StatusCode::TOO_MANY_REQUESTS,
         [
@@ -458,13 +484,13 @@ mod tests {
         assert_eq!(upload.max_requests, 100);
         assert_eq!(upload.window_seconds, 3600);
     }
-    
+
     #[test]
     fn test_ip_validation() {
         // Valid IPs should parse
         assert!("192.168.1.1".parse::<IpAddr>().is_ok());
         assert!("::1".parse::<IpAddr>().is_ok());
-        
+
         // Invalid strings should fail
         assert!("not-an-ip".parse::<IpAddr>().is_err());
         assert!("".parse::<IpAddr>().is_err());

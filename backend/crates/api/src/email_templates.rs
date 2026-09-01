@@ -1,16 +1,16 @@
+use crate::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use chrono::{DateTime, Utc};
+use clovalink_auth::{require_admin, require_super_admin, AuthUser};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use crate::AppState;
-use clovalink_auth::{AuthUser, require_admin, require_super_admin};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EmailTemplate {
@@ -106,13 +106,12 @@ pub async fn update_global_template(
     require_super_admin(&auth)?;
 
     // Verify template exists
-    let exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM email_templates WHERE template_key = $1"
-    )
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let exists: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM email_templates WHERE template_key = $1")
+            .bind(&key)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -135,7 +134,11 @@ pub async fn update_global_template(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    tracing::info!("SuperAdmin {} updated global email template: {}", auth.user_id, key);
+    tracing::info!(
+        "SuperAdmin {} updated global email template: {}",
+        auth.user_id,
+        key
+    );
 
     Ok(Json(json!(template)))
 }
@@ -165,7 +168,7 @@ pub async fn list_tenant_templates(
     // Get tenant-specific overrides
     let tenant_overrides: Vec<TenantEmailTemplate> = sqlx::query_as(
         "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1"
+         FROM tenant_email_templates WHERE tenant_id = $1",
     )
     .bind(auth.tenant_id)
     .fetch_all(&state.pool)
@@ -178,8 +181,10 @@ pub async fn list_tenant_templates(
     // Merge global templates with tenant overrides
     let mut results = Vec::new();
     for global in global_templates {
-        let override_template = tenant_overrides.iter().find(|o| o.template_key == global.template_key);
-        
+        let override_template = tenant_overrides
+            .iter()
+            .find(|o| o.template_key == global.template_key);
+
         results.push(json!({
             "template_key": global.template_key,
             "name": global.name,
@@ -222,7 +227,7 @@ pub async fn get_tenant_template(
     // Check for tenant override
     let override_template: Option<TenantEmailTemplate> = sqlx::query_as(
         "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2"
+         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
     )
     .bind(auth.tenant_id)
     .bind(&key)
@@ -255,13 +260,12 @@ pub async fn update_tenant_template(
     require_admin(&auth)?;
 
     // Verify global template exists
-    let global_exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM email_templates WHERE template_key = $1"
-    )
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let global_exists: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM email_templates WHERE template_key = $1")
+            .bind(&key)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if global_exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -278,7 +282,7 @@ pub async fn update_tenant_template(
             body_text = EXCLUDED.body_text,
             updated_at = NOW()
         RETURNING id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(&key)
@@ -292,7 +296,12 @@ pub async fn update_tenant_template(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    tracing::info!("Admin {} in tenant {} updated email template: {}", auth.user_id, auth.tenant_id, key);
+    tracing::info!(
+        "Admin {} in tenant {} updated email template: {}",
+        auth.user_id,
+        auth.tenant_id,
+        key
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -310,7 +319,7 @@ pub async fn reset_tenant_template(
     require_admin(&auth)?;
 
     let result = sqlx::query(
-        "DELETE FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2"
+        "DELETE FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
     )
     .bind(auth.tenant_id)
     .bind(&key)
@@ -328,7 +337,12 @@ pub async fn reset_tenant_template(
         })));
     }
 
-    tracing::info!("Admin {} in tenant {} reset email template to default: {}", auth.user_id, auth.tenant_id, key);
+    tracing::info!(
+        "Admin {} in tenant {} reset email template to default: {}",
+        auth.user_id,
+        auth.tenant_id,
+        key
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -365,21 +379,17 @@ pub async fn preview_template(
     let template = template.ok_or(StatusCode::NOT_FOUND)?;
 
     // Get tenant and user info for preview
-    let tenant_name: String = sqlx::query_scalar(
-        "SELECT name FROM tenants WHERE id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or_else(|_| "Your Company".to_string());
+    let tenant_name: String = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1")
+        .bind(auth.tenant_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or_else(|_| "Your Company".to_string());
 
-    let user_name: String = sqlx::query_scalar(
-        "SELECT name FROM users WHERE id = $1"
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or_else(|_| "John Doe".to_string());
+    let user_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
+        .bind(auth.user_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or_else(|_| "John Doe".to_string());
 
     // Sample data for preview
     let sample_data = json!({
@@ -414,7 +424,8 @@ pub async fn preview_template(
             if let Some(var_name) = var.as_str() {
                 let placeholder = format!("{{{{{}}}}}", var_name);
                 let default_value = format!("[{}]", var_name);
-                let value = sample_data.get(var_name)
+                let value = sample_data
+                    .get(var_name)
                     .and_then(|v| v.as_str())
                     .unwrap_or(&default_value);
                 preview_subject = preview_subject.replace(&placeholder, value);
@@ -430,4 +441,3 @@ pub async fn preview_template(
         "sample_data": sample_data,
     })))
 }
-

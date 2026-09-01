@@ -1,15 +1,15 @@
+use crate::AppState;
 use axum::{
-    extract::{State, Multipart},
+    extract::{Multipart, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use clovalink_auth::AuthUser;
+use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use crate::AppState;
-use clovalink_auth::AuthUser;
-use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,16 +49,15 @@ pub async fn get_global_settings(
             return Ok(Json(cached.data));
         }
     }
-    
-    let settings: Vec<(String, Value, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-        "SELECT key, value, updated_at FROM global_settings ORDER BY key"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch global settings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+
+    let settings: Vec<(String, Value, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as("SELECT key, value, updated_at FROM global_settings ORDER BY key")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch global settings: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     // Convert to a more usable format
     let mut result = serde_json::Map::new();
@@ -67,11 +66,15 @@ pub async fn get_global_settings(
     }
 
     let response = json!(result);
-    
+
     // Cache for 10 minutes
     if let Some(ref cache) = state.cache {
-        let cache_data = GlobalSettingsCache { data: response.clone() };
-        let _ = cache.set(&cache_key, &cache_data, cache_ttl::GLOBAL_SETTINGS).await;
+        let cache_data = GlobalSettingsCache {
+            data: response.clone(),
+        };
+        let _ = cache
+            .set(&cache_key, &cache_data, cache_ttl::GLOBAL_SETTINGS)
+            .await;
     }
 
     Ok(Json(response))
@@ -93,7 +96,7 @@ pub async fn update_global_settings(
     // Valid setting keys
     let valid_keys = [
         "date_format",
-        "time_format", 
+        "time_format",
         "timezone",
         "footer_attribution",
         "footer_disclaimer",
@@ -113,7 +116,10 @@ pub async fn update_global_settings(
     // Update each setting
     for setting in &input.settings {
         if !valid_keys.contains(&setting.key.as_str()) {
-            tracing::warn!("Attempted to update invalid global setting key: {}", setting.key);
+            tracing::warn!(
+                "Attempted to update invalid global setting key: {}",
+                setting.key
+            );
             continue;
         }
 
@@ -123,7 +129,7 @@ pub async fn update_global_settings(
             VALUES ($1, $2, NOW(), $3)
             ON CONFLICT (key) DO UPDATE 
             SET value = $2, updated_at = NOW(), updated_by = $3
-            "#
+            "#,
         )
         .bind(&setting.key)
         .bind(&setting.value)
@@ -141,7 +147,7 @@ pub async fn update_global_settings(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'update_global_settings', 'global_settings', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -181,10 +187,13 @@ pub async fn upload_logo(
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
-        
+
         if name == "logo" || name == "file" {
-            let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
-            
+            let content_type = field
+                .content_type()
+                .unwrap_or("application/octet-stream")
+                .to_string();
+
             // Validate it's an image (SVG, PNG, or other image types)
             let is_valid = content_type.starts_with("image/") || content_type == "image/svg+xml";
             if !is_valid {
@@ -193,7 +202,7 @@ pub async fn upload_logo(
             }
 
             let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            
+
             // Limit size to 2MB
             if data.len() > 2 * 1024 * 1024 {
                 return Err(StatusCode::PAYLOAD_TOO_LARGE);
@@ -210,7 +219,10 @@ pub async fn upload_logo(
             let filename = format!("branding/logo.{}", extension);
 
             // Upload to storage
-            state.storage.upload(&filename, data.to_vec()).await
+            state
+                .storage
+                .upload(&filename, data.to_vec())
+                .await
                 .map_err(|e| {
                     tracing::error!("Failed to upload logo: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
@@ -226,7 +238,7 @@ pub async fn upload_logo(
                 VALUES ('logo_url', $1, NOW(), $2)
                 ON CONFLICT (key) DO UPDATE 
                 SET value = $1, updated_at = NOW(), updated_by = $2
-                "#
+                "#,
             )
             .bind(json!(logo_url))
             .bind(auth.user_id)
@@ -288,7 +300,7 @@ pub async fn delete_logo(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'delete_logo', 'global_settings', '{}', $3::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -321,12 +333,15 @@ pub async fn upload_favicon(
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
-        
+
         if name == "favicon" || name == "file" {
-            let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
-            
+            let content_type = field
+                .content_type()
+                .unwrap_or("application/octet-stream")
+                .to_string();
+
             // Validate it's an image or ICO file
-            let is_valid = content_type.starts_with("image/") 
+            let is_valid = content_type.starts_with("image/")
                 || content_type == "image/svg+xml"
                 || content_type == "image/x-icon"
                 || content_type == "image/vnd.microsoft.icon";
@@ -336,7 +351,7 @@ pub async fn upload_favicon(
             }
 
             let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            
+
             // Limit size to 1MB for favicon
             if data.len() > 1024 * 1024 {
                 return Err(StatusCode::PAYLOAD_TOO_LARGE);
@@ -354,7 +369,10 @@ pub async fn upload_favicon(
             let filename = format!("branding/favicon.{}", extension);
 
             // Upload to storage
-            state.storage.upload(&filename, data.to_vec()).await
+            state
+                .storage
+                .upload(&filename, data.to_vec())
+                .await
                 .map_err(|e| {
                     tracing::error!("Failed to upload favicon: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
@@ -370,7 +388,7 @@ pub async fn upload_favicon(
                 VALUES ('favicon_url', $1, NOW(), $2)
                 ON CONFLICT (key) DO UPDATE 
                 SET value = $1, updated_at = NOW(), updated_by = $2
-                "#
+                "#,
             )
             .bind(json!(favicon_url))
             .bind(auth.user_id)
@@ -432,7 +450,7 @@ pub async fn delete_favicon(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'delete_favicon', 'global_settings', '{}', $3::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -446,4 +464,3 @@ pub async fn delete_favicon(
         "message": "Favicon removed, using default"
     })))
 }
-

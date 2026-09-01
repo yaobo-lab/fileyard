@@ -15,9 +15,9 @@ use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::middleware::AuthUser;
-use crate::AppState;
 use crate::handlers::can_access_file;
+use crate::AppState;
+use clovalink_auth::middleware::AuthUser;
 
 // ==================== Models ====================
 
@@ -76,19 +76,39 @@ pub async fn list_comments(
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if user can access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Fetch all comments with user info
-    let comments: Vec<(Uuid, Uuid, Uuid, String, Option<String>, String, Option<Uuid>, bool, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
+    let comments: Vec<(
+        Uuid,
+        Uuid,
+        Uuid,
+        String,
+        Option<String>,
+        String,
+        Option<Uuid>,
+        bool,
+        DateTime<Utc>,
+        DateTime<Utc>,
+    )> = sqlx::query_as(
         r#"
         SELECT 
             c.id, c.file_id, c.user_id, u.name as user_name, u.avatar_url,
@@ -97,7 +117,7 @@ pub async fn list_comments(
         JOIN users u ON c.user_id = u.id
         WHERE c.file_id = $1 AND c.tenant_id = $2
         ORDER BY c.created_at ASC
-        "#
+        "#,
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -107,12 +127,25 @@ pub async fn list_comments(
         tracing::error!("Failed to fetch comments: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Build threaded structure
     let mut top_level: Vec<CommentWithUser> = Vec::new();
-    let mut replies_map: std::collections::HashMap<Uuid, Vec<CommentWithUser>> = std::collections::HashMap::new();
-    
-    for (id, file_id, user_id, user_name, user_avatar, content, parent_id, is_edited, created_at, updated_at) in comments {
+    let mut replies_map: std::collections::HashMap<Uuid, Vec<CommentWithUser>> =
+        std::collections::HashMap::new();
+
+    for (
+        id,
+        file_id,
+        user_id,
+        user_name,
+        user_avatar,
+        content,
+        parent_id,
+        is_edited,
+        created_at,
+        updated_at,
+    ) in comments
+    {
         let comment = CommentWithUser {
             id,
             file_id,
@@ -126,23 +159,25 @@ pub async fn list_comments(
             updated_at,
             replies: Vec::new(),
             can_edit: user_id == auth.user_id,
-            can_delete: user_id == auth.user_id || auth.role == "Admin" || auth.role == "SuperAdmin",
+            can_delete: user_id == auth.user_id
+                || auth.role == "Admin"
+                || auth.role == "SuperAdmin",
         };
-        
+
         if let Some(pid) = parent_id {
             replies_map.entry(pid).or_default().push(comment);
         } else {
             top_level.push(comment);
         }
     }
-    
+
     // Attach replies to parent comments
     for comment in &mut top_level {
         if let Some(replies) = replies_map.remove(&comment.id) {
             comment.replies = replies;
         }
     }
-    
+
     Ok(Json(json!({
         "comments": top_level,
         "total": top_level.len()
@@ -159,59 +194,68 @@ pub async fn create_comment(
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Parse input
     let content = input["content"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
-    let parent_id = input["parent_id"].as_str().and_then(|s| Uuid::parse_str(s).ok());
-    
+    let parent_id = input["parent_id"]
+        .as_str()
+        .and_then(|s| Uuid::parse_str(s).ok());
+
     if content.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if user can access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Verify parent comment exists if provided
     if let Some(pid) = parent_id {
-        let parent_exists: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM file_comments WHERE id = $1 AND file_id = $2"
-        )
-        .bind(pid)
-        .bind(file_uuid)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+        let parent_exists: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM file_comments WHERE id = $1 AND file_id = $2")
+                .bind(pid)
+                .bind(file_uuid)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
         if parent_exists.is_none() {
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     // Get file info for notification
-    let file_info: Option<(String, Uuid)> = sqlx::query_as(
-        "SELECT name, owner_id FROM files_metadata WHERE id = $1"
-    )
-    .bind(file_uuid)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let file_info: Option<(String, Uuid)> =
+        sqlx::query_as("SELECT name, owner_id FROM files_metadata WHERE id = $1")
+            .bind(file_uuid)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let (file_name, file_owner_id) = file_info.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Create the comment
     let comment_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO file_comments (file_id, tenant_id, user_id, content, parent_id)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id
-        "#
+        "#,
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -224,7 +268,7 @@ pub async fn create_comment(
         tracing::error!("Failed to create comment: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Audit log
     let _ = sqlx::query(
         r#"
@@ -243,17 +287,22 @@ pub async fn create_comment(
     .bind(&auth.ip_address)
     .execute(&state.pool)
     .await;
-    
+
     // Send Discord notification to file owner (if not commenting on own file)
     if file_owner_id != auth.user_id {
         let pool_clone = state.pool.clone();
-        let commenter_name = auth.email.split('@').next().unwrap_or("Someone").to_string();
+        let commenter_name = auth
+            .email
+            .split('@')
+            .next()
+            .unwrap_or("Someone")
+            .to_string();
         let content_preview = if content.len() > 100 {
             format!("{}...", &content[..100])
         } else {
             content.to_string()
         };
-        
+
         tokio::spawn(async move {
             crate::discord::notify_comment(
                 &pool_clone,
@@ -262,17 +311,18 @@ pub async fn create_comment(
                 &file_name,
                 &commenter_name,
                 &content_preview,
-            ).await;
+            )
+            .await;
         });
     }
-    
+
     // Get user info for response
     let user_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
         .bind(auth.user_id)
         .fetch_one(&state.pool)
         .await
         .unwrap_or_else(|_| "Unknown".to_string());
-    
+
     Ok(Json(json!({
         "id": comment_id,
         "file_id": file_uuid,
@@ -298,21 +348,21 @@ pub async fn update_comment(
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let comment_uuid = Uuid::parse_str(&comment_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     let content = input["content"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
-    
+
     if content.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if comment exists and user owns it
     let comment: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3"
+        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3",
     )
     .bind(comment_uuid)
     .bind(file_uuid)
@@ -320,28 +370,28 @@ pub async fn update_comment(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let (owner_id,) = comment.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Only comment owner can edit
     if owner_id != auth.user_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Update the comment
     sqlx::query(
         r#"
         UPDATE file_comments
         SET content = $1, is_edited = true, updated_at = NOW()
         WHERE id = $2
-        "#
+        "#,
     )
     .bind(content)
     .bind(comment_uuid)
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(json!({
         "success": true,
         "id": comment_uuid,
@@ -360,15 +410,15 @@ pub async fn delete_comment(
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let comment_uuid = Uuid::parse_str(&comment_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if comment exists and get owner
     let comment: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3"
+        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3",
     )
     .bind(comment_uuid)
     .bind(file_uuid)
@@ -376,21 +426,21 @@ pub async fn delete_comment(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let (owner_id,) = comment.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Only comment owner or admins can delete
     if owner_id != auth.user_id && auth.role != "Admin" && auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Delete the comment (cascades to replies)
     sqlx::query("DELETE FROM file_comments WHERE id = $1")
         .bind(comment_uuid)
         .execute(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(json!({ "success": true })))
 }
 
@@ -403,21 +453,20 @@ pub async fn get_comment_count(
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM file_comments WHERE file_id = $1 AND tenant_id = $2"
+        "SELECT COUNT(*) FROM file_comments WHERE file_id = $1 AND tenant_id = $2",
     )
     .bind(file_uuid)
     .bind(tenant_id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(json!({ "count": count })))
 }
-

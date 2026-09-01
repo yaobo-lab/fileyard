@@ -12,18 +12,22 @@
 //! ```
 
 use std::num::NonZeroU32;
-use std::sync::Arc;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures::Stream;
-use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
+use governor::{
+    clock::DefaultClock,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// Size thresholds for transfer classification
-const SMALL_FILE_THRESHOLD: i64 = 10 * 1024 * 1024;      // 10 MB
-const LARGE_FILE_THRESHOLD: i64 = 100 * 1024 * 1024;     // 100 MB
+const SMALL_FILE_THRESHOLD: i64 = 10 * 1024 * 1024; // 10 MB
+const LARGE_FILE_THRESHOLD: i64 = 100 * 1024 * 1024; // 100 MB
 
 /// Default concurrent transfer limits
 const DEFAULT_SMALL_CONCURRENT: usize = 50;
@@ -55,7 +59,7 @@ impl SizeClass {
             SizeClass::Large
         }
     }
-    
+
     /// Get display name for logging
     pub fn name(&self) -> &'static str {
         match self {
@@ -97,22 +101,22 @@ impl TransferSchedulerConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_SMALL_CONCURRENT);
-        
+
         let medium_concurrent = std::env::var("TRANSFER_MEDIUM_CONCURRENT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_MEDIUM_CONCURRENT);
-        
+
         let large_concurrent = std::env::var("TRANSFER_LARGE_CONCURRENT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_LARGE_CONCURRENT);
-        
+
         let large_bandwidth_mbps: u32 = std::env::var("TRANSFER_LARGE_BANDWIDTH_MBPS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(50);
-        
+
         Self {
             small_concurrent,
             medium_concurrent,
@@ -148,7 +152,7 @@ impl TransferScheduler {
     pub fn new() -> Self {
         Self::with_config(TransferSchedulerConfig::from_env())
     }
-    
+
     /// Create a new transfer scheduler with custom configuration
     pub fn with_config(config: TransferSchedulerConfig) -> Self {
         tracing::info!(
@@ -158,20 +162,20 @@ impl TransferScheduler {
             config.large_concurrent,
             config.large_bandwidth_bps / 1024 / 1024
         );
-        
+
         // Create semaphores for concurrent transfer limits
         let small_permits = Arc::new(Semaphore::new(config.small_concurrent));
         let medium_permits = Arc::new(Semaphore::new(config.medium_concurrent));
         let large_permits = Arc::new(Semaphore::new(config.large_concurrent));
-        
+
         // Create rate limiter for large file bandwidth
         // Using a token bucket: refills at bandwidth_bps bytes per second
         // Burst size is set to allow 1 second worth of data
         let bandwidth_quota = Quota::per_second(
-            NonZeroU32::new(config.large_bandwidth_bps).unwrap_or(NonZeroU32::new(1).unwrap())
+            NonZeroU32::new(config.large_bandwidth_bps).unwrap_or(NonZeroU32::new(1).unwrap()),
         );
         let large_bandwidth_limiter = Arc::new(RateLimiter::direct(bandwidth_quota));
-        
+
         Self {
             small_permits,
             medium_permits,
@@ -180,57 +184,57 @@ impl TransferScheduler {
             config,
         }
     }
-    
+
     /// Classify a file by its size
     pub fn classify_size(&self, size: i64) -> SizeClass {
         SizeClass::from_size(size)
     }
-    
+
     /// Acquire a permit for downloading a file of known size.
     /// This will block if too many transfers of this size class are in progress.
     pub async fn acquire_download_permit(&self, size: i64) -> TransferPermit {
         let size_class = self.classify_size(size);
         let permit = self.acquire_permit_for_class(size_class).await;
-        
+
         tracing::debug!(
             "Acquired {} download permit (size={}bytes)",
             size_class.name(),
             size
         );
-        
+
         TransferPermit {
             _permit: permit,
             size_class,
         }
     }
-    
+
     /// Acquire a permit for uploading a file.
     /// If size is unknown, assumes medium class.
     pub async fn acquire_upload_permit(&self, estimated_size: Option<i64>) -> TransferPermit {
         let size_class = estimated_size
             .map(|s| self.classify_size(s))
             .unwrap_or(SizeClass::Medium);
-        
+
         let permit = self.acquire_permit_for_class(size_class).await;
-        
+
         tracing::debug!(
             "Acquired {} upload permit (estimated_size={:?})",
             size_class.name(),
             estimated_size
         );
-        
+
         TransferPermit {
             _permit: permit,
             size_class,
         }
     }
-    
+
     /// Try to acquire a permit without waiting.
     /// Returns None if no permits are available.
     pub fn try_acquire_download_permit(&self, size: i64) -> Option<TransferPermit> {
         let size_class = self.classify_size(size);
         let semaphore = self.semaphore_for_class(size_class);
-        
+
         match semaphore.clone().try_acquire_owned() {
             Ok(permit) => Some(TransferPermit {
                 _permit: permit,
@@ -239,7 +243,7 @@ impl TransferScheduler {
             Err(_) => None,
         }
     }
-    
+
     /// Get the appropriate semaphore for a size class
     fn semaphore_for_class(&self, size_class: SizeClass) -> &Arc<Semaphore> {
         match size_class {
@@ -248,13 +252,13 @@ impl TransferScheduler {
             SizeClass::Large => &self.large_permits,
         }
     }
-    
+
     /// Acquire a permit from the appropriate semaphore
     async fn acquire_permit_for_class(&self, size_class: SizeClass) -> OwnedSemaphorePermit {
         let semaphore = self.semaphore_for_class(size_class).clone();
         semaphore.acquire_owned().await.expect("Semaphore closed")
     }
-    
+
     /// Get current availability stats
     pub fn stats(&self) -> TransferStats {
         TransferStats {
@@ -266,12 +270,12 @@ impl TransferScheduler {
             large_max: self.config.large_concurrent,
         }
     }
-    
+
     /// Check if we should apply rate limiting to a transfer
     pub fn should_rate_limit(&self, size_class: SizeClass) -> bool {
         matches!(size_class, SizeClass::Large)
     }
-    
+
     /// Get the bandwidth limiter for rate-limited streams
     pub fn bandwidth_limiter(&self) -> Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>> {
         self.large_bandwidth_limiter.clone()
@@ -303,11 +307,11 @@ impl TransferStats {
             SizeClass::Medium => (self.medium_available, self.medium_max),
             SizeClass::Large => (self.large_available, self.large_max),
         };
-        
+
         if max == 0 {
             return 0.0;
         }
-        
+
         ((max - available) as f64 / max as f64) * 100.0
     }
 }
@@ -322,7 +326,10 @@ pub struct RateLimitedStream<S> {
 impl<S> RateLimitedStream<S> {
     /// Wrap a stream with rate limiting
     pub fn new(inner: S, limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>) -> Self {
-        Self { inner, _limiter: limiter }
+        Self {
+            inner,
+            _limiter: limiter,
+        }
     }
 }
 
@@ -377,11 +384,11 @@ mod tests {
             large_bandwidth_bps: 1024 * 1024,
         };
         let scheduler = TransferScheduler::with_config(config);
-        
+
         // Should be able to get permits
         let _p1 = scheduler.acquire_download_permit(1024).await;
         let _p2 = scheduler.acquire_download_permit(1024).await;
-        
+
         // Third small permit should block (we only have 2)
         // We test this by trying to acquire without blocking
         assert!(scheduler.try_acquire_download_permit(1024).is_none());
@@ -396,11 +403,10 @@ mod tests {
             large_bandwidth_bps: 1024 * 1024,
         };
         let scheduler = TransferScheduler::with_config(config);
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.small_available, 10);
         assert_eq!(stats.medium_available, 5);
         assert_eq!(stats.large_available, 2);
     }
 }
-

@@ -1,26 +1,28 @@
+use crate::compliance::{
+    get_tenant_compliance_mode, log_file_export, should_force_audit_log, ComplianceRestrictions,
+};
+use crate::extensions::dispatch_file_upload;
+use crate::AppState;
 use axum::{
-    extract::{Path, State, Multipart},
-    http::{StatusCode, HeaderMap, header},
-    response::{Json, Redirect, IntoResponse},
     body::Body,
+    extract::{Multipart, Path, State},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Redirect},
     Extension,
 };
 use chrono::{DateTime, Utc};
-use futures::TryStreamExt;
-use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
-use ulid::Ulid;
-use url::Url;
-use crate::AppState;
-use crate::extensions::dispatch_file_upload;
-use crate::compliance::{ComplianceRestrictions, get_tenant_compliance_mode, should_force_audit_log, log_file_export};
 use clovalink_auth::AuthUser;
 use clovalink_core::models::FileMetadata;
-use sqlx::Row;
-use clovalink_core::security_service;
 use clovalink_core::notification_service;
+use clovalink_core::security_service;
+use futures::TryStreamExt;
+use serde_json::{json, Value};
+use sqlx::Row;
+use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
+use ulid::Ulid;
+use url::Url;
+use uuid::Uuid;
 
 /// Format bytes into human-readable string
 fn format_bytes(bytes: i64) -> String {
@@ -43,20 +45,22 @@ fn format_bytes(bytes: i64) -> String {
 }
 
 /// Sanitize a filename for use in Content-Disposition headers
-/// 
+///
 /// Security:
 /// - Prevents header injection by escaping/removing dangerous characters
 /// - Handles unicode safely using RFC 5987 encoding
 /// - Falls back to ASCII-safe filename if needed
-/// 
+///
 /// Returns a Content-Disposition header value string
 fn sanitize_content_disposition(filename: &str, disposition: &str) -> String {
     // Sanitize the filename
     let sanitized = sanitize_filename(filename);
-    
+
     // Check if filename is pure ASCII
-    let is_ascii = sanitized.chars().all(|c| c.is_ascii() && c != '"' && c != '\n' && c != '\r');
-    
+    let is_ascii = sanitized
+        .chars()
+        .all(|c| c.is_ascii() && c != '"' && c != '\n' && c != '\r');
+
     if is_ascii && !sanitized.is_empty() {
         // Simple case: ASCII-only filename
         // Escape any remaining quotes just in case
@@ -79,15 +83,22 @@ fn sanitize_content_disposition(filename: &str, disposition: &str) -> String {
                 }
             })
             .collect();
-        
+
         // Provide both filename (ASCII fallback) and filename* (unicode)
         let ascii_fallback = sanitized
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || "-_.".contains(*c))
             .collect::<String>();
-        let ascii_fallback = if ascii_fallback.is_empty() { "download".to_string() } else { ascii_fallback };
-        
-        format!("{}; filename=\"{}\"; filename*=UTF-8''{}", disposition, ascii_fallback, encoded)
+        let ascii_fallback = if ascii_fallback.is_empty() {
+            "download".to_string()
+        } else {
+            ascii_fallback
+        };
+
+        format!(
+            "{}; filename=\"{}\"; filename*=UTF-8''{}",
+            disposition, ascii_fallback, encoded
+        )
     } else {
         // Fallback for completely empty/invalid filename
         format!("{}; filename=\"download\"", disposition)
@@ -121,7 +132,10 @@ fn rewrite_url_to_cdn(s3_url: &str, cdn_domain: &str) -> String {
         let path_and_query = format!(
             "{}{}",
             parsed.path(),
-            parsed.query().map(|q| format!("?{}", q)).unwrap_or_default()
+            parsed
+                .query()
+                .map(|q| format!("?{}", q))
+                .unwrap_or_default()
         );
         format!("https://{}{}", cdn_domain, path_and_query)
     } else {
@@ -133,7 +147,7 @@ fn rewrite_url_to_cdn(s3_url: &str, cdn_domain: &str) -> String {
 /// Get MIME content type based on file extension
 fn get_content_type(filename: &str) -> &'static str {
     let filename_lower = filename.to_lowercase();
-    
+
     // Image formats
     if filename_lower.ends_with(".pdf") {
         "application/pdf"
@@ -225,11 +239,11 @@ async fn generate_unique_filename(
     } else {
         (original_name, "")
     };
-    
+
     // Try candidates: "file (1).ext", "file (2).ext", etc.
     for i in 1..1000 {
         let candidate = format!("{} ({}){}", base_name, i, extension);
-        
+
         let exists: bool = sqlx::query_scalar(
             r#"
             SELECT EXISTS(
@@ -241,23 +255,32 @@ async fn generate_unique_filename(
                 AND (department_id IS NOT DISTINCT FROM $4)
                 AND visibility = $5
             )
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(&candidate)
-        .bind(if parent_path.is_empty() { "".to_string() } else { parent_path.to_string() })
+        .bind(if parent_path.is_empty() {
+            "".to_string()
+        } else {
+            parent_path.to_string()
+        })
         .bind(department_id)
         .bind(visibility)
         .fetch_one(pool)
         .await?;
-        
+
         if !exists {
             return Ok(candidate);
         }
     }
-    
+
     // Fallback: use UUID suffix (should rarely happen)
-    let fallback = format!("{}_{}{}", base_name, Uuid::new_v4().to_string().split('-').next().unwrap_or(""), extension);
+    let fallback = format!(
+        "{}_{}{}",
+        base_name,
+        Uuid::new_v4().to_string().split('-').next().unwrap_or(""),
+        extension
+    );
     Ok(fallback)
 }
 
@@ -271,16 +294,16 @@ async fn is_inside_company_folder(
     let Some(path) = parent_path else {
         return false;
     };
-    
+
     if path.is_empty() {
         return false;
     }
-    
+
     // Build all ancestor paths to check
     // e.g., for "a/b/c", check "a/b/c", "a/b", "a"
     let mut paths_to_check: Vec<String> = Vec::new();
     let mut current = path.to_string();
-    
+
     while !current.is_empty() {
         paths_to_check.push(current.clone());
         if let Some(idx) = current.rfind('/') {
@@ -290,11 +313,11 @@ async fn is_inside_company_folder(
             break;
         }
     }
-    
+
     if paths_to_check.is_empty() {
         return false;
     }
-    
+
     // Check if any folder in the path hierarchy is a company folder
     // We need to check each folder by its name and parent_path
     for folder_path in &paths_to_check {
@@ -304,11 +327,11 @@ async fn is_inside_company_folder(
         } else {
             None
         };
-        
+
         let result: Option<(bool,)> = sqlx::query_as(
             "SELECT COALESCE(is_company_folder, false) FROM files_metadata 
              WHERE tenant_id = $1 AND name = $2 AND parent_path IS NOT DISTINCT FROM $3 
-             AND is_deleted = false AND is_directory = true"
+             AND is_deleted = false AND is_directory = true",
         )
         .bind(tenant_id)
         .bind(folder_name)
@@ -317,25 +340,21 @@ async fn is_inside_company_folder(
         .await
         .ok()
         .flatten();
-        
+
         if result.map(|r| r.0).unwrap_or(false) {
             return true;
         }
     }
-    
+
     false
 }
 
 /// Check if a specific file/folder is a company folder or is inside one
-async fn is_file_in_company_folder(
-    pool: &sqlx::PgPool,
-    tenant_id: Uuid,
-    file_id: Uuid,
-) -> bool {
+async fn is_file_in_company_folder(pool: &sqlx::PgPool, tenant_id: Uuid, file_id: Uuid) -> bool {
     // First check if the file itself is a company folder
     let file_info: Option<(bool, Option<String>, bool)> = sqlx::query_as(
         "SELECT is_directory, parent_path, COALESCE(is_company_folder, false) 
-         FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
+         FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false",
     )
     .bind(file_id)
     .bind(tenant_id)
@@ -343,16 +362,16 @@ async fn is_file_in_company_folder(
     .await
     .ok()
     .flatten();
-    
+
     let Some((is_dir, parent_path, is_company_folder)) = file_info else {
         return false;
     };
-    
+
     // If this is a company folder itself, return true
     if is_dir && is_company_folder {
         return true;
     }
-    
+
     // Check if parent path is inside a company folder
     is_inside_company_folder(pool, tenant_id, parent_path.as_deref()).await
 }
@@ -360,7 +379,7 @@ async fn is_file_in_company_folder(
 #[derive(serde::Deserialize)]
 pub struct UploadParams {
     parent_path: Option<String>,
-    visibility: Option<String>,  // 'department' (default) or 'private'
+    visibility: Option<String>, // 'department' (default) or 'private'
 }
 
 pub async fn upload_file(
@@ -372,34 +391,34 @@ pub async fn upload_file(
 ) -> Result<Json<Value>, StatusCode> {
     let parent_path = params.parent_path.unwrap_or_default();
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access - SECURITY: prevent cross-tenant uploads
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         tracing::warn!(
             "Security: User {} from tenant {} attempted to upload to tenant {}",
-            auth.user_id, auth.tenant_id, tenant_id
+            auth.user_id,
+            auth.tenant_id,
+            tenant_id
         );
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if uploading to a company folder - only admins can upload
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin && !parent_path.is_empty() {
-        let in_company_folder = is_inside_company_folder(
-            &state.pool, 
-            tenant_id, 
-            Some(&parent_path)
-        ).await;
-        
+        let in_company_folder =
+            is_inside_company_folder(&state.pool, tenant_id, Some(&parent_path)).await;
+
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to upload to company folder (parent_path: {})",
-                auth.user_id, parent_path
+                auth.user_id,
+                parent_path
             );
             return Err(StatusCode::FORBIDDEN);
         }
     }
-    
+
     // Get compliance mode for SOX versioning check
     let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
         .await
@@ -408,17 +427,21 @@ pub async fn upload_file(
 
     // Get blocked extensions for this tenant
     let blocked_extensions: Vec<String> = sqlx::query_scalar(
-        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1"
+        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1",
     )
     .bind(tenant_id)
     .fetch_one(&state.pool)
     .await
     .unwrap_or_default();
 
-    while let Some(mut field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?
+    {
         let _name = field.name().unwrap_or("file").to_string();
         let file_name = field.file_name().unwrap_or("unknown").to_string();
-        
+
         // Check for blocked file extensions
         if !blocked_extensions.is_empty() {
             if let Some(ext) = std::path::Path::new(&file_name)
@@ -426,7 +449,10 @@ pub async fn upload_file(
                 .and_then(|e| e.to_str())
             {
                 let ext_lower = ext.to_lowercase();
-                if blocked_extensions.iter().any(|b| b.to_lowercase() == ext_lower) {
+                if blocked_extensions
+                    .iter()
+                    .any(|b| b.to_lowercase() == ext_lower)
+                {
                     tracing::warn!(
                         "Upload blocked: user {} attempted to upload blocked extension .{} (file: {})",
                         auth.user_id, ext_lower, file_name
@@ -441,7 +467,8 @@ pub async fn upload_file(
                         &ext_lower,
                         auth.ip_address.as_deref(),
                         false,
-                    ).await;
+                    )
+                    .await;
                     return Ok(Json(json!({
                         "error": "blocked_extension",
                         "message": format!("File type .{} is not allowed by your organization", ext_lower),
@@ -450,24 +477,25 @@ pub async fn upload_file(
                 }
             }
         }
-        let _content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
-        
+        let _content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
         // Create a temporary file for streaming upload
         let temp_dir = std::env::temp_dir();
         let temp_file_name = format!("clovalink_upload_{}_{}", Uuid::new_v4(), &file_name);
         let temp_path = temp_dir.join(&temp_file_name);
-        
+
         // Stream the upload to a temporary file while computing Blake3 hash
-        let mut temp_file = tokio::fs::File::create(&temp_path)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to create temp file: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        
+        let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+            tracing::error!("Failed to create temp file: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
         let mut size: i64 = 0;
         let mut hasher = blake3::Hasher::new();
-        
+
         // Stream chunks to temp file while computing hash
         while let Some(chunk) = field.chunk().await.map_err(|e| {
             tracing::error!("Failed to read chunk: {:?}", e);
@@ -480,17 +508,20 @@ pub async fn upload_file(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
         }
-        
+
         // Finalize Blake3 hash
         let content_hash = hasher.finalize().to_hex().to_string();
-        
+
         // Flush and sync the temp file
-        temp_file.flush().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        temp_file
+            .flush()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         drop(temp_file); // Close the file handle
 
         // Check storage quota and max upload size before proceeding
         let tenant_limits: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT storage_quota_bytes, max_upload_size_bytes FROM tenants WHERE id = $1"
+            "SELECT storage_quota_bytes, max_upload_size_bytes FROM tenants WHERE id = $1",
         )
         .bind(tenant_id)
         .fetch_optional(&state.pool)
@@ -538,16 +569,23 @@ pub async fn upload_file(
         }
 
         // Get user's department
-        let user = sqlx::query!("SELECT department_id FROM users WHERE id = $1", auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
-            
+        let user = sqlx::query!(
+            "SELECT department_id FROM users WHERE id = $1",
+            auth.user_id
+        )
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
         let department_id = user.and_then(|u| u.department_id);
 
         // Validate and get visibility (default to 'department')
         let visibility = params.visibility.as_deref().unwrap_or("department");
-        let visibility = if visibility == "private" { "private" } else { "department" };
+        let visibility = if visibility == "private" {
+            "private"
+        } else {
+            "department"
+        };
 
         // Check for existing file with same name within the same scope
         // Scope = tenant + department + parent_path + visibility
@@ -564,11 +602,15 @@ pub async fn upload_file(
             AND visibility = $5
             ORDER BY version DESC NULLS LAST
             LIMIT 1
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(&file_name)
-        .bind(if parent_path.is_empty() { "".to_string() } else { parent_path.clone() })
+        .bind(if parent_path.is_empty() {
+            "".to_string()
+        } else {
+            parent_path.clone()
+        })
         .bind(department_id)
         .bind(visibility)
         .fetch_optional(&state.pool)
@@ -579,14 +621,20 @@ pub async fn upload_file(
         let final_file_name = if !restrictions.file_versioning_required && existing_file.is_some() {
             // Generate unique name: "file (1).ext", "file (2).ext", etc.
             let unique_name = generate_unique_filename(
-                &state.pool, 
-                tenant_id, 
-                &file_name, 
-                &parent_path, 
-                department_id, 
-                visibility
-            ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            tracing::info!("Auto-renamed duplicate file '{}' to '{}'", file_name, unique_name);
+                &state.pool,
+                tenant_id,
+                &file_name,
+                &parent_path,
+                department_id,
+                visibility,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            tracing::info!(
+                "Auto-renamed duplicate file '{}' to '{}'",
+                file_name,
+                unique_name
+            );
             unique_name
         } else {
             file_name.clone()
@@ -594,15 +642,18 @@ pub async fn upload_file(
 
         // Generate ULID for this file record
         let file_ulid = Ulid::new().to_string();
-        
+
         // Content-addressed storage key format: {tenant_id}/{dept_id or 'private'}/{hash_prefix}/{content_hash}
         // The 2-char hash prefix provides S3 partitioning (256 partitions per scope)
         let dept_scope = department_id
             .map(|d| d.to_string())
             .unwrap_or_else(|| "private".to_string());
         let hash_prefix = &content_hash[..2];
-        let content_key = format!("{}/{}/{}/{}", tenant_id, dept_scope, hash_prefix, content_hash);
-        
+        let content_key = format!(
+            "{}/{}/{}/{}",
+            tenant_id, dept_scope, hash_prefix, content_hash
+        );
+
         // Check for existing file with same content in same tenant/department (deduplication)
         let existing_content: Option<String> = sqlx::query_scalar(
             r#"
@@ -613,7 +664,7 @@ pub async fn upload_file(
             AND is_deleted = false 
             AND is_directory = false
             LIMIT 1
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(department_id)
@@ -621,7 +672,7 @@ pub async fn upload_file(
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         // Determine version for SOX compliance mode
         let (version, version_parent_id) = if restrictions.file_versioning_required {
             if let Some((existing_id, existing_version)) = existing_file {
@@ -633,35 +684,44 @@ pub async fn upload_file(
         } else {
             (1, None)
         };
-        
+
         // Use existing storage path if content already exists (deduplication), otherwise use content-addressed key
         let key = if let Some(ref existing_path) = existing_content {
-            tracing::info!("Deduplication: Reusing existing storage for content hash {}", &content_hash[..8]);
+            tracing::info!(
+                "Deduplication: Reusing existing storage for content hash {}",
+                &content_hash[..8]
+            );
             existing_path.clone()
         } else {
             content_key.clone()
         };
-        
+
         // Only upload if content doesn't already exist in storage
         if existing_content.is_none() {
             // Acquire transfer scheduler permit based on file size (prioritizes small files)
             let transfer_permit = state.scheduler.acquire_upload_permit(Some(size)).await;
             tracing::debug!(
                 "Upload permit acquired: file={}, size={}, class={}",
-                file_name, size, transfer_permit.size_class.name()
+                file_name,
+                size,
+                transfer_permit.size_class.name()
             );
-            
-            state.storage.upload_from_path(&key, &temp_path).await.map_err(|e| {
-                tracing::error!("Failed to upload to storage: {:?}", e);
-                // Clean up temp file on error
-                let _ = std::fs::remove_file(&temp_path);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-            
+
+            state
+                .storage
+                .upload_from_path(&key, &temp_path)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to upload to storage: {:?}", e);
+                    // Clean up temp file on error
+                    let _ = std::fs::remove_file(&temp_path);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
             // Permit is released here when upload completes
             drop(transfer_permit);
         }
-        
+
         // Clean up temp file after successful upload
         if let Err(e) = tokio::fs::remove_file(&temp_path).await {
             tracing::warn!("Failed to remove temp file: {:?}", e);
@@ -670,12 +730,10 @@ pub async fn upload_file(
         // For SOX mode, mark previous version as immutable
         if restrictions.file_versioning_required {
             if let Some(parent_id) = version_parent_id {
-                let _ = sqlx::query(
-                    "UPDATE files_metadata SET is_immutable = true WHERE id = $1"
-                )
-                .bind(parent_id)
-                .execute(&state.pool)
-                .await;
+                let _ = sqlx::query("UPDATE files_metadata SET is_immutable = true WHERE id = $1")
+                    .bind(parent_id)
+                    .execute(&state.pool)
+                    .await;
             }
         }
 
@@ -709,7 +767,7 @@ pub async fn upload_file(
         })?;
 
         let file_id = file_record.0;
-        
+
         // Log upload for SOX compliance
         let is_deduplicated = existing_content.is_some();
         if should_force_audit_log(&compliance_mode, "file_upload") {
@@ -736,7 +794,7 @@ pub async fn upload_file(
             .execute(&state.pool)
             .await;
         }
-        
+
         // Enqueue S3 replication if enabled (only for new content, not deduplicated)
         if state.replication_config.enabled && !is_deduplicated {
             let replication_pool = state.pool.clone();
@@ -747,7 +805,9 @@ pub async fn upload_file(
                     &storage_key,
                     tenant_id,
                     Some(size),
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!(
                         target: "replication",
                         storage_path = %storage_key,
@@ -757,7 +817,7 @@ pub async fn upload_file(
                 }
             });
         }
-        
+
         // Enqueue virus scan job if enabled (non-blocking)
         if state.virus_scan_config.enabled {
             let scan_pool = state.pool.clone();
@@ -769,7 +829,9 @@ pub async fn upload_file(
                     tenant_id,
                     0, // Normal priority
                     max_queue_size,
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!(
                         target: "virus_scan",
                         file_id = %file_id,
@@ -779,7 +841,7 @@ pub async fn upload_file(
                 }
             });
         }
-        
+
         // Dispatch file upload event to extensions (non-blocking)
         let pool = state.pool.clone();
         let redis_url = state.redis_url.clone();
@@ -797,9 +859,10 @@ pub async fn upload_file(
                 Some(&content_type_clone),
                 size,
                 webhook_timeout,
-            ).await;
+            )
+            .await;
         });
-        
+
         // Invalidate file listing cache for this tenant
         if let Some(ref cache) = state.cache {
             let pattern = format!("clovalink:files:{}:*", tenant_id);
@@ -807,14 +870,27 @@ pub async fn upload_file(
                 tracing::warn!("Failed to invalidate file cache: {}", e);
             }
         }
-        
+
         // Check if approval workflow is enabled and a policy matches
         let mut approval_pending = false;
         if let Ok(Some((approval_enabled,))) = sqlx::query_as::<_, (bool,)>(
-            "SELECT COALESCE(approval_workflow_enabled, false) FROM tenants WHERE id = $1"
-        ).bind(tenant_id).fetch_optional(&state.pool).await {
+            "SELECT COALESCE(approval_workflow_enabled, false) FROM tenants WHERE id = $1",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await
+        {
             if approval_enabled {
-                let is_cf = is_inside_company_folder(&state.pool, tenant_id, if parent_path.is_empty() { None } else { Some(&parent_path) }).await;
+                let is_cf = is_inside_company_folder(
+                    &state.pool,
+                    tenant_id,
+                    if parent_path.is_empty() {
+                        None
+                    } else {
+                        Some(&parent_path)
+                    },
+                )
+                .await;
                 let upload_ctx = crate::approvals::FileUploadContext {
                     department_id,
                     is_company_folder: is_cf,
@@ -823,9 +899,16 @@ pub async fn upload_file(
                     visibility: visibility.to_string(),
                     uploader_role: auth.role.clone(),
                 };
-                if let Some(policy) = crate::approvals::find_matching_policy(&state.pool, tenant_id, &upload_ctx).await {
-                    let _ = sqlx::query("UPDATE files_metadata SET approval_status = 'pending' WHERE id = $1")
-                        .bind(file_id).execute(&state.pool).await;
+                if let Some(policy) =
+                    crate::approvals::find_matching_policy(&state.pool, tenant_id, &upload_ctx)
+                        .await
+                {
+                    let _ = sqlx::query(
+                        "UPDATE files_metadata SET approval_status = 'pending' WHERE id = $1",
+                    )
+                    .bind(file_id)
+                    .execute(&state.pool)
+                    .await;
                     let _ = sqlx::query(
                         "INSERT INTO approval_requests (tenant_id, file_id, policy_id, requested_by) VALUES ($1, $2, $3, $4)"
                     )
@@ -834,8 +917,12 @@ pub async fn upload_file(
                     approval_pending = true;
 
                     // Notify approvers (managers/admins)
-                    if let Ok(Some(tenant)) = sqlx::query_as::<_, clovalink_core::models::Tenant>("SELECT * FROM tenants WHERE id = $1")
-                        .bind(tenant_id).fetch_optional(&state.pool).await
+                    if let Ok(Some(tenant)) = sqlx::query_as::<_, clovalink_core::models::Tenant>(
+                        "SELECT * FROM tenants WHERE id = $1",
+                    )
+                    .bind(tenant_id)
+                    .fetch_optional(&state.pool)
+                    .await
                     {
                         let _ = notification_service::notify_all_admins(
                             &state.pool,
@@ -854,12 +941,12 @@ pub async fn upload_file(
         let was_renamed = final_file_name != file_name;
 
         return Ok(Json(json!({
-            "message": if is_deduplicated { 
-                "File uploaded (deduplicated - content already exists)" 
-            } else if was_renamed { 
-                "File uploaded and renamed to avoid duplicate" 
-            } else { 
-                "File uploaded successfully" 
+            "message": if is_deduplicated {
+                "File uploaded (deduplicated - content already exists)"
+            } else if was_renamed {
+                "File uploaded and renamed to avoid duplicate"
+            } else {
+                "File uploaded successfully"
             },
             "file_name": final_file_name,
             "original_name": if was_renamed { Some(&file_name) } else { None },
@@ -880,12 +967,12 @@ pub async fn upload_file(
 // ==================== Security Helper Functions ====================
 
 /// Check if a user has permission to access a file based on visibility, ownership, and department
-/// 
+///
 /// Access rules:
 /// - SuperAdmin/Admin: can access all files in their tenant
 /// - Private files: only the owner can access
 /// - Department files: user must be in the same department
-/// 
+///
 /// action parameter is for future audit logging differentiation (read/write/delete)
 pub async fn can_access_file(
     pool: &sqlx::PgPool,
@@ -901,9 +988,16 @@ pub async fn can_access_file(
     }
 
     // Get file metadata including visibility, owner, department, and lock status
-    let file: Option<(String, Option<Uuid>, Option<Uuid>, bool, Option<Uuid>, Option<String>)> = sqlx::query_as(
+    let file: Option<(
+        String,
+        Option<Uuid>,
+        Option<Uuid>,
+        bool,
+        Option<Uuid>,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"SELECT visibility, owner_id, department_id, is_locked, locked_by, lock_requires_role
-           FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"#
+           FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"#,
     )
     .bind(file_id)
     .bind(tenant_id)
@@ -911,14 +1005,15 @@ pub async fn can_access_file(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (visibility, owner_id, file_dept_id, is_locked, locked_by, lock_requires_role) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (visibility, owner_id, file_dept_id, is_locked, locked_by, lock_requires_role) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
 
     // SECURITY: Check file lock permissions
     // If file is locked, only the locker or owner can access (unless user has required role)
     if is_locked {
         let is_locker = locked_by == Some(user_id);
         let is_owner = owner_id == Some(user_id);
-        
+
         // Role hierarchy for permission checking
         let role_level = |role: &str| -> i32 {
             match role {
@@ -929,7 +1024,7 @@ pub async fn can_access_file(
                 _ => 20, // Custom roles
             }
         };
-        
+
         // Check if user has the required role for this lock
         let has_required_role = if let Some(ref req_role) = lock_requires_role {
             let user_level = role_level(user_role);
@@ -938,7 +1033,7 @@ pub async fn can_access_file(
         } else {
             false // No role requirement - only locker/owner can access
         };
-        
+
         if !is_locker && !is_owner && !has_required_role {
             tracing::warn!(
                 "Access denied to locked file {}: user {} (role: {}) not authorized (locker: {:?}, owner: {:?}, requires_role: {:?})",
@@ -960,20 +1055,21 @@ pub async fn can_access_file(
         if !is_owner && !is_manager {
             tracing::warn!(
                 "Share denied for file {}: user {} (role: {}) is not owner or manager",
-                file_id, user_id, user_role
+                file_id,
+                user_id,
+                user_role
             );
             return Ok(false);
         }
     }
 
     // Department files: user must be in same department OR have it in allowed_department_ids
-    let user_depts: Option<(Option<Uuid>, Option<Vec<Uuid>>)> = sqlx::query_as(
-        "SELECT department_id, allowed_department_ids FROM users WHERE id = $1"
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_depts: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
+        sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let (user_dept, allowed_depts) = user_depts.unwrap_or((None, None));
 
@@ -983,19 +1079,19 @@ pub async fn can_access_file(
     }
 
     let file_dept = file_dept_id.unwrap();
-    
+
     // Check primary department
     if user_dept == Some(file_dept) {
         return Ok(true);
     }
-    
+
     // Check allowed departments
     if let Some(allowed) = allowed_depts {
         if allowed.contains(&file_dept) {
             return Ok(true);
         }
     }
-    
+
     Ok(false)
 }
 
@@ -1005,8 +1101,8 @@ pub async fn can_access_file(
 pub struct ListFilesParams {
     path: Option<String>,
     department_id: Option<String>,
-    visibility: Option<String>,  // 'department' (default) or 'private'
-    owner_id: Option<String>,    // For admin viewing other users' private files
+    visibility: Option<String>, // 'department' (default) or 'private'
+    owner_id: Option<String>,   // For admin viewing other users' private files
 }
 
 pub async fn list_files(
@@ -1015,7 +1111,7 @@ pub async fn list_files(
     Path(company_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<ListFilesParams>,
 ) -> Result<Json<Value>, StatusCode> {
-    use clovalink_core::cache::{keys, ttl, hash_path};
+    use clovalink_core::cache::{hash_path, keys, ttl};
 
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -1029,9 +1125,12 @@ pub async fn list_files(
     let dept_str = params.department_id.as_deref().unwrap_or("");
     let visibility_str = params.visibility.as_deref().unwrap_or("department");
     let owner_str = params.owner_id.as_deref().unwrap_or("");
-    let cache_key_input = format!("{}:{}:{}:{}:{}", path_str, dept_str, visibility_str, owner_str, auth.user_id);
+    let cache_key_input = format!(
+        "{}:{}:{}:{}:{}",
+        path_str, dept_str, visibility_str, owner_str, auth.user_id
+    );
     let cache_key = keys::files(tenant_id, &hash_path(&cache_key_input));
-    
+
     // Try to get from cache first
     if let Some(ref cache) = state.cache {
         if let Ok(cached) = cache.get::<Vec<Value>>(&cache_key).await {
@@ -1041,13 +1140,13 @@ pub async fn list_files(
 
     // Get user's department, allowed departments, and role
     let user: Option<(Option<Uuid>, String, Option<Vec<Uuid>>)> = sqlx::query_as(
-        "SELECT department_id, role, allowed_department_ids FROM users WHERE id = $1"
+        "SELECT department_id, role, allowed_department_ids FROM users WHERE id = $1",
     )
-        .bind(auth.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-        
+    .bind(auth.user_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
     let user_department_id = user.as_ref().and_then(|u| u.0);
     let role = user.as_ref().map(|u| u.1.clone()).unwrap_or_default();
     let user_allowed_department_ids = user.as_ref().and_then(|u| u.2.clone());
@@ -1064,10 +1163,10 @@ pub async fn list_files(
             auth.user_id
         ));
     }
-    
+
     // Visibility filter based on requested view mode
     let view_mode = params.visibility.as_deref().unwrap_or("department");
-    
+
     if view_mode == "private" {
         // Determine whose private files to show
         let target_owner = if let Some(ref oid) = params.owner_id {
@@ -1094,7 +1193,7 @@ pub async fn list_files(
                         }
                         target_uuid
                     }
-                    Err(_) => auth.user_id // Invalid UUID, fall back to own files
+                    Err(_) => auth.user_id, // Invalid UUID, fall back to own files
                 }
             } else {
                 auth.user_id // Non-admin or empty owner_id
@@ -1102,12 +1201,15 @@ pub async fn list_files(
         } else {
             auth.user_id // No owner_id specified
         };
-        
-        query.push_str(&format!(" AND visibility = 'private' AND owner_id = '{}'", target_owner));
+
+        query.push_str(&format!(
+            " AND visibility = 'private' AND owner_id = '{}'",
+            target_owner
+        ));
     } else {
         // Department view: show department files with existing access rules
         query.push_str(" AND visibility = 'department'");
-        
+
         // Filter logic...
         if role == "SuperAdmin" || role == "Admin" {
             if let Some(dept_id_str) = &params.department_id {
@@ -1120,53 +1222,58 @@ pub async fn list_files(
         } else {
             // Non-admin users: check primary department + allowed departments
             let mut dept_conditions: Vec<String> = Vec::new();
-            
+
             // Add primary department if set
             if let Some(dept_id) = user_department_id {
                 dept_conditions.push(format!("department_id = '{}'", dept_id));
             }
-            
+
             // Add allowed departments if any
             if let Some(ref allowed_depts) = user_allowed_department_ids {
                 for dept_id in allowed_depts {
                     dept_conditions.push(format!("department_id = '{}'", dept_id));
                 }
             }
-            
+
             // Build the condition
             if dept_conditions.is_empty() {
                 // User has no department access, only show files with no department
                 query.push_str(" AND department_id IS NULL");
             } else {
                 // User can access their department(s) OR files with no department
-                query.push_str(&format!(" AND (department_id IS NULL OR {})", dept_conditions.join(" OR ")));
+                query.push_str(&format!(
+                    " AND (department_id IS NULL OR {})",
+                    dept_conditions.join(" OR ")
+                ));
             }
         }
     }
-    
+
     // Handle path/folder navigation
     if let Some(path) = &params.path {
         let path = path.trim_start_matches('/');
         if !path.is_empty() {
-             // Validate that path is a valid UUID if we are using UUID-based folders
-             // If we are using path-based, then we should sanitize.
-             // Based on schema (checking next), if parent_path is UUID, we must validate.
-             // Assuming it is UUID for now based on typical patterns, but will verify with schema.
-             // If it's a string path, we sanitize.
-             
-             // Sanitize strict: only allow alphanumeric, dashes, underscores, slashes, dots, spaces
-             if !path.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.' || c == ' ') {
-                 return Err(StatusCode::BAD_REQUEST);
-             }
-             
-             query.push_str(&format!(" AND parent_path = '{}'", path));
+            // Validate that path is a valid UUID if we are using UUID-based folders
+            // If we are using path-based, then we should sanitize.
+            // Based on schema (checking next), if parent_path is UUID, we must validate.
+            // Assuming it is UUID for now based on typical patterns, but will verify with schema.
+            // If it's a string path, we sanitize.
+
+            // Sanitize strict: only allow alphanumeric, dashes, underscores, slashes, dots, spaces
+            if !path.chars().all(|c| {
+                c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.' || c == ' '
+            }) {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+
+            query.push_str(&format!(" AND parent_path = '{}'", path));
         } else {
-             query.push_str(" AND (parent_path IS NULL OR parent_path = '')");
+            query.push_str(" AND (parent_path IS NULL OR parent_path = '')");
         }
     } else {
         query.push_str(" AND (parent_path IS NULL OR parent_path = '')");
     }
-    
+
     let files = sqlx::query_as::<_, FileMetadata>(&query)
         .bind(tenant_id)
         .fetch_all(&state.pool)
@@ -1175,40 +1282,44 @@ pub async fn list_files(
             tracing::error!("Failed to list files from DB: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     // Fetch owner names and avatars for all files
-    let owner_ids: Vec<Uuid> = files.iter()
+    let owner_ids: Vec<Uuid> = files
+        .iter()
         .filter_map(|f| f.owner_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    
-    let owner_info: std::collections::HashMap<Uuid, (String, Option<String>)> = if !owner_ids.is_empty() {
-        let owners: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
-            "SELECT id, name, avatar_url FROM users WHERE id = ANY($1)"
-        )
-        .bind(&owner_ids)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-        
-        owners.into_iter()
-            .map(|(id, name, avatar)| (id, (name, avatar)))
-            .collect()
-    } else {
-        std::collections::HashMap::new()
-    };
-    
+
+    let owner_info: std::collections::HashMap<Uuid, (String, Option<String>)> =
+        if !owner_ids.is_empty() {
+            let owners: Vec<(Uuid, String, Option<String>)> =
+                sqlx::query_as("SELECT id, name, avatar_url FROM users WHERE id = ANY($1)")
+                    .bind(&owner_ids)
+                    .fetch_all(&state.pool)
+                    .await
+                    .unwrap_or_default();
+
+            owners
+                .into_iter()
+                .map(|(id, name, avatar)| (id, (name, avatar)))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
     // Get folder sizes for directories
-    let folder_ids: Vec<Uuid> = files.iter()
+    let folder_ids: Vec<Uuid> = files
+        .iter()
         .filter(|f| f.is_directory)
         .map(|f| f.id)
         .collect();
-    
+
     // Calculate folder sizes (sum of all files inside each folder recursively)
     let folder_sizes: std::collections::HashMap<Uuid, i64> = if !folder_ids.is_empty() {
         // Get folder paths to calculate sizes
-        let folder_paths: Vec<(Uuid, String)> = files.iter()
+        let folder_paths: Vec<(Uuid, String)> = files
+            .iter()
             .filter(|f| f.is_directory)
             .map(|f| {
                 let folder_path = if let Some(ref pp) = f.parent_path {
@@ -1223,7 +1334,7 @@ pub async fn list_files(
                 (f.id, folder_path)
             })
             .collect();
-        
+
         let mut sizes = std::collections::HashMap::new();
         for (folder_id, folder_path) in folder_paths {
             // Sum all files that have this folder as parent or are nested inside
@@ -1237,7 +1348,7 @@ pub async fn list_files(
                 AND is_directory = false
                 AND visibility = $4
                 AND (parent_path = $2 OR parent_path LIKE $3)
-                "#
+                "#,
             )
             .bind(tenant_id)
             .bind(&folder_path)
@@ -1245,13 +1356,17 @@ pub async fn list_files(
             .bind(view_mode)
             .fetch_one(&state.pool)
             .await;
-            
+
             match size_result {
                 Ok(total) if total > 0 => {
                     sizes.insert(folder_id, total);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to calculate folder size for {}: {:?}", folder_path, e);
+                    tracing::warn!(
+                        "Failed to calculate folder size for {}: {:?}",
+                        folder_path,
+                        e
+                    );
                 }
                 _ => {}
             }
@@ -1260,7 +1375,7 @@ pub async fn list_files(
     } else {
         std::collections::HashMap::new()
     };
-    
+
     let file_items: Vec<Value> = files.into_iter().map(|meta| {
         let file_type = if meta.is_directory {
             "folder"
@@ -1357,48 +1472,63 @@ pub async fn create_folder(
     let folder_name = payload["name"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
     let parent_path = payload["parent_path"].as_str().unwrap_or("");
     let visibility = payload["visibility"].as_str().unwrap_or("department");
-    let visibility = if visibility == "private" { "private" } else { "department" };
-    
+    let visibility = if visibility == "private" {
+        "private"
+    } else {
+        "department"
+    };
+
     // Parse and verify tenant access FIRST - SECURITY: prevent cross-tenant folder creation
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         tracing::warn!(
             "Security: User {} from tenant {} attempted to create folder in tenant {}",
-            auth.user_id, auth.tenant_id, tenant_id
+            auth.user_id,
+            auth.tenant_id,
+            tenant_id
         );
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if creating folder inside a company folder - only admins can do this
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin && !parent_path.is_empty() {
-        let in_company_folder = is_inside_company_folder(&state.pool, tenant_id, Some(parent_path)).await;
+        let in_company_folder =
+            is_inside_company_folder(&state.pool, tenant_id, Some(parent_path)).await;
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to create folder in company folder (parent_path: {})",
-                auth.user_id, parent_path
+                auth.user_id,
+                parent_path
             );
             return Err(StatusCode::FORBIDDEN);
         }
     }
-    
+
     // Construct storage key (path)
     let key = if parent_path.is_empty() {
         format!("{}/{}", company_id, folder_name)
     } else {
         format!("{}/{}/{}", company_id, parent_path, folder_name)
     };
-    
+
     // Create in storage
-    state.storage.create_folder(&key).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    // Get user's department
-    let user = sqlx::query!("SELECT department_id FROM users WHERE id = $1", auth.user_id)
-        .fetch_optional(&state.pool)
+    state
+        .storage
+        .create_folder(&key)
         .await
-        .unwrap_or(None);
-        
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get user's department
+    let user = sqlx::query!(
+        "SELECT department_id FROM users WHERE id = $1",
+        auth.user_id
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
     let department_id = user.and_then(|u| u.department_id);
 
     // Check if parent folder is a company folder (to inherit status)
@@ -1410,7 +1540,7 @@ pub async fn create_folder(
         } else {
             None
         };
-        
+
         let result: Option<(bool,)> = sqlx::query_as(
             "SELECT COALESCE(is_company_folder, false) FROM files_metadata 
              WHERE tenant_id = $1 AND name = $2 AND parent_path IS NOT DISTINCT FROM $3 AND is_deleted = false AND is_directory = true"
@@ -1422,7 +1552,7 @@ pub async fn create_folder(
         .await
         .ok()
         .flatten();
-        
+
         result.map(|r| r.0).unwrap_or(false)
     } else {
         false
@@ -1448,7 +1578,7 @@ pub async fn create_folder(
         tracing::error!("Failed to save folder metadata: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
@@ -1456,7 +1586,7 @@ pub async fn create_folder(
             tracing::warn!("Failed to invalidate file cache: {}", e);
         }
     }
-    
+
     Ok(Json(json!({ "message": "Folder created successfully" })))
 }
 
@@ -1488,10 +1618,10 @@ fn sanitize_zip_path(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
     }
-    
+
     // Remove leading slashes and backslashes
     let path = path.trim_start_matches(|c| c == '/' || c == '\\');
-    
+
     // Split and filter path components
     let safe_parts: Vec<&str> = path
         .split(|c| c == '/' || c == '\\')
@@ -1511,25 +1641,25 @@ fn sanitize_zip_path(path: &str) -> Option<String> {
             true
         })
         .collect();
-    
+
     if safe_parts.is_empty() {
         return None;
     }
-    
+
     // Rebuild the path
     let sanitized = safe_parts.join("/");
-    
+
     // Final check: reject if it still looks like an absolute path
     if sanitized.starts_with('/') || sanitized.contains(':') {
         tracing::warn!("Rejecting potentially unsafe zip path: {}", path);
         return None;
     }
-    
+
     Some(sanitized)
 }
 
 /// Helper function to download a folder as a zip archive
-/// 
+///
 /// Security features:
 /// - Path sanitization to prevent zip-slip
 /// - Size limit to prevent OOM
@@ -1542,7 +1672,7 @@ async fn download_folder_as_zip(
     parent_path: &str,
     client_ip: Option<String>,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
-    use std::io::{Write, Cursor};
+    use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
@@ -1552,8 +1682,12 @@ async fn download_folder_as_zip(
     } else {
         format!("{}/{}", parent_path, folder_name)
     };
-    
-    tracing::info!("Downloading folder as zip: {} (parent: {})", folder_path, parent_path);
+
+    tracing::info!(
+        "Downloading folder as zip: {} (parent: {})",
+        folder_path,
+        parent_path
+    );
 
     // Query all files recursively within this folder, including file_id for permission checks
     let files: Vec<(Uuid, String, String, String, i64)> = sqlx::query_as(
@@ -1564,7 +1698,7 @@ async fn download_folder_as_zip(
         AND is_deleted = false 
         AND is_directory = false
         AND (parent_path = $2 OR parent_path LIKE $3)
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(&folder_path)
@@ -1579,13 +1713,15 @@ async fn download_folder_as_zip(
     if files.is_empty() {
         tracing::info!("Folder {} has no files, returning empty zip", folder_path);
     }
-    
+
     // Check total size before starting
     let total_size: i64 = files.iter().map(|(_, _, _, _, size)| size).sum();
     if total_size > MAX_ZIP_SIZE_BYTES {
         tracing::warn!(
             "Folder {} exceeds max zip size ({} bytes > {} bytes)",
-            folder_path, total_size, MAX_ZIP_SIZE_BYTES
+            folder_path,
+            total_size,
+            MAX_ZIP_SIZE_BYTES
         );
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -1609,13 +1745,14 @@ async fn download_folder_as_zip(
             // }
             let _ = file_id; // Suppress unused warning
             let _ = user_id; // Suppress unused warning
-            
+
             // Calculate relative path within the zip
             let relative_path = if file_parent_path == &folder_path {
                 file_name.clone()
             } else {
                 // Strip the folder_path prefix to get relative path
-                let sub_path = file_parent_path.strip_prefix(&folder_path)
+                let sub_path = file_parent_path
+                    .strip_prefix(&folder_path)
                     .unwrap_or(file_parent_path)
                     .trim_start_matches('/');
                 if sub_path.is_empty() {
@@ -1624,7 +1761,7 @@ async fn download_folder_as_zip(
                     format!("{}/{}", sub_path, file_name)
                 }
             };
-            
+
             // SECURITY: Sanitize the zip entry path to prevent zip-slip
             let safe_path = match sanitize_zip_path(&relative_path) {
                 Some(p) => p,
@@ -1647,7 +1784,11 @@ async fn download_folder_as_zip(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to download file {} from storage: {}", storage_path, e);
+                    tracing::warn!(
+                        "Failed to download file {} from storage: {}",
+                        storage_path,
+                        e
+                    );
                     // Continue with other files
                 }
             }
@@ -1661,7 +1802,10 @@ async fn download_folder_as_zip(
 
     let zip_data = zip_buffer.into_inner();
     // Sanitize folder name for the zip filename header
-    let safe_folder_name = folder_name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.', "_");
+    let safe_folder_name = folder_name.replace(
+        |c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.',
+        "_",
+    );
     let zip_filename = format!("{}.zip", safe_folder_name);
 
     // Log folder download for compliance
@@ -1692,14 +1836,17 @@ async fn download_folder_as_zip(
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/zip")
-        .header(header::CONTENT_DISPOSITION, sanitize_content_disposition(&zip_filename, "attachment"))
+        .header(
+            header::CONTENT_DISPOSITION,
+            sanitize_content_disposition(&zip_filename, "attachment"),
+        )
         .header(header::CACHE_CONTROL, "no-cache")
         .body(axum::body::Body::from(zip_data))
         .unwrap())
 }
 
 /// Download shared folder as zip (for share links - no user_id required)
-/// 
+///
 /// Security features:
 /// - Path sanitization to prevent zip-slip
 /// - Size limit to prevent OOM
@@ -1709,7 +1856,7 @@ async fn download_shared_folder_as_zip(
     folder_name: &str,
     parent_path: &str,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
-    use std::io::{Write, Cursor};
+    use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
@@ -1719,8 +1866,12 @@ async fn download_shared_folder_as_zip(
     } else {
         format!("{}/{}", parent_path, folder_name)
     };
-    
-    tracing::info!("Downloading shared folder as zip: {} (parent: {})", folder_path, parent_path);
+
+    tracing::info!(
+        "Downloading shared folder as zip: {} (parent: {})",
+        folder_path,
+        parent_path
+    );
 
     // Query all files recursively within this folder, including size for limit check
     let files: Vec<(String, String, String, i64)> = sqlx::query_as(
@@ -1731,7 +1882,7 @@ async fn download_shared_folder_as_zip(
         AND is_deleted = false 
         AND is_directory = false
         AND (parent_path = $2 OR parent_path LIKE $3)
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(&folder_path)
@@ -1742,13 +1893,15 @@ async fn download_shared_folder_as_zip(
         tracing::error!("Failed to query folder files for share: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Check total size before starting
     let total_size: i64 = files.iter().map(|(_, _, _, size)| size).sum();
     if total_size > MAX_ZIP_SIZE_BYTES {
         tracing::warn!(
             "Shared folder {} exceeds max zip size ({} bytes > {} bytes)",
-            folder_path, total_size, MAX_ZIP_SIZE_BYTES
+            folder_path,
+            total_size,
+            MAX_ZIP_SIZE_BYTES
         );
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -1766,7 +1919,8 @@ async fn download_shared_folder_as_zip(
             let relative_path = if file_parent_path == &folder_path {
                 file_name.clone()
             } else {
-                let sub_path = file_parent_path.strip_prefix(&folder_path)
+                let sub_path = file_parent_path
+                    .strip_prefix(&folder_path)
                     .unwrap_or(file_parent_path)
                     .trim_start_matches('/');
                 if sub_path.is_empty() {
@@ -1775,12 +1929,15 @@ async fn download_shared_folder_as_zip(
                     format!("{}/{}", sub_path, file_name)
                 }
             };
-            
+
             // SECURITY: Sanitize the zip entry path to prevent zip-slip
             let safe_path = match sanitize_zip_path(&relative_path) {
                 Some(p) => p,
                 None => {
-                    tracing::warn!("Skipping file with unsafe path in shared zip: {}", relative_path);
+                    tracing::warn!(
+                        "Skipping file with unsafe path in shared zip: {}",
+                        relative_path
+                    );
                     continue;
                 }
             };
@@ -1798,7 +1955,11 @@ async fn download_shared_folder_as_zip(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to download file {} from storage for share: {}", storage_path, e);
+                    tracing::warn!(
+                        "Failed to download file {} from storage for share: {}",
+                        storage_path,
+                        e
+                    );
                 }
             }
         }
@@ -1816,7 +1977,10 @@ async fn download_shared_folder_as_zip(
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/zip")
-        .header(header::CONTENT_DISPOSITION, sanitize_content_disposition(&zip_filename, "attachment"))
+        .header(
+            header::CONTENT_DISPOSITION,
+            sanitize_content_disposition(&zip_filename, "attachment"),
+        )
         .header(header::CACHE_CONTROL, "no-cache")
         .body(axum::body::Body::from(zip_data))
         .unwrap())
@@ -1839,10 +2003,20 @@ pub async fn download_file(
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // SECURITY: Check if user has permission to access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to download file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -1885,7 +2059,15 @@ pub async fn download_file(
 
     // If it's a directory, create a zip of all files in it
     if is_directory {
-        return download_folder_as_zip(&state, tenant_id, auth.user_id, &folder_name, &parent_path, auth.ip_address.clone()).await;
+        return download_folder_as_zip(
+            &state,
+            tenant_id,
+            auth.user_id,
+            &folder_name,
+            &parent_path,
+            auth.ip_address.clone(),
+        )
+        .await;
     }
 
     // Look up file by ID for regular file download
@@ -1898,7 +2080,7 @@ pub async fn download_file(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     let (file_name, storage_path, file_size) = file_meta;
 
     // Get compliance mode for HIPAA audit logging
@@ -1910,7 +2092,11 @@ pub async fn download_file(
 
     // Determine if this is a preview or download for audit logging
     let is_preview = params.preview.unwrap_or(false);
-    let audit_action = if is_preview { "file_preview" } else { "file_download" };
+    let audit_action = if is_preview {
+        "file_preview"
+    } else {
+        "file_download"
+    };
 
     // Log file download/view for HIPAA compliance
     if should_force_audit_log(&compliance_mode, audit_action) {
@@ -1945,7 +2131,8 @@ pub async fn download_file(
             1,
             Some(file_size),
             None,
-        ).await;
+        )
+        .await;
     }
 
     // Check for bulk download pattern (security alert)
@@ -1956,24 +2143,30 @@ pub async fn download_file(
             auth.user_id,
             &auth.email,
             auth.ip_address.as_deref(),
-        ).await;
+        )
+        .await;
     }
 
     // Try presigned URL redirect if enabled and supported (S3-compatible storage)
     // This bypasses the proxy and redirects directly to S3/CDN for better performance
     if state.use_presigned_urls && state.storage.supports_presigned_urls() {
-        match state.storage.presigned_download_url(&storage_path, state.presigned_url_expiry).await {
+        match state
+            .storage
+            .presigned_download_url(&storage_path, state.presigned_url_expiry)
+            .await
+        {
             Ok(Some(mut presigned_url)) => {
                 // Optionally rewrite through CDN for edge caching
                 if let Some(cdn) = &state.cdn_domain {
                     presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
                 }
-                
+
                 tracing::debug!(
                     "Redirecting file download to presigned URL: user={}, file={}",
-                    auth.user_id, file_uuid
+                    auth.user_id,
+                    file_uuid
                 );
-                
+
                 // Return redirect to presigned URL (307 preserves method but 302 is more compatible)
                 return Ok(Redirect::temporary(&presigned_url).into_response());
             }
@@ -1983,31 +2176,40 @@ pub async fn download_file(
             }
             Err(e) => {
                 // Presigning failed, fallback to proxy
-                tracing::warn!("Presigned URL generation failed, falling back to proxy: {}", e);
+                tracing::warn!(
+                    "Presigned URL generation failed, falling back to proxy: {}",
+                    e
+                );
             }
         }
     }
 
     // FALLBACK: Proxy download through backend using STREAMING (for local storage or when presigned URLs disabled/failed)
     // This streams the file in chunks (~8KB) without loading the entire file into memory
-    
+
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
     // This blocks if too many transfers of this size class are in progress
     let transfer_permit = state.scheduler.acquire_download_permit(file_size).await;
     tracing::debug!(
         "Download permit acquired: file={}, size={}, class={}",
-        file_uuid, file_size, transfer_permit.size_class.name()
+        file_uuid,
+        file_size,
+        transfer_permit.size_class.name()
     );
-    
-    let (stream, stream_size) = state.storage.download_stream(&storage_path).await
-        .map_err(|e| {
-            tracing::error!("Failed to open file stream: {}", e);
-            StatusCode::NOT_FOUND
-        })?;
-    
+
+    let (stream, stream_size) =
+        state
+            .storage
+            .download_stream(&storage_path)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to open file stream: {}", e);
+                StatusCode::NOT_FOUND
+            })?;
+
     // Get filename for Content-Disposition header
     let filename = file_name;
-    
+
     let content_type = get_content_type(&filename);
 
     // Generate ETag based on storage path and size (deterministic without reading file)
@@ -2020,24 +2222,27 @@ pub async fn download_file(
 
     // SECURITY: Use sanitized Content-Disposition to prevent header injection
     let safe_disposition = sanitize_content_disposition(&filename, "inline");
-    
+
     // Convert the stream to an axum Body (zero-copy streaming)
     // Note: transfer_permit is held in scope until response is fully sent
-    let body = Body::from_stream(stream.map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    }));
-    
+    let body = Body::from_stream(
+        stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+    );
+
     // The permit is held until the response body is fully streamed
     // This is fine because axum handles the response in the same task context
     let _ = &transfer_permit;
-    
+
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, stream_size)
         .header(header::CONTENT_DISPOSITION, safe_disposition)
         // SECURITY: No caching to prevent cached files being accessible after permission changes
-        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate, private")
+        .header(
+            header::CACHE_CONTROL,
+            "no-store, no-cache, must-revalidate, private",
+        )
         .header(header::ETAG, etag)
         .header("X-Content-Type-Options", "nosniff")
         .body(body)
@@ -2050,8 +2255,8 @@ pub async fn download_file(
 #[derive(Debug, serde::Serialize)]
 pub struct OfficePreviewResponse {
     pub file_type: String,
-    pub sheets: Option<Vec<SheetData>>,  // For Excel
-    pub pptx_info: Option<PptxInfo>,     // For PowerPoint
+    pub sheets: Option<Vec<SheetData>>, // For Excel
+    pub pptx_info: Option<PptxInfo>,    // For PowerPoint
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -2072,18 +2277,28 @@ pub async fn preview_office_file(
     Extension(auth): Extension<AuthUser>,
     Path((company_id, file_id)): Path<(String, String)>,
 ) -> Result<Json<OfficePreviewResponse>, StatusCode> {
-    use calamine::{Reader, Xlsx, Xls};
+    use calamine::{Reader, Xls, Xlsx};
     use std::io::Cursor;
-    
+
     // Parse UUIDs
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // SECURITY: Check if user has permission to access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to preview file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -2102,32 +2317,34 @@ pub async fn preview_office_file(
     let file_name_lower = file_name.to_lowercase();
 
     // Download file content
-    let file_bytes = state.storage.download(&storage_path).await
-        .map_err(|e| {
-            tracing::error!("Failed to download file for preview: {}", e);
-            StatusCode::NOT_FOUND
-        })?;
+    let file_bytes = state.storage.download(&storage_path).await.map_err(|e| {
+        tracing::error!("Failed to download file for preview: {}", e);
+        StatusCode::NOT_FOUND
+    })?;
 
     // Process based on file type
     if file_name_lower.ends_with(".xlsx") {
         let cursor = Cursor::new(&file_bytes);
-        let mut workbook: Xlsx<_> = Xlsx::new(cursor)
-            .map_err(|e| {
-                tracing::error!("Failed to parse XLSX: {}", e);
-                StatusCode::UNPROCESSABLE_ENTITY
-            })?;
+        let mut workbook: Xlsx<_> = Xlsx::new(cursor).map_err(|e| {
+            tracing::error!("Failed to parse XLSX: {}", e);
+            StatusCode::UNPROCESSABLE_ENTITY
+        })?;
 
         let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
         let mut sheets = Vec::new();
 
         for sheet_name in sheet_names {
             if let Ok(range) = workbook.worksheet_range(&sheet_name) {
-                let rows: Vec<Vec<String>> = range.rows()
+                let rows: Vec<Vec<String>> = range
+                    .rows()
                     .take(1000) // Limit rows for performance
                     .map(|row| row.iter().map(|cell| cell.to_string()).collect())
                     .collect();
-                
-                sheets.push(SheetData { name: sheet_name, rows });
+
+                sheets.push(SheetData {
+                    name: sheet_name,
+                    rows,
+                });
             }
         }
 
@@ -2138,23 +2355,26 @@ pub async fn preview_office_file(
         }))
     } else if file_name_lower.ends_with(".xls") {
         let cursor = Cursor::new(&file_bytes);
-        let mut workbook: Xls<_> = Xls::new(cursor)
-            .map_err(|e| {
-                tracing::error!("Failed to parse XLS: {}", e);
-                StatusCode::UNPROCESSABLE_ENTITY
-            })?;
+        let mut workbook: Xls<_> = Xls::new(cursor).map_err(|e| {
+            tracing::error!("Failed to parse XLS: {}", e);
+            StatusCode::UNPROCESSABLE_ENTITY
+        })?;
 
         let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
         let mut sheets = Vec::new();
 
         for sheet_name in sheet_names {
             if let Ok(range) = workbook.worksheet_range(&sheet_name) {
-                let rows: Vec<Vec<String>> = range.rows()
+                let rows: Vec<Vec<String>> = range
+                    .rows()
                     .take(1000)
                     .map(|row| row.iter().map(|cell| cell.to_string()).collect())
                     .collect();
-                
-                sheets.push(SheetData { name: sheet_name, rows });
+
+                sheets.push(SheetData {
+                    name: sheet_name,
+                    rows,
+                });
             }
         }
 
@@ -2166,14 +2386,14 @@ pub async fn preview_office_file(
     } else if file_name_lower.ends_with(".pptx") {
         // Parse PPTX (ZIP file) for metadata
         let cursor = Cursor::new(&file_bytes);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| {
-                tracing::error!("Failed to open PPTX as ZIP: {}", e);
-                StatusCode::UNPROCESSABLE_ENTITY
-            })?;
+        let mut archive = zip::ZipArchive::new(cursor).map_err(|e| {
+            tracing::error!("Failed to open PPTX as ZIP: {}", e);
+            StatusCode::UNPROCESSABLE_ENTITY
+        })?;
 
         // Count slides
-        let slide_count = archive.file_names()
+        let slide_count = archive
+            .file_names()
             .filter(|name| name.starts_with("ppt/slides/slide") && name.ends_with(".xml"))
             .count();
 
@@ -2202,7 +2422,11 @@ pub async fn preview_office_file(
         Ok(Json(OfficePreviewResponse {
             file_type: "pptx".to_string(),
             sheets: None,
-            pptx_info: Some(PptxInfo { slide_count, title, author }),
+            pptx_info: Some(PptxInfo {
+                slide_count,
+                title,
+                author,
+            }),
         }))
     } else {
         Err(StatusCode::UNSUPPORTED_MEDIA_TYPE)
@@ -2218,10 +2442,12 @@ pub async fn rename_file(
     // Support both file_id (preferred) and old_name (legacy) lookup
     let file_id_str = payload["file_id"].as_str();
     let old_name = payload["old_name"].as_str();
-    let new_name = payload["new_name"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
+    let new_name = payload["new_name"]
+        .as_str()
+        .ok_or(StatusCode::BAD_REQUEST)?;
     let req_parent_path = payload["parent_path"].as_str().unwrap_or("");
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
@@ -2235,42 +2461,47 @@ pub async fn rename_file(
 
     // Look up file by ID (preferred) or by name+parent_path (legacy)
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(Uuid, String, Option<String>, Option<bool>, bool, bool)> = if let Some(id_str) = file_id_str {
-        let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-        sqlx::query_as(
-            r#"
+    let file_info: Option<(Uuid, String, Option<String>, Option<bool>, bool, bool)> =
+        if let Some(id_str) = file_id_str {
+            let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+            sqlx::query_as(
+                r#"
             SELECT id, name, parent_path, is_immutable, is_locked, is_directory 
             FROM files_metadata 
             WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-            "#
-        )
-        .bind(file_uuid)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else if let Some(name) = old_name {
-        // Legacy lookup by name + parent_path (still requires tenant_id)
-        let parent_path_query = if req_parent_path.is_empty() { None } else { Some(req_parent_path) };
-        sqlx::query_as(
-            r#"
+            "#,
+            )
+            .bind(file_uuid)
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        } else if let Some(name) = old_name {
+            // Legacy lookup by name + parent_path (still requires tenant_id)
+            let parent_path_query = if req_parent_path.is_empty() {
+                None
+            } else {
+                Some(req_parent_path)
+            };
+            sqlx::query_as(
+                r#"
             SELECT id, name, parent_path, is_immutable, is_locked, is_directory 
             FROM files_metadata 
             WHERE tenant_id = $1 AND name = $2 AND is_deleted = false
             AND (($3::text IS NULL AND parent_path IS NULL) OR parent_path = $3)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(name)
-        .bind(parent_path_query)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        return Err(StatusCode::BAD_REQUEST); // Need either file_id or old_name
-    };
+            "#,
+            )
+            .bind(tenant_id)
+            .bind(name)
+            .bind(parent_path_query)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        } else {
+            return Err(StatusCode::BAD_REQUEST); // Need either file_id or old_name
+        };
 
-    let (file_id, current_name, current_parent_path, is_immutable, is_locked, is_directory) = 
+    let (file_id, current_name, current_parent_path, is_immutable, is_locked, is_directory) =
         file_info.ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if file is inside a company folder - only admins can rename
@@ -2280,17 +2511,28 @@ pub async fn rename_file(
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to rename file {} in company folder",
-                auth.user_id, file_id
+                auth.user_id,
+                file_id
             );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // SECURITY: Check if user has permission to rename this file
-    if !can_access_file(&state.pool, file_id, tenant_id, auth.user_id, &auth.role, "write").await? {
+    if !can_access_file(
+        &state.pool,
+        file_id,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "write",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to rename file {} without permission",
-            auth.user_id, file_id
+            auth.user_id,
+            file_id
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -2304,9 +2546,13 @@ pub async fn rename_file(
 
     // Extract just the filename (no path components allowed in new_name for rename)
     let new_filename = new_name.split('/').last().unwrap_or(new_name).to_string();
-    
+
     // Validate new filename
-    if new_filename.is_empty() || new_filename.contains('\0') || new_filename == "." || new_filename == ".." {
+    if new_filename.is_empty()
+        || new_filename.contains('\0')
+        || new_filename == "."
+        || new_filename == ".."
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -2319,7 +2565,7 @@ pub async fn rename_file(
         AND is_deleted = false
         AND id != $3
         AND (($4::text IS NULL AND parent_path IS NULL) OR parent_path = $4)
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(&new_filename)
@@ -2330,13 +2576,15 @@ pub async fn rename_file(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if duplicate_check.is_some() {
-        return Ok(Json(json!({ "error": "A file with this name already exists in this folder" })));
+        return Ok(Json(
+            json!({ "error": "A file with this name already exists in this folder" }),
+        ));
     }
-    
+
     // CONTENT-ADDRESSED STORAGE: Only update metadata, do NOT touch S3
     // The storage_path remains the same (it's the content hash key)
     sqlx::query(
-        "UPDATE files_metadata SET name = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3"
+        "UPDATE files_metadata SET name = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3",
     )
     .bind(&new_filename)
     .bind(file_id)
@@ -2352,19 +2600,27 @@ pub async fn rename_file(
     // NOTE: We do NOT update storage_path - files keep their content-addressed keys
     if is_directory {
         let old_folder_path = if let Some(ref pp) = current_parent_path {
-            if pp.is_empty() { current_name.clone() } else { format!("{}/{}", pp, current_name) }
+            if pp.is_empty() {
+                current_name.clone()
+            } else {
+                format!("{}/{}", pp, current_name)
+            }
         } else {
             current_name.clone()
         };
         let new_folder_path = if let Some(ref pp) = current_parent_path {
-            if pp.is_empty() { new_filename.clone() } else { format!("{}/{}", pp, new_filename) }
+            if pp.is_empty() {
+                new_filename.clone()
+            } else {
+                format!("{}/{}", pp, new_filename)
+            }
         } else {
             new_filename.clone()
         };
-        
+
         // Update children with exact parent_path match
         sqlx::query(
-            "UPDATE files_metadata SET parent_path = $1 WHERE tenant_id = $2 AND parent_path = $3"
+            "UPDATE files_metadata SET parent_path = $1 WHERE tenant_id = $2 AND parent_path = $3",
         )
         .bind(&new_folder_path)
         .bind(tenant_id)
@@ -2375,7 +2631,7 @@ pub async fn rename_file(
             tracing::error!("Failed to update children parent_path: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        
+
         // Update nested children (parent_path starts with old_folder_path/)
         let old_prefix = format!("{}/", old_folder_path);
         let nested_children: Vec<(Uuid, String)> = sqlx::query_as(
@@ -2386,23 +2642,32 @@ pub async fn rename_file(
         .fetch_all(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         for (child_id, child_parent_path) in nested_children {
-            let new_child_parent = child_parent_path.replacen(&old_folder_path, &new_folder_path, 1);
-            sqlx::query("UPDATE files_metadata SET parent_path = $1 WHERE id = $2 AND tenant_id = $3")
-                .bind(&new_child_parent)
-                .bind(child_id)
-                .bind(tenant_id)
-                .execute(&state.pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let new_child_parent =
+                child_parent_path.replacen(&old_folder_path, &new_folder_path, 1);
+            sqlx::query(
+                "UPDATE files_metadata SET parent_path = $1 WHERE id = $2 AND tenant_id = $3",
+            )
+            .bind(&new_child_parent)
+            .bind(child_id)
+            .bind(tenant_id)
+            .execute(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
-        
-        tracing::info!("Updated children paths for renamed folder: {} -> {}", old_folder_path, new_folder_path);
+
+        tracing::info!(
+            "Updated children paths for renamed folder: {} -> {}",
+            old_folder_path,
+            new_folder_path
+        );
     }
 
     // Log rename for SOX compliance
-    if should_force_audit_log(&compliance_mode, "file_rename") || restrictions.file_versioning_required {
+    if should_force_audit_log(&compliance_mode, "file_rename")
+        || restrictions.file_versioning_required
+    {
         let _ = sqlx::query(
             r#"
             INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
@@ -2421,7 +2686,7 @@ pub async fn rename_file(
         .execute(&state.pool)
         .await;
     }
-    
+
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
@@ -2429,7 +2694,7 @@ pub async fn rename_file(
             tracing::warn!("Failed to invalidate file cache: {}", e);
         }
     }
-    
+
     Ok(Json(json!({ "message": "File renamed successfully" })))
 }
 
@@ -2443,12 +2708,14 @@ pub async fn delete_file(
     let file_id_str = payload["file_id"].as_str();
     let path = payload["path"].as_str();
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access - SECURITY: prevent cross-tenant deletions
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         tracing::warn!(
             "Security: User {} from tenant {} attempted to delete from tenant {}",
-            auth.user_id, auth.tenant_id, tenant_id
+            auth.user_id,
+            auth.tenant_id,
+            tenant_id
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -2461,49 +2728,56 @@ pub async fn delete_file(
 
     // Look up file by ID (preferred) or by path (legacy)
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(Uuid, Option<Uuid>, Option<bool>, bool, bool, String, Option<String>)> = 
-        if let Some(id_str) = file_id_str {
-            let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-            sqlx::query_as(
-                r#"
+    let file_info: Option<(
+        Uuid,
+        Option<Uuid>,
+        Option<bool>,
+        bool,
+        bool,
+        String,
+        Option<String>,
+    )> = if let Some(id_str) = file_id_str {
+        let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+        sqlx::query_as(
+            r#"
                 SELECT id, owner_id, is_immutable, is_locked, is_directory, name, parent_path 
                 FROM files_metadata 
                 WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-                "#
-            )
-            .bind(file_uuid)
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else if let Some(p) = path {
-            // Legacy lookup by path - construct expected name and parent_path
-            let parts: Vec<&str> = p.split('/').collect();
-            let name = parts.last().unwrap_or(&p);
-            let parent_path = if parts.len() > 1 {
-                Some(parts[0..parts.len()-1].join("/"))
-            } else {
-                None
-            };
-            sqlx::query_as(
-                r#"
+                "#,
+        )
+        .bind(file_uuid)
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else if let Some(p) = path {
+        // Legacy lookup by path - construct expected name and parent_path
+        let parts: Vec<&str> = p.split('/').collect();
+        let name = parts.last().unwrap_or(&p);
+        let parent_path = if parts.len() > 1 {
+            Some(parts[0..parts.len() - 1].join("/"))
+        } else {
+            None
+        };
+        sqlx::query_as(
+            r#"
                 SELECT id, owner_id, is_immutable, is_locked, is_directory, name, parent_path 
                 FROM files_metadata 
                 WHERE tenant_id = $1 AND name = $2 AND is_deleted = false
                 AND (($3::text IS NULL AND parent_path IS NULL) OR parent_path = $3)
-                "#
-            )
-            .bind(tenant_id)
-            .bind(name)
-            .bind(&parent_path)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else {
-            return Err(StatusCode::BAD_REQUEST); // Need either file_id or path
-        };
+                "#,
+        )
+        .bind(tenant_id)
+        .bind(name)
+        .bind(&parent_path)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        return Err(StatusCode::BAD_REQUEST); // Need either file_id or path
+    };
 
-    let (file_id, owner_id, is_immutable, is_locked, is_directory, file_name, parent_path) = 
+    let (file_id, owner_id, is_immutable, is_locked, is_directory, file_name, parent_path) =
         file_info.ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if file is locked
@@ -2526,7 +2800,8 @@ pub async fn delete_file(
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to delete file {} in company folder",
-                auth.user_id, file_id
+                auth.user_id,
+                file_id
             );
             return Err(StatusCode::FORBIDDEN);
         }
@@ -2534,7 +2809,16 @@ pub async fn delete_file(
 
     if !is_admin && !is_owner {
         // Check can_access_file for more granular permissions
-        if !can_access_file(&state.pool, file_id, tenant_id, auth.user_id, &auth.role, "delete").await? {
+        if !can_access_file(
+            &state.pool,
+            file_id,
+            tenant_id,
+            auth.user_id,
+            &auth.role,
+            "delete",
+        )
+        .await?
+        {
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -2549,15 +2833,19 @@ pub async fn delete_file(
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // If this is a folder, also mark all children as deleted
     // Build the folder path for matching children
     let folder_path = if let Some(ref pp) = parent_path {
-        if pp.is_empty() { file_name.clone() } else { format!("{}/{}", pp, file_name) }
+        if pp.is_empty() {
+            file_name.clone()
+        } else {
+            format!("{}/{}", pp, file_name)
+        }
     } else {
         file_name.clone()
     };
-    
+
     if is_directory {
         // Mark direct children (parent_path = folder_path)
         sqlx::query(
@@ -2571,7 +2859,7 @@ pub async fn delete_file(
             tracing::error!("Failed to mark folder children as deleted: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        
+
         // Mark nested children (parent_path starts with folder_path/)
         sqlx::query(
             "UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE tenant_id = $1 AND parent_path LIKE $2 AND is_deleted = false"
@@ -2587,7 +2875,9 @@ pub async fn delete_file(
     }
 
     // Log deletion for SOX compliance
-    if should_force_audit_log(&compliance_mode, "file_delete") || restrictions.file_versioning_required {
+    if should_force_audit_log(&compliance_mode, "file_delete")
+        || restrictions.file_versioning_required
+    {
         let display_path = if let Some(ref pp) = parent_path {
             format!("{}/{}", pp, file_name)
         } else {
@@ -2610,7 +2900,7 @@ pub async fn delete_file(
         .execute(&state.pool)
         .await;
     }
-    
+
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
@@ -2618,14 +2908,14 @@ pub async fn delete_file(
             tracing::warn!("Failed to invalidate file cache: {}", e);
         }
     }
-    
+
     Ok(Json(json!({ "message": "File moved to trash" })))
 }
 
 #[derive(serde::Deserialize)]
 pub struct ListTrashParams {
-    owner_id: Option<String>,       // For viewing specific user's trash (User Details Modal)
-    department_id: Option<String>,  // For filtering by department (main Recycle Bin page)
+    owner_id: Option<String>, // For viewing specific user's trash (User Details Modal)
+    department_id: Option<String>, // For filtering by department (main Recycle Bin page)
 }
 
 pub async fn list_trash(
@@ -2635,7 +2925,7 @@ pub async fn list_trash(
     axum::extract::Query(params): axum::extract::Query<ListTrashParams>,
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Parse owner_id filter (for User Details Modal - viewing specific user's trash)
     let target_owner = if let Some(ref oid) = params.owner_id {
         if (auth.role == "SuperAdmin" || auth.role == "Admin") && !oid.is_empty() {
@@ -2646,7 +2936,7 @@ pub async fn list_trash(
     } else {
         None
     };
-    
+
     // Parse department_id filter (for main Recycle Bin page)
     let target_department = if let Some(ref did) = params.department_id {
         if (auth.role == "SuperAdmin" || auth.role == "Admin") && !did.is_empty() {
@@ -2657,7 +2947,7 @@ pub async fn list_trash(
     } else {
         None
     };
-    
+
     // Build query based on filters - owner_id takes precedence over department_id
     let rows = if let Some(owner) = target_owner {
         // Admin viewing specific user's trash (User Details Modal)
@@ -2714,40 +3004,47 @@ pub async fn list_trash(
         tracing::error!("Failed to list trash from DB: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
-    let file_items: Vec<Value> = rows.into_iter().map(|row| {
-        let id: Uuid = row.get("id");
-        let name: String = row.get("name");
-        let parent_path: Option<String> = row.get("parent_path");
-        let size_bytes: i64 = row.get("size_bytes");
-        let is_directory: bool = row.get("is_directory");
-        let deleted_at: Option<chrono::DateTime<chrono::Utc>> = row.get("deleted_at");
-        let owner_id: Option<Uuid> = row.get("owner_id");
-        let visibility: Option<String> = row.get("visibility");
-        let owner_name: Option<String> = row.get("owner_name");
-        
-        // Build display path from name and parent_path (content-addressed storage)
-        let display_path = if let Some(ref pp) = parent_path {
-            if pp.is_empty() { name.clone() } else { format!("{}/{}", pp, name) }
-        } else {
-            name.clone()
-        };
-        
-        json!({
-            "id": id.to_string(),
-            "file_id": id.to_string(),
-            "name": name,
-            "path": display_path,
-            "parent_path": parent_path,
-            "size": format_size(size_bytes as u64),
-            "size_bytes": size_bytes,
-            "is_directory": is_directory,
-            "deleted_at": deleted_at.map(|d| d.to_rfc3339()).unwrap_or_default(),
-            "owner_id": owner_id,
-            "owner_name": owner_name,
-            "visibility": visibility
+
+    let file_items: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            let id: Uuid = row.get("id");
+            let name: String = row.get("name");
+            let parent_path: Option<String> = row.get("parent_path");
+            let size_bytes: i64 = row.get("size_bytes");
+            let is_directory: bool = row.get("is_directory");
+            let deleted_at: Option<chrono::DateTime<chrono::Utc>> = row.get("deleted_at");
+            let owner_id: Option<Uuid> = row.get("owner_id");
+            let visibility: Option<String> = row.get("visibility");
+            let owner_name: Option<String> = row.get("owner_name");
+
+            // Build display path from name and parent_path (content-addressed storage)
+            let display_path = if let Some(ref pp) = parent_path {
+                if pp.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", pp, name)
+                }
+            } else {
+                name.clone()
+            };
+
+            json!({
+                "id": id.to_string(),
+                "file_id": id.to_string(),
+                "name": name,
+                "path": display_path,
+                "parent_path": parent_path,
+                "size": format_size(size_bytes as u64),
+                "size_bytes": size_bytes,
+                "is_directory": is_directory,
+                "deleted_at": deleted_at.map(|d| d.to_rfc3339()).unwrap_or_default(),
+                "owner_id": owner_id,
+                "owner_name": owner_name,
+                "visibility": visibility
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(json!(file_items)))
 }
@@ -2760,16 +3057,17 @@ pub async fn restore_file(
     Path((company_id, file_id_or_name)): Path<(String, String)>,
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Try to parse as UUID first (preferred), fall back to name lookup
-    let file_info: Option<(Uuid, bool, String, Option<String>)> = 
-        if let Ok(file_uuid) = Uuid::parse_str(&file_id_or_name) {
-            sqlx::query_as(
+    let file_info: Option<(Uuid, bool, String, Option<String>)> = if let Ok(file_uuid) =
+        Uuid::parse_str(&file_id_or_name)
+    {
+        sqlx::query_as(
                 "SELECT id, is_directory, name, parent_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = true"
             )
             .bind(file_uuid)
@@ -2777,9 +3075,9 @@ pub async fn restore_file(
             .fetch_optional(&state.pool)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else {
-            // Legacy: lookup by name (first match in deleted files)
-            sqlx::query_as(
+    } else {
+        // Legacy: lookup by name (first match in deleted files)
+        sqlx::query_as(
                 "SELECT id, is_directory, name, parent_path FROM files_metadata WHERE tenant_id = $1 AND name = $2 AND is_deleted = true ORDER BY deleted_at DESC LIMIT 1"
             )
             .bind(tenant_id)
@@ -2787,8 +3085,8 @@ pub async fn restore_file(
             .fetch_optional(&state.pool)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        };
-    
+    };
+
     let (file_id, is_directory, file_name, parent_path) = file_info.ok_or(StatusCode::NOT_FOUND)?;
 
     // CONTENT-ADDRESSED STORAGE: Only update metadata, do NOT touch S3
@@ -2803,17 +3101,25 @@ pub async fn restore_file(
         tracing::error!("Failed to restore file: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
-    tracing::info!("Restored file: {} (rows: {})", file_id, result.rows_affected());
-    
+
+    tracing::info!(
+        "Restored file: {} (rows: {})",
+        file_id,
+        result.rows_affected()
+    );
+
     // If this is a folder, also restore all children
     if is_directory {
         let folder_path = if let Some(ref pp) = parent_path {
-            if pp.is_empty() { file_name.clone() } else { format!("{}/{}", pp, file_name) }
+            if pp.is_empty() {
+                file_name.clone()
+            } else {
+                format!("{}/{}", pp, file_name)
+            }
         } else {
             file_name.clone()
         };
-        
+
         // Restore direct children
         sqlx::query(
             "UPDATE files_metadata SET is_deleted = false, deleted_at = NULL WHERE tenant_id = $1 AND parent_path = $2 AND is_deleted = true"
@@ -2826,7 +3132,7 @@ pub async fn restore_file(
             tracing::error!("Failed to restore folder children: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        
+
         // Restore nested children
         let children_result = sqlx::query(
             "UPDATE files_metadata SET is_deleted = false, deleted_at = NULL WHERE tenant_id = $1 AND parent_path LIKE $2 AND is_deleted = true"
@@ -2839,10 +3145,13 @@ pub async fn restore_file(
             tracing::error!("Failed to restore nested folder children: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        
-        tracing::info!("Restored {} children items", children_result.rows_affected());
+
+        tracing::info!(
+            "Restored {} children items",
+            children_result.rows_affected()
+        );
     }
-    
+
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
@@ -2850,7 +3159,7 @@ pub async fn restore_file(
             tracing::warn!("Failed to invalidate file cache: {}", e);
         }
     }
-    
+
     Ok(Json(json!({ "message": "File restored" })))
 }
 
@@ -2862,22 +3171,22 @@ pub async fn permanent_delete(
     Path((company_id, file_id_or_name)): Path<(String, String)>,
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Try to parse as UUID first (preferred), fall back to name lookup
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(Uuid, Option<String>, String, bool, String, Option<String>)> = 
+    let file_info: Option<(Uuid, Option<String>, String, bool, String, Option<String>)> =
         if let Ok(file_uuid) = Uuid::parse_str(&file_id_or_name) {
             sqlx::query_as(
                 r#"
                 SELECT id, content_hash, storage_path, is_directory, name, parent_path 
                 FROM files_metadata 
                 WHERE id = $1 AND tenant_id = $2 AND is_deleted = true
-                "#
+                "#,
             )
             .bind(file_uuid)
             .bind(tenant_id)
@@ -2892,7 +3201,7 @@ pub async fn permanent_delete(
                 FROM files_metadata 
                 WHERE tenant_id = $1 AND name = $2 AND is_deleted = true 
                 ORDER BY deleted_at DESC LIMIT 1
-                "#
+                "#,
             )
             .bind(tenant_id)
             .bind(&file_id_or_name)
@@ -2900,29 +3209,32 @@ pub async fn permanent_delete(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         };
-    
-    let (file_id, content_hash, storage_path, is_directory, file_name, parent_path) = 
+
+    let (file_id, content_hash, storage_path, is_directory, file_name, parent_path) =
         file_info.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Collect all files to delete (including children if this is a folder)
-    let mut files_to_delete: Vec<(Uuid, Option<String>, String)> = vec![
-        (file_id, content_hash.clone(), storage_path.clone())
-    ];
-    
+    let mut files_to_delete: Vec<(Uuid, Option<String>, String)> =
+        vec![(file_id, content_hash.clone(), storage_path.clone())];
+
     if is_directory {
         let folder_path = if let Some(ref pp) = parent_path {
-            if pp.is_empty() { file_name.clone() } else { format!("{}/{}", pp, file_name) }
+            if pp.is_empty() {
+                file_name.clone()
+            } else {
+                format!("{}/{}", pp, file_name)
+            }
         } else {
             file_name.clone()
         };
-        
+
         // Get all children
         let children: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT id, content_hash, storage_path FROM files_metadata 
             WHERE tenant_id = $1 AND is_deleted = true 
             AND (parent_path = $2 OR parent_path LIKE $3)
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(&folder_path)
@@ -2930,12 +3242,12 @@ pub async fn permanent_delete(
         .fetch_all(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         files_to_delete.extend(children);
     }
-    
+
     let mut storage_deleted_count = 0;
-    
+
     for (fid, fhash, fstorage) in &files_to_delete {
         // Check if any other files reference the same content (dedupe-aware deletion)
         let should_delete_storage = if let Some(ref hash) = fhash {
@@ -2944,18 +3256,20 @@ pub async fn permanent_delete(
                 r#"
                 SELECT COUNT(*) FROM files_metadata 
                 WHERE content_hash = $1 AND id != $2 AND is_directory = false
-                "#
+                "#,
             )
             .bind(hash)
             .bind(fid)
             .fetch_one(&state.pool)
             .await
             .unwrap_or(0);
-            
+
             if ref_count > 0 {
                 tracing::info!(
                     "Skipping storage deletion for {}: {} other files reference content {}",
-                    fid, ref_count, &hash[..8.min(hash.len())]
+                    fid,
+                    ref_count,
+                    &hash[..8.min(hash.len())]
                 );
                 false
             } else {
@@ -2965,7 +3279,7 @@ pub async fn permanent_delete(
             // Directories don't have content in S3
             false
         };
-        
+
         // Delete metadata from database
         sqlx::query("DELETE FROM files_metadata WHERE id = $1 AND tenant_id = $2")
             .bind(fid)
@@ -2973,17 +3287,18 @@ pub async fn permanent_delete(
             .execute(&state.pool)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         // Delete from S3 if no other references
         if should_delete_storage && !fstorage.is_empty() {
             if let Err(e) = state.storage.delete(fstorage).await {
                 tracing::warn!("Failed to delete {} from storage: {:?}", fstorage, e);
             } else {
                 storage_deleted_count += 1;
-                
+
                 // Enqueue S3 replication delete if enabled in mirror mode
-                if state.replication_config.enabled 
-                    && state.replication_config.mode == clovalink_core::replication::ReplicationMode::Mirror 
+                if state.replication_config.enabled
+                    && state.replication_config.mode
+                        == clovalink_core::replication::ReplicationMode::Mirror
                 {
                     let replication_pool = state.pool.clone();
                     let storage_key = fstorage.clone();
@@ -2993,7 +3308,9 @@ pub async fn permanent_delete(
                             &replication_pool,
                             &storage_key,
                             tenant,
-                        ).await {
+                        )
+                        .await
+                        {
                             tracing::warn!(
                                 target: "replication",
                                 storage_path = %storage_key,
@@ -3006,13 +3323,14 @@ pub async fn permanent_delete(
             }
         }
     }
-    
+
     tracing::info!(
-        "Permanently deleted {} files, {} from storage", 
-        files_to_delete.len(), storage_deleted_count
+        "Permanently deleted {} files, {} from storage",
+        files_to_delete.len(),
+        storage_deleted_count
     );
-    
-    Ok(Json(json!({ 
+
+    Ok(Json(json!({
         "message": "File permanently deleted",
         "files_deleted": files_to_delete.len(),
         "storage_objects_deleted": storage_deleted_count
@@ -3029,8 +3347,8 @@ pub async fn get_prefs(
         Ok(data) => {
             let json: Value = serde_json::from_slice(&data).unwrap_or(json!({}));
             Ok(Json(json))
-        },
-        Err(_) => Ok(Json(json!({ "starred": [], "settings": {} })))
+        }
+        Err(_) => Ok(Json(json!({ "starred": [], "settings": {} }))),
     }
 }
 
@@ -3041,13 +3359,17 @@ pub async fn update_prefs(
 ) -> Result<Json<Value>, StatusCode> {
     let key = format!(".clovalink/{}/prefs.json", company_id);
     let data = serde_json::to_vec(&payload).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // Ensure dir exists
     let dir = format!(".clovalink/{}", company_id);
     let _ = state.storage.create_folder(&dir).await;
-    
-    state.storage.upload(&key, data).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
+    state
+        .storage
+        .upload(&key, data)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(payload))
 }
 
@@ -3069,10 +3391,20 @@ pub async fn toggle_star(
     }
 
     // SECURITY: Check if user has permission to access this file (required for starring)
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to star file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -3080,21 +3412,24 @@ pub async fn toggle_star(
     // Load current prefs for this user
     let prefs_key = format!(".clovalink/{}/user_{}_prefs.json", company_id, auth.user_id);
     let mut prefs: Value = match state.storage.download(&prefs_key).await {
-        Ok(data) => serde_json::from_slice(&data).unwrap_or(json!({ "starred": [], "settings": {} })),
+        Ok(data) => {
+            serde_json::from_slice(&data).unwrap_or(json!({ "starred": [], "settings": {} }))
+        }
         Err(_) => json!({ "starred": [], "settings": {} }),
     };
 
     // Get current starred list
-    let starred = prefs.get_mut("starred")
-        .and_then(|v| v.as_array_mut());
-    
+    let starred = prefs.get_mut("starred").and_then(|v| v.as_array_mut());
+
     let file_id_str = file_id.clone();
     let is_now_starred: bool;
-    
+
     if let Some(starred_list) = starred {
         // Check if already starred
-        let existing_idx = starred_list.iter().position(|v| v.as_str() == Some(&file_id_str));
-        
+        let existing_idx = starred_list
+            .iter()
+            .position(|v| v.as_str() == Some(&file_id_str));
+
         if let Some(idx) = existing_idx {
             // Remove star
             starred_list.remove(idx);
@@ -3113,9 +3448,13 @@ pub async fn toggle_star(
     // Ensure dir exists and save prefs
     let dir = format!(".clovalink/{}", company_id);
     let _ = state.storage.create_folder(&dir).await;
-    
+
     let data = serde_json::to_vec(&prefs).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state.storage.upload(&prefs_key, data).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .storage
+        .upload(&prefs_key, data)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -3145,7 +3484,8 @@ pub async fn get_starred(
         Err(_) => json!({ "starred": [] }),
     };
 
-    let starred = prefs.get("starred")
+    let starred = prefs
+        .get("starred")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -3158,9 +3498,9 @@ pub async fn get_starred(
 #[derive(Debug, serde::Deserialize, Default)]
 pub struct LockFileInput {
     #[serde(default)]
-    pub password: Option<String>,       // Optional password for unlocking
+    pub password: Option<String>, // Optional password for unlocking
     #[serde(default)]
-    pub required_role: Option<String>,  // Optional role requirement (Admin, Manager, Employee, custom)
+    pub required_role: Option<String>, // Optional role requirement (Admin, Manager, Employee, custom)
 }
 
 pub async fn lock_file(
@@ -3178,10 +3518,20 @@ pub async fn lock_file(
     }
 
     // SECURITY: Check if user has permission to access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "write").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "write",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to lock file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -3196,7 +3546,7 @@ pub async fn lock_file(
                 SELECT 1 FROM roles r
                 WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
             )
-            "#
+            "#,
         )
         .bind(tenant_id)
         .bind(&auth.role)
@@ -3204,7 +3554,7 @@ pub async fn lock_file(
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         if !custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
             return Err(StatusCode::FORBIDDEN);
         }
@@ -3233,20 +3583,23 @@ pub async fn lock_file(
     let password_hash: Option<String> = if let Some(ref pwd) = input.password {
         if !pwd.is_empty() {
             // Hash the password using argon2 with tuned parameters
-            use argon2::{PasswordHasher, password_hash::SaltString};
             use argon2::password_hash::rand_core::OsRng;
+            use argon2::{password_hash::SaltString, PasswordHasher};
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = crate::password::get_argon2();
-            Some(argon2.hash_password(pwd.as_bytes(), &salt)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .to_string())
+            Some(
+                argon2
+                    .hash_password(pwd.as_bytes(), &salt)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                    .to_string(),
+            )
         } else {
             None
         }
     } else {
         None
     };
-    
+
     let required_role = input.required_role.clone();
 
     // Lock the file with optional password and role
@@ -3256,7 +3609,7 @@ pub async fn lock_file(
         SET is_locked = true, locked_by = $1, locked_at = NOW(), 
             lock_password_hash = $3, lock_requires_role = $4
         WHERE id = $2
-        "#
+        "#,
     )
     .bind(auth.user_id)
     .bind(file_uuid)
@@ -3298,7 +3651,7 @@ pub async fn lock_file(
         let _ = cache.delete_pattern(&pattern).await;
     }
 
-    Ok(Json(json!({ 
+    Ok(Json(json!({
         "message": "File locked successfully",
         "has_password": password_hash.is_some(),
         "required_role": required_role
@@ -3308,7 +3661,7 @@ pub async fn lock_file(
 #[derive(Debug, serde::Deserialize, Default)]
 pub struct UnlockFileInput {
     #[serde(default)]
-    pub password: Option<String>,  // Password if the file is password-locked
+    pub password: Option<String>, // Password if the file is password-locked
 }
 
 pub async fn unlock_file(
@@ -3326,10 +3679,20 @@ pub async fn unlock_file(
     }
 
     // SECURITY: Check if user has permission to access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "write").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "write",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to unlock file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -3340,7 +3703,7 @@ pub async fn unlock_file(
         SELECT is_locked, locked_by, lock_password_hash, lock_requires_role, owner_id 
         FROM files_metadata 
         WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#
+        "#,
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -3348,7 +3711,8 @@ pub async fn unlock_file(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (is_locked, locked_by, password_hash, required_role, owner_id) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (is_locked, locked_by, password_hash, required_role, owner_id) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
 
     if !is_locked {
         return Ok(Json(json!({ "message": "File is not locked" })));
@@ -3384,7 +3748,7 @@ pub async fn unlock_file(
     else if let Some(ref req_role) = required_role {
         let user_level = role_hierarchy(&auth.role);
         let required_level = role_hierarchy(req_role);
-        
+
         if user_level >= required_level {
             can_unlock = true;
         } else {
@@ -3395,7 +3759,7 @@ pub async fn unlock_file(
                     SELECT 1 FROM roles r
                     WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
                 )
-                "#
+                "#,
             )
             .bind(tenant_id)
             .bind(&auth.role)
@@ -3403,7 +3767,7 @@ pub async fn unlock_file(
             .fetch_optional(&state.pool)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            
+
             if custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
                 can_unlock = true;
             }
@@ -3428,10 +3792,13 @@ pub async fn unlock_file(
         match input.password.as_ref() {
             Some(pwd) => {
                 // Verify password using argon2 with tuned parameters
-                use argon2::{PasswordVerifier, PasswordHash};
-                let parsed_hash = PasswordHash::new(pwd_hash)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                if crate::password::get_argon2().verify_password(pwd.as_bytes(), &parsed_hash).is_err() {
+                use argon2::{PasswordHash, PasswordVerifier};
+                let parsed_hash =
+                    PasswordHash::new(pwd_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                if crate::password::get_argon2()
+                    .verify_password(pwd.as_bytes(), &parsed_hash)
+                    .is_err()
+                {
                     return Ok(Json(json!({
                         "error": "Incorrect password",
                         "requires_password": true
@@ -3454,7 +3821,7 @@ pub async fn unlock_file(
         SET is_locked = false, locked_by = NULL, locked_at = NULL, 
             lock_password_hash = NULL, lock_requires_role = NULL 
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(file_uuid)
     .execute(&state.pool)
@@ -3500,10 +3867,10 @@ pub async fn unlock_file(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct MoveFileInput {
-    pub target_parent_id: Option<String>,      // UUID of target folder, null for root
-    pub target_department_id: Option<String>,  // UUID of target department (for cross-department moves)
-    pub target_visibility: Option<String>,     // 'department' or 'private' (for moving between views)
-    pub new_name: Option<String>,              // Optional new name if renaming during move
+    pub target_parent_id: Option<String>, // UUID of target folder, null for root
+    pub target_department_id: Option<String>, // UUID of target department (for cross-department moves)
+    pub target_visibility: Option<String>, // 'department' or 'private' (for moving between views)
+    pub new_name: Option<String>,          // Optional new name if renaming during move
 }
 
 pub async fn move_file(
@@ -3521,10 +3888,20 @@ pub async fn move_file(
     }
 
     // SECURITY: Check if user has permission to move this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "write").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "write",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to move file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -3536,7 +3913,8 @@ pub async fn move_file(
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to move file {} in company folder",
-                auth.user_id, file_uuid
+                auth.user_id,
+                file_uuid
             );
             return Err(StatusCode::FORBIDDEN);
         }
@@ -3548,7 +3926,7 @@ pub async fn move_file(
         SELECT name, parent_path, is_locked, is_directory, department_id, visibility 
         FROM files_metadata 
         WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#
+        "#,
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -3556,7 +3934,14 @@ pub async fn move_file(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (original_name, current_parent_path, is_locked, is_directory, current_dept_id, current_visibility) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (
+        original_name,
+        current_parent_path,
+        is_locked,
+        is_directory,
+        current_dept_id,
+        current_visibility,
+    ) = file.ok_or(StatusCode::NOT_FOUND)?;
 
     // Use new_name if provided, otherwise keep original name
     let file_name = input.new_name.clone().unwrap_or(original_name.clone());
@@ -3589,22 +3974,28 @@ pub async fn move_file(
     };
 
     // Parse target visibility
-    let target_visibility = input.target_visibility.as_deref().unwrap_or(&current_visibility);
-    let target_visibility = if target_visibility == "private" { "private" } else { "department" };
+    let target_visibility = input
+        .target_visibility
+        .as_deref()
+        .unwrap_or(&current_visibility);
+    let target_visibility = if target_visibility == "private" {
+        "private"
+    } else {
+        "department"
+    };
 
     // Check if user has access to target department (for cross-department moves)
     if target_dept_id != current_dept_id {
         // Only Admin/SuperAdmin can move across departments
         if !["SuperAdmin", "Admin"].contains(&auth.role.as_str()) {
             // Check if user belongs to target department
-            let user_dept: Option<(Option<Uuid>,)> = sqlx::query_as(
-                "SELECT department_id FROM users WHERE id = $1"
-            )
-            .bind(auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            
+            let user_dept: Option<(Option<Uuid>,)> =
+                sqlx::query_as("SELECT department_id FROM users WHERE id = $1")
+                    .bind(auth.user_id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
             if let Some((user_dept_id,)) = user_dept {
                 if user_dept_id != target_dept_id {
                     return Err(StatusCode::FORBIDDEN); // Cannot move to department user doesn't belong to
@@ -3620,16 +4011,16 @@ pub async fn move_file(
             r#"
             SELECT name, parent_path FROM files_metadata 
             WHERE id = $1 AND tenant_id = $2 AND is_directory = true AND is_deleted = false
-            "#
+            "#,
         )
         .bind(target_id)
         .bind(tenant_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         let (folder_name, folder_parent) = target_folder.ok_or(StatusCode::NOT_FOUND)?;
-        
+
         // Build target path
         Some(if let Some(ref fp) = folder_parent {
             if fp.is_empty() {
@@ -3647,16 +4038,18 @@ pub async fn move_file(
     // Check if target location is inside a company folder - only admins can move there
     if !is_admin {
         if let Some(ref target_path) = new_parent_path {
-            let target_in_company_folder = is_inside_company_folder(&state.pool, tenant_id, Some(target_path)).await;
+            let target_in_company_folder =
+                is_inside_company_folder(&state.pool, tenant_id, Some(target_path)).await;
             if target_in_company_folder {
                 tracing::warn!(
                     "User {} attempted to move file {} into company folder",
-                    auth.user_id, file_uuid
+                    auth.user_id,
+                    file_uuid
                 );
                 return Err(StatusCode::FORBIDDEN);
             }
         }
-        
+
         // Also check if the target folder itself is a company folder
         if let Some(target_id) = target_parent_id {
             let target_is_company: Option<(bool,)> = sqlx::query_as(
@@ -3668,11 +4061,12 @@ pub async fn move_file(
             .await
             .ok()
             .flatten();
-            
+
             if target_is_company.map(|r| r.0).unwrap_or(false) {
                 tracing::warn!(
                     "User {} attempted to move file {} into company folder",
-                    auth.user_id, file_uuid
+                    auth.user_id,
+                    file_uuid
                 );
                 return Err(StatusCode::FORBIDDEN);
             }
@@ -3691,7 +4085,7 @@ pub async fn move_file(
             ($4::text IS NULL AND parent_path IS NULL) OR
             ($4::text IS NOT NULL AND parent_path = $4)
         )
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(&file_name)
@@ -3712,10 +4106,10 @@ pub async fn move_file(
             .and_then(|s| s.to_str())
             .map(|e| format!(".{}", e))
             .unwrap_or_default();
-        
+
         let suggested_name = format!("{} (1){}", name_without_ext, extension);
-        
-        return Ok(Json(json!({ 
+
+        return Ok(Json(json!({
             "error": format!("A file named \"{}\" already exists in this location", file_name),
             "duplicate": true,
             "conflicting_name": file_name,
@@ -3737,7 +4131,7 @@ pub async fn move_file(
             owner_id = CASE WHEN $3 = 'private' THEN $5 ELSE owner_id END,
             updated_at = NOW()
         WHERE id = $4 AND tenant_id = $6
-        "#
+        "#,
     )
     .bind(&new_parent_path)
     .bind(target_dept_id)
@@ -3757,13 +4151,13 @@ pub async fn move_file(
         } else {
             file_name.clone()
         };
-        
+
         let new_path = if let Some(ref pp) = new_parent_path {
             format!("{}/{}", pp, file_name)
         } else {
             file_name.clone()
         };
-        
+
         // Update direct children (including visibility and owner_id for private)
         sqlx::query(
             r#"
@@ -3773,7 +4167,7 @@ pub async fn move_file(
                 owner_id = CASE WHEN $2 = 'private' THEN $5 ELSE owner_id END,
                 updated_at = NOW()
             WHERE tenant_id = $3 AND parent_path = $4 AND is_deleted = false
-            "#
+            "#,
         )
         .bind(&new_path)
         .bind(target_visibility)
@@ -3783,7 +4177,7 @@ pub async fn move_file(
         .execute(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         // Update nested children (replace prefix, update visibility and owner_id for private)
         sqlx::query(
             r#"
@@ -3793,7 +4187,7 @@ pub async fn move_file(
                 owner_id = CASE WHEN $3 = 'private' THEN $6 ELSE owner_id END,
                 updated_at = NOW()
             WHERE tenant_id = $4 AND parent_path LIKE $5 AND is_deleted = false
-            "#
+            "#,
         )
         .bind(&new_path)
         .bind(&old_path)
@@ -3810,7 +4204,7 @@ pub async fn move_file(
     let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
-    
+
     if should_force_audit_log(&compliance_mode, "file_move") {
         let _ = sqlx::query(
             r#"
@@ -3850,10 +4244,10 @@ pub async fn move_file(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CopyFileInput {
-    pub target_parent_id: Option<String>,      // UUID of target folder, null for root
-    pub target_parent_path: Option<String>,    // Alternative: path string (used if target_parent_id is null)
-    pub target_department_id: Option<String>,  // UUID of target department
-    pub target_visibility: Option<String>,     // 'department' or 'private'
+    pub target_parent_id: Option<String>, // UUID of target folder, null for root
+    pub target_parent_path: Option<String>, // Alternative: path string (used if target_parent_id is null)
+    pub target_department_id: Option<String>, // UUID of target department
+    pub target_visibility: Option<String>,  // 'department' or 'private'
 }
 
 /// Copy a file to a new location with auto-rename
@@ -3873,10 +4267,20 @@ pub async fn copy_file(
     }
 
     // SECURITY: Check if user has permission to read this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to copy file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -3887,7 +4291,7 @@ pub async fn copy_file(
         SELECT name, storage_path, size_bytes, content_type, is_directory, department_id
         FROM files_metadata 
         WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#
+        "#,
     )
     .bind(file_uuid)
     .bind(tenant_id)
@@ -3895,11 +4299,14 @@ pub async fn copy_file(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (original_name, storage_path, size_bytes, content_type, is_directory, current_dept_id) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let (original_name, storage_path, size_bytes, content_type, is_directory, current_dept_id) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
 
     // Cannot copy directories (for now)
     if is_directory {
-        return Ok(Json(json!({ "error": "Cannot copy directories. Please copy individual files." })));
+        return Ok(Json(
+            json!({ "error": "Cannot copy directories. Please copy individual files." }),
+        ));
     }
 
     // Parse target folder
@@ -3926,7 +4333,11 @@ pub async fn copy_file(
 
     // Parse target visibility
     let target_visibility = input.target_visibility.as_deref().unwrap_or("department");
-    let target_visibility = if target_visibility == "private" { "private" } else { "department" };
+    let target_visibility = if target_visibility == "private" {
+        "private"
+    } else {
+        "department"
+    };
 
     // Get target parent path - from ID if provided, otherwise use direct path
     let target_parent_path: Option<String> = if let Some(target_id) = target_parent_id {
@@ -3934,24 +4345,32 @@ pub async fn copy_file(
             r#"
             SELECT name, parent_path FROM files_metadata 
             WHERE id = $1 AND tenant_id = $2 AND is_directory = true AND is_deleted = false
-            "#
+            "#,
         )
         .bind(target_id)
         .bind(tenant_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        
+
         let (folder_name, folder_parent) = target_folder.ok_or(StatusCode::NOT_FOUND)?;
-        
+
         Some(if let Some(ref fp) = folder_parent {
-            if fp.is_empty() { folder_name } else { format!("{}/{}", fp, folder_name) }
+            if fp.is_empty() {
+                folder_name
+            } else {
+                format!("{}/{}", fp, folder_name)
+            }
         } else {
             folder_name
         })
     } else if let Some(ref path) = input.target_parent_path {
         // Use the path directly if provided
-        if path.is_empty() { None } else { Some(path.clone()) }
+        if path.is_empty() {
+            None
+        } else {
+            Some(path.clone())
+        }
     } else {
         None
     };
@@ -3966,10 +4385,10 @@ pub async fn copy_file(
         .and_then(|s| s.to_str())
         .map(|e| format!(".{}", e))
         .unwrap_or_default();
-    
+
     let mut copy_name = format!("{} - Copy{}", name_without_ext, extension);
     let mut attempt = 2;
-    
+
     // Check for name conflicts and increment if needed (include visibility in check)
     loop {
         let exists: Option<(i32,)> = sqlx::query_as(
@@ -3989,16 +4408,18 @@ pub async fn copy_file(
             tracing::error!("Failed to check for duplicate filename: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        
+
         if exists.is_none() {
             break;
         }
-        
+
         copy_name = format!("{} - Copy ({}){}", name_without_ext, attempt, extension);
         attempt += 1;
-        
+
         if attempt > 100 {
-            return Ok(Json(json!({ "error": "Too many copies exist. Please rename some files." })));
+            return Ok(Json(
+                json!({ "error": "Too many copies exist. Please rename some files." }),
+            ));
         }
     }
 
@@ -4006,8 +4427,12 @@ pub async fn copy_file(
     // No need to download/upload - saves bandwidth and storage
     let new_file_id = Uuid::new_v4();
     let new_ulid = ulid::Ulid::new().to_string();
-    let owner_id = if target_visibility == "private" { Some(auth.user_id) } else { None };
-    
+    let owner_id = if target_visibility == "private" {
+        Some(auth.user_id)
+    } else {
+        None
+    };
+
     sqlx::query(
         r#"
         INSERT INTO files_metadata (
@@ -4015,13 +4440,13 @@ pub async fn copy_file(
             content_type, is_directory, owner_id, parent_path, visibility, ulid
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11)
-        "#
+        "#,
     )
     .bind(new_file_id)
     .bind(tenant_id)
     .bind(target_dept_id)
     .bind(&copy_name)
-    .bind(&storage_path)  // SAME storage path as original - deduplication!
+    .bind(&storage_path) // SAME storage path as original - deduplication!
     .bind(size_bytes)
     .bind(&content_type)
     .bind(owner_id)
@@ -4071,7 +4496,7 @@ pub async fn copy_file(
         FROM file_summaries
         WHERE file_id = $2 AND tenant_id = $3
         ON CONFLICT (file_id) DO NOTHING
-        "#
+        "#,
     )
     .bind(new_file_id)
     .bind(file_uuid)
@@ -4116,10 +4541,20 @@ pub async fn get_file_activity(
     }
 
     // SECURITY: Check if user has permission to view activity for this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "read").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await?
+    {
         tracing::warn!(
             "Access denied: user {} attempted to view activity for file {} without permission",
-            auth.user_id, file_uuid
+            auth.user_id,
+            file_uuid
         );
         return Err(StatusCode::FORBIDDEN);
     }
@@ -4127,37 +4562,37 @@ pub async fn get_file_activity(
     let limit = params.limit.unwrap_or(20).min(100);
 
     // Fetch recent activity for this file from audit logs
-    let activities: Vec<(Uuid, String, Option<Uuid>, Option<Value>, DateTime<Utc>)> = sqlx::query_as(
-        r#"
+    let activities: Vec<(Uuid, String, Option<Uuid>, Option<Value>, DateTime<Utc>)> =
+        sqlx::query_as(
+            r#"
         SELECT al.id, al.action, al.user_id, al.metadata, al.created_at
         FROM audit_logs al
         WHERE al.tenant_id = $1 AND al.resource_id = $2 AND al.resource_type = 'file'
         ORDER BY al.created_at DESC
         LIMIT $3
-        "#
-    )
-    .bind(tenant_id)
-    .bind(file_uuid)
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch file activity: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        "#,
+        )
+        .bind(tenant_id)
+        .bind(file_uuid)
+        .bind(limit)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch file activity: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Get user names for the activities
     let mut activity_items: Vec<Value> = Vec::new();
     for (id, action, user_id, metadata, created_at) in activities {
         let user_name = if let Some(uid) = user_id {
-            let user: Option<(String,)> = sqlx::query_as(
-                "SELECT name FROM users WHERE id = $1"
-            )
-            .bind(uid)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
-            user.map(|(name,)| name).unwrap_or_else(|| "Unknown User".to_string())
+            let user: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = $1")
+                .bind(uid)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+            user.map(|(name,)| name)
+                .unwrap_or_else(|| "Unknown User".to_string())
         } else {
             "System".to_string()
         };
@@ -4204,7 +4639,8 @@ pub async fn export_files(
     }
 
     // Get file IDs to export
-    let file_ids: Vec<Uuid> = params.file_ids
+    let file_ids: Vec<Uuid> = params
+        .file_ids
         .unwrap_or_default()
         .split(',')
         .filter_map(|s| Uuid::parse_str(s.trim()).ok())
@@ -4225,7 +4661,7 @@ pub async fn export_files(
     // For single file, just download it
     if file_ids.len() == 1 {
         let file_uuid = file_ids[0];
-        
+
         // Look up file
         let file_meta: (String, String, i64) = sqlx::query_as(
             "SELECT name, storage_path, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
@@ -4236,7 +4672,7 @@ pub async fn export_files(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-        
+
         let (file_name, storage_path, file_size) = file_meta;
 
         // Log export for compliance
@@ -4250,24 +4686,29 @@ pub async fn export_files(
                 1,
                 Some(file_size),
                 None,
-            ).await;
+            )
+            .await;
         }
 
         // Stream download for single file export (zero-copy)
-        let (stream, stream_size) = state.storage.download_stream(&storage_path).await
-            .map_err(|e| {
-                tracing::error!("Failed to open file stream for export: {}", e);
-                StatusCode::NOT_FOUND
-            })?;
-        
+        let (stream, stream_size) =
+            state
+                .storage
+                .download_stream(&storage_path)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to open file stream for export: {}", e);
+                    StatusCode::NOT_FOUND
+                })?;
+
         // SECURITY: Use sanitized Content-Disposition to prevent header injection
         let safe_disposition = sanitize_content_disposition(&file_name, "attachment");
-        
+
         // Convert stream to axum Body
-        let body = Body::from_stream(stream.map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        }));
-        
+        let body = Body::from_stream(
+            stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+        );
+
         return Ok(axum::response::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, get_content_type(&file_name))
@@ -4313,7 +4754,8 @@ pub async fn export_files(
             file_list.len() as i32,
             Some(total_size),
             None, // IP address - not available in this context
-        ).await;
+        )
+        .await;
     }
 
     // Return manifest (in production, return ZIP file)
@@ -4325,19 +4767,25 @@ pub async fn export_files(
         "message": "For bulk downloads, please download files individually or contact administrator for ZIP export"
     });
 
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let manifest_bytes =
+        serde_json::to_vec_pretty(&manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
     headers.insert(
-        header::CONTENT_DISPOSITION, 
-        "attachment; filename=\"export_manifest.json\"".parse().unwrap()
+        header::CONTENT_DISPOSITION,
+        "attachment; filename=\"export_manifest.json\""
+            .parse()
+            .unwrap(),
     );
 
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"export_manifest.json\"")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"export_manifest.json\"",
+        )
         .body(axum::body::Body::from(manifest_bytes))
         .unwrap())
 }
@@ -4350,22 +4798,21 @@ pub async fn serve_upload(
     Path(path): Path<String>,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
     tracing::debug!("Serving upload: {}", path);
-    
+
     // Stream file from storage (works for both local and S3)
-    let (stream, size) = state.storage.download_stream(&path).await
-        .map_err(|e| {
-            tracing::warn!("Failed to serve upload {}: {:?}", path, e);
-            StatusCode::NOT_FOUND
-        })?;
-    
+    let (stream, size) = state.storage.download_stream(&path).await.map_err(|e| {
+        tracing::warn!("Failed to serve upload {}: {:?}", path, e);
+        StatusCode::NOT_FOUND
+    })?;
+
     // Determine content type from file extension
     let content_type = get_content_type(&path);
-    
+
     // Convert stream to axum Body
-    let body = Body::from_stream(stream.map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    }));
-    
+    let body = Body::from_stream(
+        stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+    );
+
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
@@ -4384,12 +4831,12 @@ pub async fn toggle_company_folder(
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Get the file and verify it's a folder
     let file: (bool, bool) = sqlx::query_as(
         r#"SELECT is_directory, COALESCE(is_company_folder, false) FROM files_metadata WHERE id = $1 AND tenant_id = $2"#
@@ -4400,31 +4847,33 @@ pub async fn toggle_company_folder(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
-    
+
     let (is_directory, is_company_folder) = file;
-    
+
     // Only folders can be company folders
     if !is_directory {
         return Err(StatusCode::BAD_REQUEST);
     }
-    
+
     // Toggle the value
     let new_value = !is_company_folder;
-    
+
     sqlx::query(
-        r#"UPDATE files_metadata SET is_company_folder = $1, updated_at = NOW() WHERE id = $2"#
+        r#"UPDATE files_metadata SET is_company_folder = $1, updated_at = NOW() WHERE id = $2"#,
     )
     .bind(new_value)
     .bind(file_uuid)
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     // Invalidate cache for this tenant's files
     if let Some(ref cache) = state.cache {
-        let _ = cache.delete_pattern(&format!("clovalink:files:{}:*", tenant_id)).await;
+        let _ = cache
+            .delete_pattern(&format!("clovalink:files:{}:*", tenant_id))
+            .await;
     }
-    
+
     Ok(Json(json!({
         "success": true,
         "is_company_folder": new_value
@@ -4456,17 +4905,26 @@ pub async fn create_file_share(
 ) -> Result<Json<Value>, StatusCode> {
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_uuid = Uuid::parse_str(&file_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    
+
     // Verify tenant access
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Check if user has permission to access this file
-    if !can_access_file(&state.pool, file_uuid, tenant_id, auth.user_id, &auth.role, "share").await? {
+    if !can_access_file(
+        &state.pool,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "share",
+    )
+    .await?
+    {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     // Block sharing of non-approved files
     let share_approval: Option<(String,)> = sqlx::query_as(
         "SELECT COALESCE(approval_status, 'approved') FROM files_metadata WHERE id = $1 AND tenant_id = $2"
@@ -4485,7 +4943,10 @@ pub async fn create_file_share(
     // Check if file is inside a company folder - only admins can share
     if auth.role != "SuperAdmin" && auth.role != "Admin" {
         if is_file_in_company_folder(&state.pool, tenant_id, file_uuid).await {
-            tracing::warn!("Security: Non-admin user {} attempted to share file from company folder", auth.user_id);
+            tracing::warn!(
+                "Security: Non-admin user {} attempted to share file from company folder",
+                auth.user_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -4499,10 +4960,10 @@ pub async fn create_file_share(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let (file_name, is_directory, parent_path) = file_check.ok_or(StatusCode::NOT_FOUND)?;
     let _parent_path = parent_path.unwrap_or_default();
-    
+
     // Check compliance mode for public sharing restrictions
     let is_public = input.is_public.unwrap_or(false);
     if is_public {
@@ -4510,44 +4971,58 @@ pub async fn create_file_share(
             .await
             .unwrap_or_else(|_| "Standard".to_string());
         let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
-        
+
         if restrictions.public_sharing_blocked {
-            tracing::warn!("Public sharing blocked by compliance mode: {}", compliance_mode);
+            tracing::warn!(
+                "Public sharing blocked by compliance mode: {}",
+                compliance_mode
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
-    
+
     // Generate a secure token
     let token = nanoid::nanoid!(16);
-    
+
     // Calculate expiration if provided
-    let expires_at = input.expires_in_days.map(|days| Utc::now() + chrono::Duration::days(days));
-    
+    let expires_at = input
+        .expires_in_days
+        .map(|days| Utc::now() + chrono::Duration::days(days));
+
     // Validate and set share policy (default to 'permissioned' for security)
     let share_policy = match input.share_policy.as_deref() {
         Some("tenant_wide") => "tenant_wide",
         _ => "permissioned", // Default to most secure option
     };
-    
+
     // Parse and validate shared_with_user_id if provided
-    let shared_with_user_id: Option<Uuid> = if let Some(ref user_id_str) = input.shared_with_user_id {
+    let shared_with_user_id: Option<Uuid> = if let Some(ref user_id_str) = input.shared_with_user_id
+    {
         let recipient_id = Uuid::parse_str(user_id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-        
+
         // Validate sharing is allowed with this user (tenant/department restrictions)
-        if !crate::sharing::can_share_with_user(&state.pool, auth.user_id, tenant_id, &auth.role, recipient_id).await? {
+        if !crate::sharing::can_share_with_user(
+            &state.pool,
+            auth.user_id,
+            tenant_id,
+            &auth.role,
+            recipient_id,
+        )
+        .await?
+        {
             tracing::warn!(
-                sharer = %auth.user_id, 
-                recipient = %recipient_id, 
+                sharer = %auth.user_id,
+                recipient = %recipient_id,
                 "Share blocked - user not in accessible departments"
             );
             return Err(StatusCode::FORBIDDEN);
         }
-        
+
         Some(recipient_id)
     } else {
         None
     };
-    
+
     // Insert share record
     let share_id: Uuid = sqlx::query_scalar(
         r#"
@@ -4571,14 +5046,14 @@ pub async fn create_file_share(
         tracing::error!("Failed to create file share: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     // Get sharer's name for notifications
     let sharer_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
         .bind(auth.user_id)
         .fetch_one(&state.pool)
         .await
         .unwrap_or_else(|_| "Someone".to_string());
-    
+
     // Log the share creation
     let _ = sqlx::query(
         r#"
@@ -4608,35 +5083,37 @@ pub async fn create_file_share(
         auth.user_id,
         &auth.email,
         auth.ip_address.as_deref(),
-    ).await;
-    
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    )
+    .await;
+
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let share_link = format!("{}/share/{}", base_url, token);
-    
+
     // Send notifications if sharing with a specific user
     if let Some(recipient_id) = shared_with_user_id {
         // Get recipient info for notifications
-        let recipient_info: Option<(String, String)> = sqlx::query_as(
-            "SELECT email, role FROM users WHERE id = $1"
-        )
-        .bind(recipient_id)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
-        
+        let recipient_info: Option<(String, String)> =
+            sqlx::query_as("SELECT email, role FROM users WHERE id = $1")
+                .bind(recipient_id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten();
+
         // Get tenant info for notifications
-        let tenant: Option<clovalink_core::models::Tenant> = sqlx::query_as(
-            "SELECT * FROM tenants WHERE id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
-        
+        let tenant: Option<clovalink_core::models::Tenant> =
+            sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
+                .bind(tenant_id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten();
+
         // Send in-app and email notification
-        if let (Some((recipient_email, recipient_role)), Some(tenant)) = (recipient_info, tenant.clone()) {
+        if let (Some((recipient_email, recipient_role)), Some(tenant)) =
+            (recipient_info, tenant.clone())
+        {
             let pool = state.pool.clone();
             let file_name_clone = file_name.clone();
             let sharer_name_clone = sharer_name.clone();
@@ -4650,10 +5127,11 @@ pub async fn create_file_share(
                     &sharer_name_clone,
                     &file_name_clone,
                     file_uuid,
-                ).await;
+                )
+                .await;
             });
         }
-        
+
         // Send Discord notification
         let pool = state.pool.clone();
         let file_name_clone = file_name.clone();
@@ -4666,10 +5144,11 @@ pub async fn create_file_share(
                 &file_name_clone,
                 &sharer_name,
                 Some(&link_clone),
-            ).await;
+            )
+            .await;
         });
     }
-    
+
     Ok(Json(json!({
         "id": share_id,
         "token": token,
@@ -4692,22 +5171,23 @@ pub async fn get_share_info(
         r#"
         SELECT file_id, tenant_id, created_by, is_public, expires_at, download_count, is_directory
         FROM file_shares WHERE token = $1
-        "#
+        "#,
     )
     .bind(&token)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let (file_id, tenant_id, _created_by, is_public, expires_at, download_count, is_directory) = share.ok_or(StatusCode::NOT_FOUND)?;
-    
+
+    let (file_id, tenant_id, _created_by, is_public, expires_at, download_count, is_directory) =
+        share.ok_or(StatusCode::NOT_FOUND)?;
+
     // Check expiration
     if let Some(exp) = expires_at {
         if exp < Utc::now() {
             return Err(StatusCode::GONE); // 410 Gone - expired
         }
     }
-    
+
     // Get file metadata
     let file: Option<(String, i64, Option<String>)> = sqlx::query_as(
         "SELECT name, size_bytes, content_type FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
@@ -4717,18 +5197,16 @@ pub async fn get_share_info(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let (file_name, size_bytes, content_type) = file.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Get tenant name for branding
-    let tenant_name: Option<String> = sqlx::query_scalar(
-        "SELECT name FROM tenants WHERE id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-    
+    let tenant_name: Option<String> = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1")
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+
     Ok(Json(json!({
         "file_name": file_name,
         "size_bytes": size_bytes,
@@ -4744,7 +5222,7 @@ pub async fn get_share_info(
 
 /// Download a shared file (public endpoint)
 /// GET /api/share/{token}
-/// 
+///
 /// Security:
 /// - Public shares: anyone can download
 /// - Private shares with 'tenant_wide' policy: any authenticated user in tenant can download
@@ -4755,35 +5233,45 @@ pub async fn download_shared_file(
     headers: HeaderMap,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
     // Look up the share including share_policy
-    let share: Option<(Uuid, Uuid, Uuid, bool, Option<DateTime<Utc>>, bool, Option<String>)> = sqlx::query_as(
+    let share: Option<(
+        Uuid,
+        Uuid,
+        Uuid,
+        bool,
+        Option<DateTime<Utc>>,
+        bool,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"
         SELECT file_id, tenant_id, created_by, is_public, expires_at, is_directory, 
                COALESCE(share_policy, 'permissioned') as share_policy
         FROM file_shares WHERE token = $1
-        "#
+        "#,
     )
     .bind(&token)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let (file_id, tenant_id, created_by, is_public, expires_at, is_directory, share_policy_opt) = share.ok_or(StatusCode::NOT_FOUND)?;
+
+    let (file_id, tenant_id, created_by, is_public, expires_at, is_directory, share_policy_opt) =
+        share.ok_or(StatusCode::NOT_FOUND)?;
     let share_policy = share_policy_opt.unwrap_or_else(|| "permissioned".to_string());
-    
+
     // Check expiration
     if let Some(exp) = expires_at {
         if exp < Utc::now() {
             return Err(StatusCode::GONE); // 410 Gone - expired
         }
     }
-    
+
     // If not public, verify user is authenticated and has appropriate access
     if !is_public {
         // Try to extract auth token from header
-        let auth_header = headers.get("Authorization")
+        let auth_header = headers
+            .get("Authorization")
             .and_then(|h| h.to_str().ok())
             .and_then(|s| s.strip_prefix("Bearer "));
-        
+
         if let Some(token_str) = auth_header {
             // Validate the token
             match clovalink_auth::verify_token(token_str) {
@@ -4792,17 +5280,30 @@ pub async fn download_shared_file(
                     let user_tenant = Uuid::parse_str(&claims.tenant_id)
                         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                     if user_tenant != tenant_id {
-                        tracing::warn!("Share access denied: user tenant {} != share tenant {}", claims.tenant_id, tenant_id);
+                        tracing::warn!(
+                            "Share access denied: user tenant {} != share tenant {}",
+                            claims.tenant_id,
+                            tenant_id
+                        );
                         return Err(StatusCode::FORBIDDEN);
                     }
-                    
+
                     // SECURITY: For 'permissioned' shares, enforce normal file access rules
                     // This prevents using private shares to bypass department/private file restrictions
                     if share_policy == "permissioned" {
                         let user_id = Uuid::parse_str(&claims.sub)
                             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                        
-                        if !can_access_file(&state.pool, file_id, tenant_id, user_id, &claims.role, "read").await? {
+
+                        if !can_access_file(
+                            &state.pool,
+                            file_id,
+                            tenant_id,
+                            user_id,
+                            &claims.role,
+                            "read",
+                        )
+                        .await?
+                        {
                             tracing::warn!(
                                 "Share access denied: user {} cannot access file {} (permissioned share)",
                                 claims.sub, file_id
@@ -4821,7 +5322,7 @@ pub async fn download_shared_file(
             return Err(StatusCode::UNAUTHORIZED);
         }
     }
-    
+
     // Get file/folder metadata including size for scheduling
     let file: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
         "SELECT name, storage_path, parent_path, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
@@ -4831,16 +5332,18 @@ pub async fn download_shared_file(
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let (file_name, storage_path_opt, parent_path_opt, file_size) = file.ok_or(StatusCode::NOT_FOUND)?;
+
+    let (file_name, storage_path_opt, parent_path_opt, file_size) =
+        file.ok_or(StatusCode::NOT_FOUND)?;
     let parent_path = parent_path_opt.unwrap_or_default();
-    
+
     // Increment download count
-    let _ = sqlx::query("UPDATE file_shares SET download_count = download_count + 1 WHERE token = $1")
-        .bind(&token)
-        .execute(&state.pool)
-        .await;
-    
+    let _ =
+        sqlx::query("UPDATE file_shares SET download_count = download_count + 1 WHERE token = $1")
+            .bind(&token)
+            .execute(&state.pool)
+            .await;
+
     // Extract client IP for audit logging
     let client_ip: Option<String> = headers
         .get("x-forwarded-for")
@@ -4848,7 +5351,8 @@ pub async fn download_shared_file(
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
         .or_else(|| {
-            headers.get("x-real-ip")
+            headers
+                .get("x-real-ip")
                 .and_then(|h| h.to_str().ok())
                 .map(|s| s.trim().to_string())
         });
@@ -4872,30 +5376,35 @@ pub async fn download_shared_file(
     .bind(&client_ip)
     .execute(&state.pool)
     .await;
-    
+
     // If this is a directory, generate zip on the fly
     if is_directory {
         return download_shared_folder_as_zip(&state, tenant_id, &file_name, &parent_path).await;
     }
-    
+
     // Regular file download
     let storage_path = storage_path_opt.ok_or(StatusCode::NOT_FOUND)?;
-    
+
     // Try presigned URL redirect if enabled and supported (S3-compatible storage)
     // This bypasses the proxy and redirects directly to S3/CDN for better performance
     if state.use_presigned_urls && state.storage.supports_presigned_urls() {
-        match state.storage.presigned_download_url(&storage_path, state.presigned_url_expiry).await {
+        match state
+            .storage
+            .presigned_download_url(&storage_path, state.presigned_url_expiry)
+            .await
+        {
             Ok(Some(mut presigned_url)) => {
                 // Optionally rewrite through CDN for edge caching
                 if let Some(cdn) = &state.cdn_domain {
                     presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
                 }
-                
+
                 tracing::debug!(
                     "Redirecting shared file download to presigned URL: token={}, file_id={}",
-                    token, file_id
+                    token,
+                    file_id
                 );
-                
+
                 // Return redirect to presigned URL
                 return Ok(axum::response::Response::builder()
                     .status(StatusCode::TEMPORARY_REDIRECT)
@@ -4910,41 +5419,49 @@ pub async fn download_shared_file(
             }
             Err(e) => {
                 // Presigning failed, fallback to proxy
-                tracing::warn!("Presigned URL generation failed for share, falling back to proxy: {}", e);
+                tracing::warn!(
+                    "Presigned URL generation failed for share, falling back to proxy: {}",
+                    e
+                );
             }
         }
     }
-    
+
     // FALLBACK: Proxy download through backend using STREAMING (for local storage or when presigned URLs disabled/failed)
-    
+
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
     let transfer_permit = state.scheduler.acquire_download_permit(file_size).await;
     tracing::debug!(
         "Shared download permit acquired: token={}, size={}, class={}",
-        token, file_size, transfer_permit.size_class.name()
+        token,
+        file_size,
+        transfer_permit.size_class.name()
     );
-    
-    let (stream, size) = state.storage.download_stream(&storage_path).await
+
+    let (stream, size) = state
+        .storage
+        .download_stream(&storage_path)
+        .await
         .map_err(|e| {
             tracing::error!("Failed to stream shared file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    
+
     // Determine content type from file extension
     let content_type = get_content_type(&file_name);
-    
+
     // SECURITY: Use sanitized Content-Disposition to prevent header injection
     let safe_disposition = sanitize_content_disposition(&file_name, "attachment");
-    
+
     // Convert stream to axum Body (zero-copy streaming)
     // Note: transfer_permit is held in scope until handler returns
-    let body = Body::from_stream(stream.map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    }));
-    
+    let body = Body::from_stream(
+        stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+    );
+
     // Keep permit alive until response is ready
     let _ = &transfer_permit;
-    
+
     // Build response with proper headers
     Ok(axum::response::Response::builder()
         .status(StatusCode::OK)
@@ -4969,9 +5486,9 @@ pub async fn migrate_content_hashes(
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
-    
+
     tracing::info!("Starting content hash migration...");
-    
+
     // Get all files without content_hash (excluding directories)
     let files_to_migrate: Vec<(Uuid, Uuid, String, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
         r#"
@@ -4982,7 +5499,7 @@ pub async fn migrate_content_hashes(
         AND is_deleted = false
         ORDER BY created_at ASC
         LIMIT 1000
-        "#
+        "#,
     )
     .fetch_all(&state.pool)
     .await
@@ -4990,22 +5507,22 @@ pub async fn migrate_content_hashes(
         tracing::error!("Failed to fetch files for migration: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    
+
     let _total = files_to_migrate.len();
     let mut migrated = 0;
     let mut errors = 0;
     let mut deduplicated = 0;
-    
+
     for (file_id, tenant_id, storage_path, department_id, created_at) in files_to_migrate {
         // Download file content
         match state.storage.download(&storage_path).await {
             Ok(data) => {
                 // Compute Blake3 hash
                 let content_hash = blake3::hash(&data).to_hex().to_string();
-                
+
                 // Generate ULID from created_at timestamp
                 let file_ulid = Ulid::from_datetime(created_at.into()).to_string();
-                
+
                 // Check if this content already exists (for deduplication tracking)
                 let existing_count: i64 = sqlx::query_scalar(
                     r#"
@@ -5016,7 +5533,7 @@ pub async fn migrate_content_hashes(
                     AND is_deleted = false 
                     AND is_directory = false
                     AND id != $4
-                    "#
+                    "#,
                 )
                 .bind(tenant_id)
                 .bind(department_id)
@@ -5025,21 +5542,21 @@ pub async fn migrate_content_hashes(
                 .fetch_one(&state.pool)
                 .await
                 .unwrap_or(0);
-                
+
                 if existing_count > 0 {
                     deduplicated += 1;
                 }
-                
+
                 // Update the file record with content_hash and ulid
                 let result = sqlx::query(
-                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3"
+                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3",
                 )
                 .bind(&content_hash)
                 .bind(&file_ulid)
                 .bind(file_id)
                 .execute(&state.pool)
                 .await;
-                
+
                 match result {
                     Ok(_) => {
                         migrated += 1;
@@ -5054,25 +5571,29 @@ pub async fn migrate_content_hashes(
                 }
             }
             Err(e) => {
-                tracing::warn!("Could not download file {} (may be mock data): {:?}", file_id, e);
+                tracing::warn!(
+                    "Could not download file {} (may be mock data): {:?}",
+                    file_id,
+                    e
+                );
                 // For files that don't exist in storage (mock/seed data), generate placeholder values
                 let file_ulid = Ulid::from_datetime(created_at.into()).to_string();
                 let placeholder_hash = format!("placeholder_{}", file_id);
-                
+
                 let _ = sqlx::query(
-                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3"
+                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3",
                 )
                 .bind(&placeholder_hash)
                 .bind(&file_ulid)
                 .bind(file_id)
                 .execute(&state.pool)
                 .await;
-                
+
                 migrated += 1;
             }
         }
     }
-    
+
     // Get remaining count
     let remaining: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM files_metadata WHERE content_hash IS NULL AND is_directory = false AND is_deleted = false"
@@ -5080,22 +5601,25 @@ pub async fn migrate_content_hashes(
     .fetch_one(&state.pool)
     .await
     .unwrap_or(0);
-    
+
     tracing::info!(
         "Migration complete: {} migrated, {} errors, {} potential duplicates, {} remaining",
-        migrated, errors, deduplicated, remaining
+        migrated,
+        errors,
+        deduplicated,
+        remaining
     );
-    
+
     Ok(Json(json!({
         "status": "complete",
         "migrated": migrated,
         "errors": errors,
         "deduplicated": deduplicated,
         "remaining": remaining,
-        "message": if remaining > 0 { 
-            "Run migration again to process more files" 
-        } else { 
-            "All files have been migrated" 
+        "message": if remaining > 0 {
+            "Run migration again to process more files"
+        } else {
+            "All files have been migrated"
         }
     })))
 }

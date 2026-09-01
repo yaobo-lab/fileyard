@@ -1,15 +1,15 @@
+use crate::AppState;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
+use clovalink_auth::AuthUser;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::Arc;
-use crate::AppState;
-use clovalink_auth::AuthUser;
 use sqlx::FromRow;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -76,7 +76,7 @@ struct GroupRow {
 
 /// Global search across companies, users, and files
 /// GET /api/search?q=query
-/// 
+///
 /// SECURITY: Results are filtered based on user role and permissions:
 /// - Companies: SuperAdmin only
 /// - Users: Admin/SuperAdmin only  
@@ -99,10 +99,10 @@ pub async fn global_search(
 
     let limit = params.limit.unwrap_or(5).min(20);
     let search_pattern = format!("%{}%", query.to_lowercase());
-    
+
     // Determine effective role - check if this is a custom role and get its base_role
     let effective_role = get_effective_role(&state.pool, auth.tenant_id, &auth.role).await;
-    
+
     // Determine role-based access using effective role
     let is_super_admin = effective_role == "SuperAdmin";
     let is_admin = effective_role == "Admin" || is_super_admin;
@@ -119,7 +119,7 @@ pub async fn global_search(
             WHERE LOWER(name) LIKE $1 OR LOWER(domain) LIKE $1
             ORDER BY name ASC
             LIMIT $2
-            "#
+            "#,
         )
         .bind(&search_pattern)
         .bind(limit)
@@ -143,7 +143,7 @@ pub async fn global_search(
             WHERE LOWER(name) LIKE $1 OR LOWER(email) LIKE $1
             ORDER BY name ASC
             LIMIT $2
-            "#
+            "#,
         )
         .bind(&search_pattern)
         .bind(limit)
@@ -159,7 +159,7 @@ pub async fn global_search(
             WHERE tenant_id = $1 AND (LOWER(name) LIKE $2 OR LOWER(email) LIKE $2)
             ORDER BY name ASC
             LIMIT $3
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .bind(&search_pattern)
@@ -184,7 +184,7 @@ pub async fn global_search(
             WHERE LOWER(name) LIKE $1 AND is_deleted = false
             ORDER BY name ASC
             LIMIT $2
-            "#
+            "#,
         )
         .bind(&search_pattern)
         .bind(limit)
@@ -202,7 +202,7 @@ pub async fn global_search(
               AND is_deleted = false
             ORDER BY name ASC
             LIMIT $3
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .bind(&search_pattern)
@@ -213,17 +213,16 @@ pub async fn global_search(
     } else {
         // Manager/Employee/Custom roles: filter by department access and lock status
         // First get user's department info
-        let user_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> = sqlx::query_as(
-            "SELECT department_id, allowed_department_ids FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-        
+        let user_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
+            sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
         let (user_dept_id, allowed_dept_ids) = user_info.unwrap_or((None, None));
         let allowed_depts = allowed_dept_ids.unwrap_or_default();
-        
+
         // Build the file query with proper permission filtering
         // Files visible to non-admin:
         // 1. File has no department (root level / company-wide)
@@ -259,7 +258,7 @@ pub async fn global_search(
               )
             ORDER BY f.name ASC
             LIMIT $7
-            "#
+            "#,
         )
         .bind(auth.tenant_id)
         .bind(&search_pattern)
@@ -313,17 +312,16 @@ pub async fn global_search(
     } else {
         // Manager/Employee/Custom roles: filter by department access, visibility, lock status
         // Get user's department info (reuse from files query if available)
-        let user_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> = sqlx::query_as(
-            "SELECT department_id, allowed_department_ids FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-        
+        let user_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
+            sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
         let (user_dept_id, allowed_dept_ids) = user_info.unwrap_or((None, None));
         let allowed_depts = allowed_dept_ids.unwrap_or_default();
-        
+
         // Groups visible to non-admin:
         // 1. Group is in user's primary department
         // 2. Group is in one of user's allowed departments
@@ -444,14 +442,19 @@ pub async fn global_search(
             SearchResult {
                 id: g.id.to_string(),
                 name: g.name.clone(),
-                description: g.description.or(Some(format!("in {}", if parent.is_empty() { "Home" } else { parent }))),
+                description: g.description.or(Some(format!(
+                    "in {}",
+                    if parent.is_empty() { "Home" } else { parent }
+                ))),
                 result_type: "group".to_string(),
                 link,
             }
         })
         .collect();
 
-    let total = (company_results.len() + user_results.len() + file_results.len() + group_results.len()) as i64;
+    let total =
+        (company_results.len() + user_results.len() + file_results.len() + group_results.len())
+            as i64;
 
     Ok(Json(json!(SearchResponse {
         companies: company_results,
@@ -471,17 +474,18 @@ async fn get_effective_role(pool: &sqlx::PgPool, tenant_id: Uuid, role: &str) ->
     if standard_roles.contains(&role) {
         return role.to_string();
     }
-    
+
     // Look up custom role's base_role
-    let base_role: Option<(String,)> = sqlx::query_as(
-        "SELECT base_role FROM roles WHERE tenant_id = $1 AND name = $2"
-    )
-    .bind(tenant_id)
-    .bind(role)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
-    
+    let base_role: Option<(String,)> =
+        sqlx::query_as("SELECT base_role FROM roles WHERE tenant_id = $1 AND name = $2")
+            .bind(tenant_id)
+            .bind(role)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
+
     // Return base_role if found, otherwise default to Employee
-    base_role.map(|r| r.0).unwrap_or_else(|| "Employee".to_string())
+    base_role
+        .map(|r| r.0)
+        .unwrap_or_else(|| "Employee".to_string())
 }

@@ -1,19 +1,18 @@
+use crate::compliance::{can_modify_setting, get_tenant_compliance_mode, ComplianceRestrictions};
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::Response,
-    Extension,
-    Json,
+    Extension, Json,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::sync::Arc;
-use crate::AppState;
-use crate::compliance::{ComplianceRestrictions, get_tenant_compliance_mode, can_modify_setting};
+use chrono::{DateTime, NaiveDate, Utc};
 use clovalink_auth::AuthUser;
 use clovalink_core::models::{AuditSettings, UpdateAuditSettingsInput};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc, NaiveDate};
+use std::sync::Arc;
 use uuid::Uuid;
 
 // ==================== Query Parameters ====================
@@ -126,9 +125,8 @@ pub async fn list_activity_logs(
         where_clause
     );
 
-    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query)
-        .bind(auth.tenant_id);
-    
+    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query).bind(auth.tenant_id);
+
     if let Some(start) = params.start_date {
         count_builder = count_builder.bind(start);
     }
@@ -145,10 +143,7 @@ pub async fn list_activity_logs(
         count_builder = count_builder.bind(resource_type);
     }
 
-    let total = count_builder
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let total = count_builder.fetch_one(&state.pool).await.unwrap_or(0);
 
     // Fetch logs with filters
     let query = format!(
@@ -176,7 +171,7 @@ pub async fn list_activity_logs(
         .bind(auth.tenant_id)
         .bind(limit)
         .bind(offset);
-    
+
     if let Some(start) = params.start_date {
         query_builder = query_builder.bind(start);
     }
@@ -193,62 +188,66 @@ pub async fn list_activity_logs(
         query_builder = query_builder.bind(resource_type);
     }
 
-    let logs = query_builder
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list audit logs: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
+        tracing::error!("Failed to list audit logs: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
-    let response: Vec<AuditLogResponse> = logs.into_iter().map(|row| {
-        let status = match row.action.as_str() {
-            "login_failed" | "security_alert" => "warning",
-            _ => "success",
-        };
+    let response: Vec<AuditLogResponse> = logs
+        .into_iter()
+        .map(|row| {
+            let status = match row.action.as_str() {
+                "login_failed" | "security_alert" => "warning",
+                _ => "success",
+            };
 
-        // Extract human-readable resource name from metadata
-        let resource = if let Some(meta) = &row.metadata {
-            // Try various human-readable fields in order of preference
-            meta.get("file_name")
-                .or_else(|| meta.get("folder_name"))
-                .or_else(|| meta.get("new_name"))
-                .or_else(|| meta.get("old_name"))
-                .or_else(|| meta.get("target_user_name"))
-                .or_else(|| meta.get("target_user_email"))
-                .or_else(|| meta.get("deleted_user_name"))
-                .or_else(|| meta.get("deleted_user_email"))
-                .or_else(|| meta.get("request_name"))
-                .or_else(|| meta.get("resource_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or(&row.resource_type)
-                .to_string()
-        } else {
-            row.resource_type.clone()
-        };
+            // Extract human-readable resource name from metadata
+            let resource = if let Some(meta) = &row.metadata {
+                // Try various human-readable fields in order of preference
+                meta.get("file_name")
+                    .or_else(|| meta.get("folder_name"))
+                    .or_else(|| meta.get("new_name"))
+                    .or_else(|| meta.get("old_name"))
+                    .or_else(|| meta.get("target_user_name"))
+                    .or_else(|| meta.get("target_user_email"))
+                    .or_else(|| meta.get("deleted_user_name"))
+                    .or_else(|| meta.get("deleted_user_email"))
+                    .or_else(|| meta.get("request_name"))
+                    .or_else(|| meta.get("resource_name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&row.resource_type)
+                    .to_string()
+            } else {
+                row.resource_type.clone()
+            };
 
-        // Generate human-readable action display name
-        let action_display = format_action_display(&row.action);
-        
-        // Generate full human-readable description
-        let user_name = row.user_name.clone().unwrap_or_else(|| "System".to_string());
-        let description = format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+            // Generate human-readable action display name
+            let action_display = format_action_display(&row.action);
 
-        AuditLogResponse {
-            id: row.id.to_string(),
-            user: user_name,
-            user_id: row.user_id.map(|id| id.to_string()),
-            action: row.action,
-            action_display,
-            resource,
-            resource_type: row.resource_type,
-            description,
-            timestamp: row.created_at.to_rfc3339(),
-            status: status.to_string(),
-            ip_address: row.ip_address,
-            metadata: row.metadata,
-        }
-    }).collect();
+            // Generate full human-readable description
+            let user_name = row
+                .user_name
+                .clone()
+                .unwrap_or_else(|| "System".to_string());
+            let description =
+                format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+
+            AuditLogResponse {
+                id: row.id.to_string(),
+                user: user_name,
+                user_id: row.user_id.map(|id| id.to_string()),
+                action: row.action,
+                action_display,
+                resource,
+                resource_type: row.resource_type,
+                description,
+                timestamp: row.created_at.to_rfc3339(),
+                status: status.to_string(),
+                ip_address: row.ip_address,
+                metadata: row.metadata,
+            }
+        })
+        .collect();
 
     Ok(Json(json!(AuditLogsListResponse {
         logs: response,
@@ -318,9 +317,8 @@ pub async fn export_activity_logs(
         where_clause
     );
 
-    let mut query_builder = sqlx::query_as::<_, AuditLogRow>(&query)
-        .bind(auth.tenant_id);
-    
+    let mut query_builder = sqlx::query_as::<_, AuditLogRow>(&query).bind(auth.tenant_id);
+
     if let Some(start) = params.start_date {
         query_builder = query_builder.bind(start);
     }
@@ -337,17 +335,16 @@ pub async fn export_activity_logs(
         query_builder = query_builder.bind(resource_type);
     }
 
-    let logs = query_builder
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to export audit logs: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
+        tracing::error!("Failed to export audit logs: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // Build CSV content with human-readable columns
-    let mut csv_content = String::from("ID,Timestamp,User,Action,Action Display,Resource Type,Resource,Description,IP Address\n");
-    
+    let mut csv_content = String::from(
+        "ID,Timestamp,User,Action,Action Display,Resource Type,Resource,Description,IP Address\n",
+    );
+
     for row in logs {
         // Extract human-readable resource name from metadata
         let resource = if let Some(meta) = &row.metadata {
@@ -368,10 +365,14 @@ pub async fn export_activity_logs(
             String::new()
         };
 
-        let user_name = row.user_name.clone().unwrap_or_else(|| "System".to_string());
+        let user_name = row
+            .user_name
+            .clone()
+            .unwrap_or_else(|| "System".to_string());
         let ip = row.ip_address.unwrap_or_default();
         let action_display = format_action_display(&row.action);
-        let description = format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+        let description =
+            format_audit_description(&row.action, &user_name, &resource, &row.metadata);
 
         // Escape CSV fields
         let escape_csv = |s: &str| {
@@ -401,7 +402,7 @@ pub async fn export_activity_logs(
         r#"
         INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, $3, 'audit_logs_exported', 'audit', $4, $5::inet)
-        "#
+        "#,
     )
     .bind(Uuid::new_v4())
     .bind(auth.tenant_id)
@@ -423,7 +424,10 @@ pub async fn export_activity_logs(
     let response = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/csv")
-        .header("Content-Disposition", "attachment; filename=\"audit_logs.csv\"")
+        .header(
+            "Content-Disposition",
+            "attachment; filename=\"audit_logs.csv\"",
+        )
         .body(csv_content.into())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -454,7 +458,7 @@ pub async fn get_audit_settings(
                log_settings_changes, log_role_changes, retention_days, created_at, updated_at
         FROM audit_settings
         WHERE tenant_id = $1
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_optional(&state.pool)
@@ -532,36 +536,61 @@ pub async fn update_audit_settings(
     if restrictions.audit_settings_locked {
         // Check if any setting is being disabled
         let is_disabling = |opt: Option<bool>| opt == Some(false);
-        
+
         if is_disabling(input.log_logins) && !can_modify_setting(&compliance_mode, "log_logins") {
             tracing::warn!("Cannot disable log_logins in {} mode", compliance_mode);
             return Err(StatusCode::FORBIDDEN);
         }
-        if is_disabling(input.log_file_operations) && !can_modify_setting(&compliance_mode, "log_file_operations") {
-            tracing::warn!("Cannot disable log_file_operations in {} mode", compliance_mode);
+        if is_disabling(input.log_file_operations)
+            && !can_modify_setting(&compliance_mode, "log_file_operations")
+        {
+            tracing::warn!(
+                "Cannot disable log_file_operations in {} mode",
+                compliance_mode
+            );
             return Err(StatusCode::FORBIDDEN);
         }
-        if is_disabling(input.log_user_changes) && !can_modify_setting(&compliance_mode, "log_user_changes") {
-            tracing::warn!("Cannot disable log_user_changes in {} mode", compliance_mode);
+        if is_disabling(input.log_user_changes)
+            && !can_modify_setting(&compliance_mode, "log_user_changes")
+        {
+            tracing::warn!(
+                "Cannot disable log_user_changes in {} mode",
+                compliance_mode
+            );
             return Err(StatusCode::FORBIDDEN);
         }
-        if is_disabling(input.log_settings_changes) && !can_modify_setting(&compliance_mode, "log_settings_changes") {
-            tracing::warn!("Cannot disable log_settings_changes in {} mode", compliance_mode);
+        if is_disabling(input.log_settings_changes)
+            && !can_modify_setting(&compliance_mode, "log_settings_changes")
+        {
+            tracing::warn!(
+                "Cannot disable log_settings_changes in {} mode",
+                compliance_mode
+            );
             return Err(StatusCode::FORBIDDEN);
         }
-        if is_disabling(input.log_role_changes) && !can_modify_setting(&compliance_mode, "log_role_changes") {
-            tracing::warn!("Cannot disable log_role_changes in {} mode", compliance_mode);
+        if is_disabling(input.log_role_changes)
+            && !can_modify_setting(&compliance_mode, "log_role_changes")
+        {
+            tracing::warn!(
+                "Cannot disable log_role_changes in {} mode",
+                compliance_mode
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // If compliance mode is active, force all logging to be enabled
-    let (log_logins, log_file_ops, log_user_changes, log_settings_changes, log_role_changes) = 
+    let (log_logins, log_file_ops, log_user_changes, log_settings_changes, log_role_changes) =
         if restrictions.audit_logging_mandatory {
             (Some(true), Some(true), Some(true), Some(true), Some(true))
         } else {
-            (input.log_logins, input.log_file_operations, input.log_user_changes, 
-             input.log_settings_changes, input.log_role_changes)
+            (
+                input.log_logins,
+                input.log_file_operations,
+                input.log_user_changes,
+                input.log_settings_changes,
+                input.log_role_changes,
+            )
         };
 
     // Upsert settings
@@ -604,7 +633,7 @@ pub async fn update_audit_settings(
         r#"
         INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, $3, 'audit_settings_updated', 'settings', $4, $5::inet)
-        "#
+        "#,
     )
     .bind(Uuid::new_v4())
     .bind(auth.tenant_id)
@@ -648,7 +677,7 @@ pub async fn get_action_types(
         SELECT DISTINCT action FROM audit_logs 
         WHERE tenant_id = $1 
         ORDER BY action
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_all(&state.pool)
@@ -672,7 +701,7 @@ pub async fn get_resource_types(
         SELECT DISTINCT resource_type FROM audit_logs 
         WHERE tenant_id = $1 
         ORDER BY resource_type
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .fetch_all(&state.pool)
@@ -705,7 +734,7 @@ pub async fn get_user_activity_logs(
             SELECT 1 FROM users 
             WHERE id = $1 AND (tenant_id = $2 OR $3 = 'SuperAdmin')
         )
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(auth.tenant_id)
@@ -756,9 +785,8 @@ pub async fn get_user_activity_logs(
         where_clause
     );
 
-    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query)
-        .bind(user_id);
-    
+    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query).bind(user_id);
+
     if let Some(start) = params.start_date {
         count_builder = count_builder.bind(start);
     }
@@ -772,10 +800,7 @@ pub async fn get_user_activity_logs(
         count_builder = count_builder.bind(resource_type);
     }
 
-    let total = count_builder
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+    let total = count_builder.fetch_one(&state.pool).await.unwrap_or(0);
 
     // Fetch logs
     let query = format!(
@@ -803,7 +828,7 @@ pub async fn get_user_activity_logs(
         .bind(user_id)
         .bind(limit)
         .bind(offset);
-    
+
     if let Some(start) = params.start_date {
         query_builder = query_builder.bind(start);
     }
@@ -817,61 +842,65 @@ pub async fn get_user_activity_logs(
         query_builder = query_builder.bind(resource_type);
     }
 
-    let logs = query_builder
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list user audit logs: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
+        tracing::error!("Failed to list user audit logs: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
-    let response: Vec<AuditLogResponse> = logs.into_iter().map(|row| {
-        let status = match row.action.as_str() {
-            "login_failed" | "security_alert" => "warning",
-            _ => "success",
-        };
+    let response: Vec<AuditLogResponse> = logs
+        .into_iter()
+        .map(|row| {
+            let status = match row.action.as_str() {
+                "login_failed" | "security_alert" => "warning",
+                _ => "success",
+            };
 
-        // Extract human-readable resource name from metadata
-        let resource = if let Some(meta) = &row.metadata {
-            meta.get("file_name")
-                .or_else(|| meta.get("folder_name"))
-                .or_else(|| meta.get("new_name"))
-                .or_else(|| meta.get("old_name"))
-                .or_else(|| meta.get("target_user_name"))
-                .or_else(|| meta.get("target_user_email"))
-                .or_else(|| meta.get("deleted_user_name"))
-                .or_else(|| meta.get("deleted_user_email"))
-                .or_else(|| meta.get("request_name"))
-                .or_else(|| meta.get("resource_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or(&row.resource_type)
-                .to_string()
-        } else {
-            row.resource_type.clone()
-        };
+            // Extract human-readable resource name from metadata
+            let resource = if let Some(meta) = &row.metadata {
+                meta.get("file_name")
+                    .or_else(|| meta.get("folder_name"))
+                    .or_else(|| meta.get("new_name"))
+                    .or_else(|| meta.get("old_name"))
+                    .or_else(|| meta.get("target_user_name"))
+                    .or_else(|| meta.get("target_user_email"))
+                    .or_else(|| meta.get("deleted_user_name"))
+                    .or_else(|| meta.get("deleted_user_email"))
+                    .or_else(|| meta.get("request_name"))
+                    .or_else(|| meta.get("resource_name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&row.resource_type)
+                    .to_string()
+            } else {
+                row.resource_type.clone()
+            };
 
-        // Generate human-readable action display name
-        let action_display = format_action_display(&row.action);
-        
-        // Generate full human-readable description
-        let user_name = row.user_name.clone().unwrap_or_else(|| "System".to_string());
-        let description = format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+            // Generate human-readable action display name
+            let action_display = format_action_display(&row.action);
 
-        AuditLogResponse {
-            id: row.id.to_string(),
-            user: user_name,
-            user_id: row.user_id.map(|id| id.to_string()),
-            action: row.action,
-            action_display,
-            resource,
-            resource_type: row.resource_type,
-            description,
-            timestamp: row.created_at.to_rfc3339(),
-            status: status.to_string(),
-            ip_address: row.ip_address,
-            metadata: row.metadata,
-        }
-    }).collect();
+            // Generate full human-readable description
+            let user_name = row
+                .user_name
+                .clone()
+                .unwrap_or_else(|| "System".to_string());
+            let description =
+                format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+
+            AuditLogResponse {
+                id: row.id.to_string(),
+                user: user_name,
+                user_id: row.user_id.map(|id| id.to_string()),
+                action: row.action,
+                action_display,
+                resource,
+                resource_type: row.resource_type,
+                description,
+                timestamp: row.created_at.to_rfc3339(),
+                status: status.to_string(),
+                ip_address: row.ip_address,
+                metadata: row.metadata,
+            }
+        })
+        .collect();
 
     Ok(Json(json!(AuditLogsListResponse {
         logs: response,
@@ -901,7 +930,7 @@ fn format_action_display(action: &str) -> String {
         "folder_download" => "Downloaded folder".to_string(),
         "folder_create" => "Created folder".to_string(),
         "private_files_view" => "Viewed private files".to_string(),
-        
+
         // User operations
         "user_created" => "Created user".to_string(),
         "user_updated" => "Updated user".to_string(),
@@ -913,7 +942,7 @@ fn format_action_display(action: &str) -> String {
         "send_password_reset_email" => "Sent password reset email".to_string(),
         "admin_change_email" => "Changed email".to_string(),
         "role_change" => "Changed role".to_string(),
-        
+
         // Authentication
         "login" => "Logged in".to_string(),
         "login_success" => "Logged in".to_string(),
@@ -923,36 +952,36 @@ fn format_action_display(action: &str) -> String {
         "password_changed" => "Changed password".to_string(),
         "mfa_enabled" => "Enabled two-factor auth".to_string(),
         "mfa_disabled" => "Disabled two-factor auth".to_string(),
-        
+
         // Settings
         "settings_updated" => "Updated settings".to_string(),
         "compliance_settings_updated" => "Updated compliance settings".to_string(),
         "audit_settings_updated" => "Updated audit settings".to_string(),
-        
+
         // Share operations
         "share_created" => "Created share link".to_string(),
         "share_accessed" => "Accessed shared file".to_string(),
         "share_deleted" => "Deleted share link".to_string(),
-        
+
         // File requests
         "file_request_created" => "Created file request".to_string(),
         "file_request_upload" => "Uploaded to file request".to_string(),
-        
+
         // Tenant operations
         "tenant_created" => "Created company".to_string(),
         "tenant_updated" => "Updated company".to_string(),
         "tenant_suspended" => "Suspended company".to_string(),
         "tenant_deleted" => "Deleted company".to_string(),
-        
+
         // Security
         "security_alert" => "Security alert".to_string(),
-        
+
         // AI operations
         "ai_summarize" => "Generated AI summary".to_string(),
         "ai_summary_viewed" => "Viewed AI summary".to_string(),
         "ai_answer" => "Asked AI a question".to_string(),
         "ai_settings_updated" => "Updated AI settings".to_string(),
-        
+
         // Default: convert snake_case to Title Case
         _ => action
             .split('_')
@@ -969,7 +998,12 @@ fn format_action_display(action: &str) -> String {
 }
 
 /// Generate a full human-readable description of an audit event
-fn format_audit_description(action: &str, user: &str, resource: &str, metadata: &Option<Value>) -> String {
+fn format_audit_description(
+    action: &str,
+    user: &str,
+    resource: &str,
+    metadata: &Option<Value>,
+) -> String {
     match action {
         // File operations with specific details
         "file_upload" => format!("{} uploaded \"{}\"", user, resource),
@@ -977,74 +1011,111 @@ fn format_audit_description(action: &str, user: &str, resource: &str, metadata: 
         "file_preview" => format!("{} previewed \"{}\"", user, resource),
         "file_rename" => {
             if let Some(meta) = metadata {
-                let old_name = meta.get("old_name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let new_name = meta.get("new_name").and_then(|v| v.as_str()).unwrap_or(resource);
+                let old_name = meta
+                    .get("old_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let new_name = meta
+                    .get("new_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(resource);
                 format!("{} renamed \"{}\" to \"{}\"", user, old_name, new_name)
             } else {
                 format!("{} renamed a file to \"{}\"", user, resource)
             }
-        },
+        }
         "file_delete" => format!("{} deleted \"{}\"", user, resource),
         "file_move" => {
             if let Some(meta) = metadata {
-                let from = meta.get("from_path").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let to = meta.get("to_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let from = meta
+                    .get("from_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let to = meta
+                    .get("to_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 format!("{} moved file from \"{}\" to \"{}\"", user, from, to)
             } else {
                 format!("{} moved \"{}\"", user, resource)
             }
-        },
+        }
         "file_lock" => format!("{} locked \"{}\"", user, resource),
         "file_unlock" => format!("{} unlocked \"{}\"", user, resource),
         "file_shared" => {
             if let Some(meta) = metadata {
-                let is_public = meta.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false);
+                let is_public = meta
+                    .get("is_public")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let share_type = if is_public { "public" } else { "organization" };
                 format!("{} shared \"{}\" ({} link)", user, resource, share_type)
             } else {
                 format!("{} shared \"{}\"", user, resource)
             }
-        },
+        }
         "file_restore" => format!("{} restored \"{}\" from trash", user, resource),
         "file_permanent_delete" => format!("{} permanently deleted \"{}\"", user, resource),
         "folder_download" => {
             if let Some(meta) = metadata {
                 let count = meta.get("file_count").and_then(|v| v.as_i64()).unwrap_or(0);
-                format!("{} downloaded folder \"{}\" ({} files)", user, resource, count)
+                format!(
+                    "{} downloaded folder \"{}\" ({} files)",
+                    user, resource, count
+                )
             } else {
                 format!("{} downloaded folder \"{}\"", user, resource)
             }
-        },
+        }
         "folder_create" => format!("{} created folder \"{}\"", user, resource),
         "private_files_view" => format!("{} viewed private files", user),
-        
+
         // User operations
         "user_created" => format!("{} created user account for {}", user, resource),
         "user_updated" => format!("{} updated user {}", user, resource),
-        "user_deleted" | "user_permanently_deleted" => format!("{} deleted user {}", user, resource),
+        "user_deleted" | "user_permanently_deleted" => {
+            format!("{} deleted user {}", user, resource)
+        }
         "user_suspended" => format!("{} suspended user {}", user, resource),
         "user_activated" => format!("{} activated user {}", user, resource),
         "admin_reset_password" => format!("{} reset password for {}", user, resource),
-        "send_password_reset_email" => format!("{} sent password reset email to {}", user, resource),
+        "send_password_reset_email" => {
+            format!("{} sent password reset email to {}", user, resource)
+        }
         "admin_change_email" => {
             if let Some(meta) = metadata {
-                let old_email = meta.get("old_email").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let new_email = meta.get("new_email").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let old_email = meta
+                    .get("old_email")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let new_email = meta
+                    .get("new_email")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 format!("{} changed email from {} to {}", user, old_email, new_email)
             } else {
                 format!("{} changed email for {}", user, resource)
             }
-        },
+        }
         "role_change" => {
             if let Some(meta) = metadata {
-                let old_role = meta.get("old_role").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let new_role = meta.get("new_role").and_then(|v| v.as_str()).unwrap_or("unknown");
-                format!("{} changed role from {} to {} for {}", user, old_role, new_role, resource)
+                let old_role = meta
+                    .get("old_role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let new_role = meta
+                    .get("new_role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                format!(
+                    "{} changed role from {} to {} for {}",
+                    user, old_role, new_role, resource
+                )
             } else {
                 format!("{} changed role for {}", user, resource)
             }
-        },
-        
+        }
+
         // Authentication
         "login" | "login_success" => format!("{} logged in", user),
         "login_failed" => format!("Failed login attempt for {}", resource),
@@ -1053,64 +1124,76 @@ fn format_audit_description(action: &str, user: &str, resource: &str, metadata: 
         "password_changed" => format!("{} changed their password", user),
         "mfa_enabled" => format!("{} enabled two-factor authentication", user),
         "mfa_disabled" => format!("{} disabled two-factor authentication", user),
-        
+
         // Settings
         "settings_updated" => format!("{} updated settings", user),
         "compliance_settings_updated" => format!("{} updated compliance settings", user),
         "audit_settings_updated" => format!("{} updated audit settings", user),
-        
+
         // Share operations
         "share_created" => format!("{} created a share link for \"{}\"", user, resource),
         "share_accessed" => format!("Share link for \"{}\" was accessed", resource),
         "share_deleted" => format!("{} deleted share link for \"{}\"", user, resource),
-        
+
         // File requests
         "file_request_created" => format!("{} created file request \"{}\"", user, resource),
         "file_request_upload" => {
             if let Some(meta) = metadata {
-                let uploader = meta.get("uploader_name").and_then(|v| v.as_str()).unwrap_or("Someone");
+                let uploader = meta
+                    .get("uploader_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Someone");
                 format!("{} uploaded to file request \"{}\"", uploader, resource)
             } else {
                 format!("File uploaded to request \"{}\"", resource)
             }
-        },
-        
+        }
+
         // Tenant operations
         "tenant_created" => format!("{} created company \"{}\"", user, resource),
         "tenant_updated" => format!("{} updated company settings", user),
         "tenant_suspended" => format!("{} suspended company \"{}\"", user, resource),
         "tenant_deleted" => format!("{} deleted company \"{}\"", user, resource),
-        
+
         // Security
         "security_alert" => format!("Security alert: {}", resource),
-        
+
         // AI operations
         "ai_summarize" => {
             if let Some(meta) = metadata {
-                let file_name = meta.get("file_name").and_then(|v| v.as_str()).unwrap_or(resource);
+                let file_name = meta
+                    .get("file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(resource);
                 format!("{} generated AI summary for \"{}\"", user, file_name)
             } else {
                 format!("{} generated AI summary for \"{}\"", user, resource)
             }
-        },
+        }
         "ai_summary_viewed" => {
             if let Some(meta) = metadata {
-                let file_name = meta.get("file_name").and_then(|v| v.as_str()).unwrap_or(resource);
+                let file_name = meta
+                    .get("file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(resource);
                 format!("{} viewed AI summary for \"{}\"", user, file_name)
             } else {
                 format!("{} viewed AI summary for \"{}\"", user, resource)
             }
-        },
+        }
         "ai_answer" => {
             if let Some(meta) = metadata {
-                let file_name = meta.get("file_name").and_then(|v| v.as_str()).unwrap_or(resource);
+                let file_name = meta
+                    .get("file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(resource);
                 format!("{} asked AI about \"{}\"", user, file_name)
             } else {
                 format!("{} asked AI about \"{}\"", user, resource)
             }
-        },
+        }
         "ai_settings_updated" => format!("{} updated AI settings", user),
-        
+
         // Default fallback
         _ => {
             let action_text = format_action_display(action);
@@ -1119,20 +1202,24 @@ fn format_audit_description(action: &str, user: &str, resource: &str, metadata: 
             } else {
                 format!("{} - {}", user, action_text)
             }
-        },
+        }
     }
 }
 
 /// Check if an action should be logged based on tenant's audit settings
 #[allow(dead_code)]
-pub async fn should_log_action(pool: &sqlx::PgPool, tenant_id: Uuid, action_category: &str) -> bool {
+pub async fn should_log_action(
+    pool: &sqlx::PgPool,
+    tenant_id: Uuid,
+    action_category: &str,
+) -> bool {
     let settings = sqlx::query_as::<_, AuditSettings>(
         r#"
         SELECT id, tenant_id, log_logins, log_file_operations, log_user_changes, 
                log_settings_changes, log_role_changes, retention_days, created_at, updated_at
         FROM audit_settings
         WHERE tenant_id = $1
-        "#
+        "#,
     )
     .bind(tenant_id)
     .fetch_optional(pool)

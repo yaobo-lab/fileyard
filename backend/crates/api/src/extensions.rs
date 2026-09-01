@@ -1,5 +1,5 @@
 //! Extension-related handlers integrated with main API
-//! 
+//!
 //! This module provides helper functions for dispatching extension events
 //! from within the main API handlers.
 
@@ -30,4 +30,3 @@ pub async fn dispatch_file_upload(
 
     clovalink_extensions::dispatch_file_event(pool, redis_url, event, webhook_timeout_ms).await;
 }
-

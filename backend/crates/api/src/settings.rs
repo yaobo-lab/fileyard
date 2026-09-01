@@ -1,18 +1,13 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    Extension,
-};
+use crate::compliance::ComplianceRestrictions;
+use crate::AppState;
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
+use clovalink_auth::{require_admin, AuthUser};
+use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
+use clovalink_core::models::Tenant;
+use clovalink_core::notification_service;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use crate::AppState;
-use crate::compliance::ComplianceRestrictions;
-use clovalink_auth::{AuthUser, require_admin};
-use clovalink_core::models::Tenant;
-use clovalink_core::notification_service;
-use clovalink_core::cache::{keys as cache_keys, ttl as cache_ttl};
 
 #[derive(Deserialize)]
 pub struct UpdateComplianceInput {
@@ -47,9 +42,9 @@ pub async fn get_compliance(
 ) -> Result<Json<Value>, StatusCode> {
     // SECURITY: Settings are Admin/SuperAdmin only
     require_admin(&auth)?;
-    
+
     let cache_key = cache_keys::tenant_settings(auth.tenant_id);
-    
+
     // Try cache first
     if let Some(ref cache) = state.cache {
         if let Ok(cached) = cache.get::<ComplianceSettingsCache>(&cache_key).await {
@@ -66,22 +61,38 @@ pub async fn get_compliance(
             })));
         }
     }
-    
-    let tenant: (String, String, i32, Option<bool>, Option<i32>, Option<bool>, Option<bool>) = sqlx::query_as(
+
+    let tenant: (
+        String,
+        String,
+        i32,
+        Option<bool>,
+        Option<i32>,
+        Option<bool>,
+        Option<bool>,
+    ) = sqlx::query_as(
         r#"SELECT compliance_mode, encryption_standard, retention_policy_days, 
            mfa_required, session_timeout_minutes, public_sharing_enabled, data_export_enabled
-           FROM tenants WHERE id = $1"#
+           FROM tenants WHERE id = $1"#,
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (compliance_mode, encryption_standard, retention_policy_days, mfa_required, session_timeout_minutes, public_sharing_enabled, data_export_enabled) = tenant;
+    let (
+        compliance_mode,
+        encryption_standard,
+        retention_policy_days,
+        mfa_required,
+        session_timeout_minutes,
+        public_sharing_enabled,
+        data_export_enabled,
+    ) = tenant;
 
     // Get compliance restrictions for the mode
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
-    
+
     // Cache the settings
     let cache_data = ComplianceSettingsCache {
         compliance_mode: compliance_mode.clone(),
@@ -92,9 +103,11 @@ pub async fn get_compliance(
         public_sharing_enabled: public_sharing_enabled.unwrap_or(true),
         data_export_enabled: data_export_enabled.unwrap_or(true),
     };
-    
+
     if let Some(ref cache) = state.cache {
-        let _ = cache.set(&cache_key, &cache_data, cache_ttl::TENANT_SETTINGS).await;
+        let _ = cache
+            .set(&cache_key, &cache_data, cache_ttl::TENANT_SETTINGS)
+            .await;
     }
 
     Ok(Json(json!({
@@ -162,7 +175,7 @@ pub async fn update_compliance(
             session_timeout_minutes = COALESCE($5, session_timeout_minutes),
             data_export_enabled = $6,
             updated_at = NOW() 
-           WHERE id = $7"#
+           WHERE id = $7"#,
     )
     .bind(compliance_mode)
     .bind(retention_days)
@@ -191,7 +204,7 @@ pub async fn update_compliance(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'update_compliance_mode', 'tenant', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -265,9 +278,9 @@ pub async fn get_blocked_extensions(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
-    
+
     let extensions: (Vec<String>,) = sqlx::query_as(
-        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1"
+        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1",
     )
     .bind(auth.tenant_id)
     .fetch_one(&state.pool)
@@ -290,28 +303,32 @@ pub async fn update_blocked_extensions(
     require_admin(&auth)?;
 
     // Normalize extensions: lowercase, remove dots, trim whitespace
-    let normalized: Vec<String> = input.blocked_extensions
+    let normalized: Vec<String> = input
+        .blocked_extensions
         .iter()
-        .map(|ext| ext.trim().to_lowercase().trim_start_matches('.').to_string())
+        .map(|ext| {
+            ext.trim()
+                .to_lowercase()
+                .trim_start_matches('.')
+                .to_string()
+        })
         .filter(|ext| !ext.is_empty())
         .collect();
 
     // Update tenant
-    sqlx::query(
-        "UPDATE tenants SET blocked_extensions = $1, updated_at = NOW() WHERE id = $2"
-    )
-    .bind(&normalized)
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("UPDATE tenants SET blocked_extensions = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&normalized)
+        .bind(auth.tenant_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Create audit log
     sqlx::query(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'update_blocked_extensions', 'settings', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -364,7 +381,10 @@ pub fn validate_password(password: &str, policy: &PasswordPolicy) -> Result<(), 
     let mut errors = Vec::new();
 
     if password.len() < policy.min_length as usize {
-        errors.push(format!("Password must be at least {} characters", policy.min_length));
+        errors.push(format!(
+            "Password must be at least {} characters",
+            policy.min_length
+        ));
     }
 
     if policy.require_uppercase && !password.chars().any(|c| c.is_uppercase()) {
@@ -396,21 +416,19 @@ pub async fn get_password_policy(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<PasswordPolicy>, StatusCode> {
-    let policy: Option<(Value,)> = sqlx::query_as(
-        "SELECT password_policy FROM tenants WHERE id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let policy: Option<(Value,)> =
+        sqlx::query_as("SELECT password_policy FROM tenants WHERE id = $1")
+            .bind(auth.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match policy {
         Some((json_value,)) => {
-            let policy: PasswordPolicy = serde_json::from_value(json_value)
-                .unwrap_or_default();
+            let policy: PasswordPolicy = serde_json::from_value(json_value).unwrap_or_default();
             Ok(Json(policy))
         }
-        None => Ok(Json(PasswordPolicy::default()))
+        None => Ok(Json(PasswordPolicy::default())),
     }
 }
 
@@ -432,24 +450,22 @@ pub async fn update_password_policy(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let policy_json = serde_json::to_value(&policy)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let policy_json =
+        serde_json::to_value(&policy).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    sqlx::query(
-        "UPDATE tenants SET password_policy = $1, updated_at = NOW() WHERE id = $2"
-    )
-    .bind(&policy_json)
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("UPDATE tenants SET password_policy = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&policy_json)
+        .bind(auth.tenant_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
     sqlx::query(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'update_password_policy', 'settings', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -493,7 +509,7 @@ pub async fn get_ip_restrictions(
     require_admin(&auth)?;
 
     let restrictions: Option<(String, Vec<String>, Vec<String>)> = sqlx::query_as(
-        "SELECT ip_restriction_mode, ip_allowlist, ip_blocklist FROM tenants WHERE id = $1"
+        "SELECT ip_restriction_mode, ip_allowlist, ip_blocklist FROM tenants WHERE id = $1",
     )
     .bind(auth.tenant_id)
     .fetch_optional(&state.pool)
@@ -501,14 +517,12 @@ pub async fn get_ip_restrictions(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match restrictions {
-        Some((mode, allowlist, blocklist)) => {
-            Ok(Json(IpRestrictions {
-                mode,
-                allowlist,
-                blocklist,
-            }))
-        }
-        None => Ok(Json(IpRestrictions::default()))
+        Some((mode, allowlist, blocklist)) => Ok(Json(IpRestrictions {
+            mode,
+            allowlist,
+            blocklist,
+        })),
+        None => Ok(Json(IpRestrictions::default())),
     }
 }
 
@@ -549,11 +563,15 @@ pub async fn update_ip_restrictions(
     }
 
     // Normalize lists
-    let allowlist: Vec<String> = restrictions.allowlist.iter()
+    let allowlist: Vec<String> = restrictions
+        .allowlist
+        .iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let blocklist: Vec<String> = restrictions.blocklist.iter()
+    let blocklist: Vec<String> = restrictions
+        .blocklist
+        .iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
@@ -563,7 +581,7 @@ pub async fn update_ip_restrictions(
         UPDATE tenants 
         SET ip_restriction_mode = $1, ip_allowlist = $2, ip_blocklist = $3, updated_at = NOW() 
         WHERE id = $4
-        "#
+        "#,
     )
     .bind(&restrictions.mode)
     .bind(&allowlist)
@@ -578,7 +596,7 @@ pub async fn update_ip_restrictions(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'update_ip_restrictions', 'settings', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(auth.tenant_id)
     .bind(auth.user_id)
@@ -592,8 +610,8 @@ pub async fn update_ip_restrictions(
     .await
     .ok();
 
-    Ok(Json(json!({ 
-        "success": true, 
+    Ok(Json(json!({
+        "success": true,
         "mode": restrictions.mode,
         "allowlist": allowlist,
         "blocklist": blocklist

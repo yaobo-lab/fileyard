@@ -1,18 +1,18 @@
+use crate::compliance::{can_modify_setting, get_tenant_compliance_mode, ComplianceRestrictions};
+use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Json,
     Extension,
 };
+use clovalink_auth::{generate_token, require_super_admin, AuthUser};
+use clovalink_core::models::{CreateTenantInput, Tenant, UpdateTenantInput, User};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::AppState;
-use crate::compliance::{ComplianceRestrictions, get_tenant_compliance_mode, can_modify_setting};
-use clovalink_auth::{AuthUser, require_super_admin, generate_token};
-use clovalink_core::models::{Tenant, CreateTenantInput, UpdateTenantInput, User};
 
 #[derive(Deserialize)]
 pub struct TenantFilters {
@@ -33,13 +33,13 @@ pub async fn list_tenants(
 ) -> Result<Json<Value>, StatusCode> {
     // SECURITY: Only SuperAdmin can list/manage all companies
     require_super_admin(&auth)?;
-    
+
     let limit = filters.limit.unwrap_or(50).min(100);
     let offset = filters.offset.unwrap_or(0);
 
     let mut query = String::from("SELECT * FROM tenants WHERE 1=1");
     let mut param_count = 1;
-    
+
     if filters.status.is_some() {
         query.push_str(&format!(" AND status = ${}", param_count));
         param_count += 1;
@@ -49,12 +49,19 @@ pub async fn list_tenants(
         param_count += 1;
     }
     if filters.search.is_some() {
-        query.push_str(&format!(" AND (name ILIKE ${} OR domain ILIKE ${})", param_count, param_count));
+        query.push_str(&format!(
+            " AND (name ILIKE ${} OR domain ILIKE ${})",
+            param_count, param_count
+        ));
         param_count += 1;
     }
-    
+
     query.push_str(" ORDER BY created_at DESC");
-    query.push_str(&format!(" LIMIT ${} OFFSET ${}", param_count, param_count + 1));
+    query.push_str(&format!(
+        " LIMIT ${} OFFSET ${}",
+        param_count,
+        param_count + 1
+    ));
 
     let mut db_query = sqlx::query_as::<_, Tenant>(&query);
 
@@ -84,7 +91,7 @@ pub async fn list_tenants(
     let mut results = Vec::new();
     for tenant in tenants {
         let user_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM users WHERE tenant_id = $1 OR $1 = ANY(allowed_tenant_ids)"
+            "SELECT COUNT(*) FROM users WHERE tenant_id = $1 OR $1 = ANY(allowed_tenant_ids)",
         )
         .bind(tenant.id)
         .fetch_one(&state.pool)
@@ -149,30 +156,26 @@ pub async fn accessible_tenants(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // Get the user's primary tenant
-    let user_row = sqlx::query(
-        "SELECT tenant_id, allowed_tenant_ids FROM users WHERE id = $1"
-    )
-    .bind(auth.user_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch user for accessible tenants: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let user_row = sqlx::query("SELECT tenant_id, allowed_tenant_ids FROM users WHERE id = $1")
+        .bind(auth.user_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch user for accessible tenants: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let primary_tenant_id: Uuid = user_row.get("tenant_id");
 
     // SuperAdmins get ALL active tenants
     let tenants = if auth.role == "SuperAdmin" {
-        sqlx::query_as::<_, Tenant>(
-            "SELECT * FROM tenants WHERE status = 'active' ORDER BY name"
-        )
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch all tenants for SuperAdmin: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE status = 'active' ORDER BY name")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch all tenants for SuperAdmin: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
     } else {
         // Non-SuperAdmins get their primary tenant + allowed_tenant_ids
         let allowed_ids: Option<Vec<Uuid>> = user_row.get("allowed_tenant_ids");
@@ -188,7 +191,7 @@ pub async fn accessible_tenants(
         }
 
         sqlx::query_as::<_, Tenant>(
-            "SELECT * FROM tenants WHERE id = ANY($1) AND status = 'active' ORDER BY name"
+            "SELECT * FROM tenants WHERE id = ANY($1) AND status = 'active' ORDER BY name",
         )
         .bind(&tenant_ids)
         .fetch_all(&state.pool)
@@ -257,7 +260,7 @@ pub async fn create_tenant(
         INSERT INTO tenants (name, domain, plan, storage_quota_bytes)
         VALUES ($1, $2, $3, $4)
         RETURNING *
-        "#
+        "#,
     )
     .bind(&input.name)
     .bind(&input.domain)
@@ -538,18 +541,27 @@ pub async fn edit_my_company(
     // Debug logging
     tracing::info!("edit_my_company called: user_id={}, user_tenant_id={}, user_role={}, requested_tenant_id={}", 
         auth.user_id, auth.tenant_id, auth.role, id);
-    
+
     // Check if user is Owner or Admin of this tenant
     if auth.tenant_id != id {
-        tracing::warn!("Forbidden: tenant_id mismatch. user_tenant={}, requested={}", auth.tenant_id, id);
+        tracing::warn!(
+            "Forbidden: tenant_id mismatch. user_tenant={}, requested={}",
+            auth.tenant_id,
+            id
+        );
         return Err(StatusCode::FORBIDDEN);
     }
     if auth.role != "Owner" && auth.role != "Admin" && auth.role != "SuperAdmin" {
         tracing::warn!("Forbidden: insufficient role. user_role={}", auth.role);
         return Err(StatusCode::FORBIDDEN);
     }
-    
-    tracing::info!("Authorization passed for user {} (role={}) to edit tenant {}", auth.user_id, auth.role, id);
+
+    tracing::info!(
+        "Authorization passed for user {} (role={}) to edit tenant {}",
+        auth.user_id,
+        auth.role,
+        id
+    );
 
     // Get compliance mode to check restrictions
     let compliance_mode = get_tenant_compliance_mode(&state.pool, id)
@@ -569,8 +581,12 @@ pub async fn edit_my_company(
     if let Some(retention_days) = input.retention_policy_days {
         if let Some(min_days) = restrictions.min_retention_days {
             if retention_days < min_days {
-                tracing::warn!("Retention days {} below minimum {} for {} mode", 
-                    retention_days, min_days, compliance_mode);
+                tracing::warn!(
+                    "Retention days {} below minimum {} for {} mode",
+                    retention_days,
+                    min_days,
+                    compliance_mode
+                );
                 return Err(StatusCode::BAD_REQUEST);
             }
         }
@@ -580,7 +596,9 @@ pub async fn edit_my_company(
     let mut param_count = 2;
 
     if let Some(_retention_policy_days) = &input.retention_policy_days {
-        if can_modify_setting(&compliance_mode, "retention_policy_days") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "retention_policy_days")
+            || auth.role == "SuperAdmin"
+        {
             updates.push(format!("retention_policy_days = ${}", param_count));
             param_count += 1;
         }
@@ -626,14 +644,18 @@ pub async fn edit_my_company(
     }
     // Handle session_timeout_minutes field
     if let Some(_session_timeout) = &input.session_timeout_minutes {
-        if can_modify_setting(&compliance_mode, "session_timeout_minutes") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "session_timeout_minutes")
+            || auth.role == "SuperAdmin"
+        {
             updates.push(format!("session_timeout_minutes = ${}", param_count));
             param_count += 1;
         }
     }
     // Handle public_sharing_enabled field
     if let Some(_public_sharing) = &input.public_sharing_enabled {
-        if can_modify_setting(&compliance_mode, "public_sharing_enabled") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "public_sharing_enabled")
+            || auth.role == "SuperAdmin"
+        {
             updates.push(format!("public_sharing_enabled = ${}", param_count));
             param_count += 1;
         }
@@ -663,7 +685,8 @@ pub async fn edit_my_company(
         || input.auto_backup_cron.is_some()
         || input.auto_backup_retention_count.is_some();
     if auth.role == "SuperAdmin" && has_backup_changes {
-        crate::settings_backup::verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+        crate::settings_backup::verify_password_confirmation(&state.pool, auth.user_id, &headers)
+            .await?;
     }
     if auth.role == "SuperAdmin" {
         if let Some(auto_backup_enabled) = &input.auto_backup_enabled {
@@ -695,7 +718,9 @@ pub async fn edit_my_company(
     let mut db_query = sqlx::query_as::<_, Tenant>(&query).bind(id);
 
     if let Some(retention_policy_days) = input.retention_policy_days {
-        if can_modify_setting(&compliance_mode, "retention_policy_days") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "retention_policy_days")
+            || auth.role == "SuperAdmin"
+        {
             db_query = db_query.bind(retention_policy_days);
         }
     }
@@ -728,12 +753,16 @@ pub async fn edit_my_company(
         }
     }
     if let Some(session_timeout) = input.session_timeout_minutes {
-        if can_modify_setting(&compliance_mode, "session_timeout_minutes") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "session_timeout_minutes")
+            || auth.role == "SuperAdmin"
+        {
             db_query = db_query.bind(session_timeout);
         }
     }
     if let Some(public_sharing) = input.public_sharing_enabled {
-        if can_modify_setting(&compliance_mode, "public_sharing_enabled") || auth.role == "SuperAdmin" {
+        if can_modify_setting(&compliance_mode, "public_sharing_enabled")
+            || auth.role == "SuperAdmin"
+        {
             db_query = db_query.bind(public_sharing);
         }
     }
@@ -772,7 +801,7 @@ pub async fn edit_my_company(
         r#"
         INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
         VALUES ($1, $2, 'tenant_settings_updated', 'tenant', $3, $4::inet)
-        "#
+        "#,
     )
     .bind(id)
     .bind(auth.user_id)
@@ -828,51 +857,63 @@ pub async fn switch_tenant(
     Extension(auth): Extension<AuthUser>,
     Path(tenant_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::info!("Switch tenant request: user={}, target_tenant={}, role={}", auth.user_id, tenant_id, auth.role);
-    
+    tracing::info!(
+        "Switch tenant request: user={}, target_tenant={}, role={}",
+        auth.user_id,
+        tenant_id,
+        auth.role
+    );
+
     // Verify user has access to this tenant
     // Only SuperAdmin can switch to any tenant
     if auth.role.as_str() != "SuperAdmin" {
         // Check if user belongs to the target tenant OR has it in allowed_tenant_ids
-        let user_row = sqlx::query(
-            "SELECT id, tenant_id, allowed_tenant_ids FROM users WHERE id = $1"
-        )
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch user for tenant switch: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let user_row =
+            sqlx::query("SELECT id, tenant_id, allowed_tenant_ids FROM users WHERE id = $1")
+                .bind(auth.user_id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch user for tenant switch: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
         let user_tenant_id: Uuid = user_row.get("tenant_id");
         let allowed_ids: Option<Vec<Uuid>> = user_row.get("allowed_tenant_ids");
 
-        let has_access = user_tenant_id == tenant_id || 
-            allowed_ids.map(|ids| ids.contains(&tenant_id)).unwrap_or(false);
+        let has_access = user_tenant_id == tenant_id
+            || allowed_ids
+                .map(|ids| ids.contains(&tenant_id))
+                .unwrap_or(false);
 
         if !has_access {
-            tracing::warn!("User {} denied access to tenant {}", auth.user_id, tenant_id);
+            tracing::warn!(
+                "User {} denied access to tenant {}",
+                auth.user_id,
+                tenant_id
+            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // Get tenant info (must be active)
-    let tenant = sqlx::query_as::<_, Tenant>(
-        "SELECT * FROM tenants WHERE id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenant {}: {:?}", tenant_id, e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch tenant {}: {:?}", tenant_id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let tenant = match tenant {
         Some(t) if t.status == "active" => t,
         Some(t) => {
-            tracing::warn!("Attempted to switch to non-active tenant {} (status: {})", tenant_id, t.status);
+            tracing::warn!(
+                "Attempted to switch to non-active tenant {} (status: {})",
+                tenant_id,
+                t.status
+            );
             return Err(StatusCode::FORBIDDEN);
         }
         None => {
@@ -881,7 +922,7 @@ pub async fn switch_tenant(
         }
     };
 
-    // Get user info in the new tenant context    
+    // Get user info in the new tenant context
     let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(auth.user_id)
         .fetch_one(&state.pool)
@@ -896,7 +937,11 @@ pub async fn switch_tenant(
         use clovalink_core::cache::keys;
         let user_key = keys::user(auth.user_id);
         let _ = cache.delete(&user_key).await;
-        tracing::info!("Invalidated user cache for {} after tenant switch to {}", auth.user_id, tenant_id);
+        tracing::info!(
+            "Invalidated user cache for {} after tenant switch to {}",
+            auth.user_id,
+            tenant_id
+        );
     }
 
     let restrictions = ComplianceRestrictions::for_mode(&tenant.compliance_mode);
@@ -946,8 +991,10 @@ pub async fn test_smtp(
         input.port,
         &input.username,
         &input.password,
-        input.secure
-    ).await.map_err(|e| {
+        input.secure,
+    )
+    .await
+    .map_err(|e| {
         tracing::error!("SMTP Test Failed: {:?}", e);
         StatusCode::BAD_REQUEST
     })?;
@@ -993,13 +1040,11 @@ pub async fn suspend_tenant(
     }
 
     // Update tenant status to suspended
-    sqlx::query(
-        "UPDATE tenants SET status = 'suspended', updated_at = NOW() WHERE id = $1"
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("UPDATE tenants SET status = 'suspended', updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
     sqlx::query(
@@ -1026,7 +1071,12 @@ pub async fn suspend_tenant(
         let _ = cache.delete_pattern("clovalink:user:*").await;
     }
 
-    tracing::info!("SuperAdmin {} suspended tenant {} ({})", auth.user_id, id, tenant.name);
+    tracing::info!(
+        "SuperAdmin {} suspended tenant {} ({})",
+        auth.user_id,
+        id,
+        tenant.name
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -1061,13 +1111,11 @@ pub async fn unsuspend_tenant(
     }
 
     // Update tenant status to active
-    sqlx::query(
-        "UPDATE tenants SET status = 'active', updated_at = NOW() WHERE id = $1"
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query("UPDATE tenants SET status = 'active', updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
     sqlx::query(
@@ -1093,7 +1141,12 @@ pub async fn unsuspend_tenant(
         let _ = cache.delete_pattern("clovalink:user:*").await;
     }
 
-    tracing::info!("SuperAdmin {} unsuspended tenant {} ({})", auth.user_id, id, tenant.name);
+    tracing::info!(
+        "SuperAdmin {} unsuspended tenant {} ({})",
+        auth.user_id,
+        id,
+        tenant.name
+    );
 
     Ok(Json(json!({
         "success": true,
@@ -1132,11 +1185,12 @@ pub async fn delete_tenant(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let file_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM files_metadata WHERE tenant_id = $1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM files_metadata WHERE tenant_id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Delete in order (foreign key constraints)
     // 1. Delete file shares
@@ -1231,7 +1285,11 @@ pub async fn delete_tenant(
 
     tracing::warn!(
         "SuperAdmin {} PERMANENTLY DELETED tenant {} ({}) - {} users, {} files removed",
-        auth.user_id, id, tenant.name, user_count.0, file_count.0
+        auth.user_id,
+        id,
+        tenant.name,
+        user_count.0,
+        file_count.0
     );
 
     Ok(Json(json!({
