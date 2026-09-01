@@ -23,6 +23,7 @@ clovalink_auth = { workspace = true }
 clovalink_storage = { workspace = true }
 clovalink_extensions = { workspace = true }
 clovalink_ai = { workspace = true }
+types = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 urlencoding = { workspace = true }

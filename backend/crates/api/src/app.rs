@@ -83,17 +83,22 @@ pub async fn run() {
         build_time: "".to_string(),
         painc_exit: true,
     });
-    dotenvy::dotenv().ok();
+    let config = types::config::read_config::<types::config::Conf>("etc/config.toml")
+        .expect("Failed to read etc/config.toml");
 
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
     // Initialize Storage
-    let storage_type = std::env::var("STORAGE_TYPE").unwrap_or_else(|_| "local".to_string());
-    let encryption_key = std::env::var("ENCRYPTION_KEY").ok();
+    let storage_type = &config.storage.kind;
+    let encryption_key = config
+        .storage
+        .encryption_key
+        .as_ref()
+        .filter(|key| !key.is_empty());
 
     let storage: Arc<dyn Storage> = if storage_type == "s3" {
-        let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "clovalink-bucket".to_string());
+        let bucket = config.storage.s3_bucket.clone();
         if encryption_key.is_some() {
             tracing::info!(
                 "S3 storage uses provider-side encryption (ENCRYPTION_KEY ignored for S3)"
@@ -103,7 +108,7 @@ pub async fn run() {
     } else {
         // Local storage - optionally enable ChaCha20-Poly1305 encryption
         if let Some(ref key_base64) = encryption_key {
-            match EncryptedLocalStorage::from_base64_key("uploads", key_base64) {
+            match EncryptedLocalStorage::from_base64_key(&config.storage.local_path, key_base64) {
                 Ok(encrypted_storage) => {
                     tracing::info!("Local storage encryption ENABLED (ChaCha20-Poly1305)");
                     Arc::new(encrypted_storage)
@@ -116,18 +121,17 @@ pub async fn run() {
                     tracing::warn!(
                         "ENCRYPTION_KEY is set but invalid - files will NOT be encrypted!"
                     );
-                    Arc::new(LocalStorage::new("uploads"))
+                    Arc::new(LocalStorage::new(&config.storage.local_path))
                 }
             }
         } else {
             tracing::info!("Local storage encryption DISABLED (set ENCRYPTION_KEY to enable)");
-            Arc::new(LocalStorage::new("uploads"))
+            Arc::new(LocalStorage::new(&config.storage.local_path))
         }
     };
 
     // Initialize Redis URL
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let redis_url = config.redis.url.clone();
 
     // Initialize Redis Cache
     let cache = match Cache::new(&redis_url).await {
@@ -142,35 +146,17 @@ pub async fn run() {
     };
 
     // Extension webhook timeout
-    let extension_webhook_timeout_ms: u64 = std::env::var("EXTENSION_WEBHOOK_TIMEOUT_MS")
-        .unwrap_or_else(|_| "5000".to_string())
-        .parse()
-        .unwrap_or(5000);
+    let extension_webhook_timeout_ms = config.extensions.webhook_timeout_ms;
 
     // Initialize Database with production pool settings
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = &config.database.url;
 
     // Pool configuration from environment or defaults
-    let max_connections: u32 = std::env::var("DB_MAX_CONNECTIONS")
-        .unwrap_or_else(|_| "50".to_string())
-        .parse()
-        .unwrap_or(50);
-    let min_connections: u32 = std::env::var("DB_MIN_CONNECTIONS")
-        .unwrap_or_else(|_| "5".to_string())
-        .parse()
-        .unwrap_or(5);
-    let acquire_timeout_secs: u64 = std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
-        .unwrap_or_else(|_| "3".to_string())
-        .parse()
-        .unwrap_or(3);
-    let idle_timeout_secs: u64 = std::env::var("DB_IDLE_TIMEOUT_SECS")
-        .unwrap_or_else(|_| "600".to_string())
-        .parse()
-        .unwrap_or(600);
-    let max_lifetime_secs: u64 = std::env::var("DB_MAX_LIFETIME_SECS")
-        .unwrap_or_else(|_| "1800".to_string())
-        .parse()
-        .unwrap_or(1800);
+    let max_connections = config.database.max_connections;
+    let min_connections = config.database.min_connections;
+    let acquire_timeout_secs = config.database.acquire_timeout_secs;
+    let idle_timeout_secs = config.database.idle_timeout_secs;
+    let max_lifetime_secs = config.database.max_lifetime_secs;
 
     tracing::info!(
         "Connecting to database (max_conn: {}, min_conn: {})...",
@@ -184,7 +170,7 @@ pub async fn run() {
         .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
         .idle_timeout(Duration::from_secs(idle_timeout_secs))
         .max_lifetime(Duration::from_secs(max_lifetime_secs))
-        .connect(&database_url)
+        .connect(database_url)
         .await
         .expect("Failed to connect to database");
 
@@ -197,14 +183,9 @@ pub async fn run() {
         .expect("Failed to run migrations");
 
     // CDN / Presigned URL configuration (optional, disabled by default for backwards compatibility)
-    let use_presigned_urls = std::env::var("USE_PRESIGNED_URLS")
-        .map(|v| v == "true")
-        .unwrap_or(false);
-    let presigned_url_expiry: u64 = std::env::var("PRESIGNED_URL_EXPIRY_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3600); // Default 1 hour
-    let cdn_domain = std::env::var("CDN_DOMAIN").ok();
+    let use_presigned_urls = config.cdn.use_presigned_urls;
+    let presigned_url_expiry = config.cdn.presigned_url_expiry_secs;
+    let cdn_domain = config.cdn.domain.clone();
 
     if use_presigned_urls {
         tracing::info!(
@@ -215,11 +196,37 @@ pub async fn run() {
     }
 
     // Initialize transfer scheduler for prioritized downloads/uploads
-    let scheduler = Arc::new(TransferScheduler::new());
+    let scheduler = Arc::new(TransferScheduler::with_config(
+        middleware::TransferSchedulerConfig {
+            small_concurrent: config.transfer.small_concurrent,
+            medium_concurrent: config.transfer.medium_concurrent,
+            large_concurrent: config.transfer.large_concurrent,
+            large_bandwidth_bps: config.transfer.large_bandwidth_mbps * 1024 * 1024,
+        },
+    ));
     tracing::info!("Transfer scheduler initialized");
 
     // Load S3 replication configuration
-    let replication_config = clovalink_core::replication::ReplicationConfig::from_env();
+    let replication_config = clovalink_core::replication::ReplicationConfig {
+        enabled: config.replication.enabled,
+        endpoint: config
+            .replication
+            .endpoint
+            .clone()
+            .filter(|value| !value.is_empty()),
+        bucket: config.replication.bucket.clone(),
+        region: config.replication.region.clone(),
+        access_key: config.replication.access_key.clone(),
+        secret_key: config.replication.secret_key.clone(),
+        mode: config
+            .replication
+            .mode
+            .parse()
+            .expect("Invalid replication.mode"),
+        retry_seconds: config.replication.retry_seconds,
+        workers: config.replication.workers,
+        max_retries: config.replication.max_retries,
+    };
     if replication_config.enabled {
         if let Err(e) = replication_config.validate() {
             tracing::error!(
@@ -241,17 +248,22 @@ pub async fn run() {
     // Validate BACKUP_MASTER_KEY — required for backup at-rest encryption
     // Does NOT panic if missing — backups just won't have at-rest encryption until it's set.
     // Backup endpoints will return 503 if encryption is needed but key is missing.
-    match std::env::var("BACKUP_MASTER_KEY") {
-        Ok(k) if k.len() >= 32 => {
+    match config
+        .backup
+        .master_key
+        .as_deref()
+        .filter(|key| !key.is_empty())
+    {
+        Some(k) if k.len() >= 32 => {
             tracing::info!(
                 "BACKUP_MASTER_KEY validated ({} chars) — backup at-rest encryption enabled",
                 k.len()
             );
         }
-        Ok(k) => {
+        Some(k) => {
             tracing::error!("BACKUP_MASTER_KEY is too short ({} chars, minimum 32). Backup at-rest encryption will fail. Generate with: openssl rand -base64 48", k.len());
         }
-        Err(_) => {
+        None => {
             tracing::warn!("BACKUP_MASTER_KEY not set — backup passphrase at-rest encryption disabled. Set it to enable scheduled backups. Generate with: openssl rand -base64 48");
         }
     }
@@ -260,9 +272,7 @@ pub async fn run() {
     health::mark_server_start();
 
     // Initialize API usage tracking
-    let api_usage_enabled = std::env::var("API_USAGE_TRACKING")
-        .map(|v| v == "true")
-        .unwrap_or(true); // Enabled by default
+    let api_usage_enabled = config.api_usage.enabled;
 
     let api_usage_writer = if api_usage_enabled {
         tracing::info!("API usage tracking enabled");
@@ -273,7 +283,15 @@ pub async fn run() {
     };
 
     // Load virus scan configuration
-    let virus_scan_config = clovalink_core::virus_scan::VirusScanConfig::from_env();
+    let virus_scan_config = clovalink_core::virus_scan::VirusScanConfig {
+        enabled: config.virus_scan.enabled,
+        host: config.virus_scan.host.clone(),
+        port: config.virus_scan.port,
+        timeout_ms: config.virus_scan.timeout_ms,
+        workers: config.virus_scan.workers,
+        max_file_size_mb: config.virus_scan.max_file_size_mb,
+        max_queue_size: config.virus_scan.max_queue_size,
+    };
     if virus_scan_config.enabled {
         tracing::info!(
             "ClamAV virus scanning enabled: host={}, port={}, workers={}",
@@ -317,12 +335,7 @@ pub async fn run() {
             60, // recovery timeout - tries half-open after 60 seconds
             2,  // success threshold - closes after 2 successes in half-open
         )),
-        backup_semaphore: Arc::new(tokio::sync::Semaphore::new(
-            std::env::var("BACKUP_MAX_CONCURRENT")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(2),
-        )),
+        backup_semaphore: Arc::new(tokio::sync::Semaphore::new(config.backup.max_concurrent)),
     });
 
     // Extension state for extension routes
@@ -440,7 +453,7 @@ pub async fn run() {
     }
 
     // Configure CORS - production-safe with allowlist
-    let cors = configure_cors();
+    let cors = configure_cors(&config.cors);
 
     // Build application routes
     // Login routes with strict rate limiting (5/min per IP)
@@ -1260,14 +1273,8 @@ pub async fn run() {
     let protected_routes_with_state = protected_routes.with_state(app_state.clone());
 
     // Concurrency and timeout configuration from environment
-    let max_concurrent_requests: usize = std::env::var("MAX_CONCURRENT_REQUESTS")
-        .unwrap_or_else(|_| "1000".to_string())
-        .parse()
-        .unwrap_or(1000);
-    let request_timeout_secs: u64 = std::env::var("REQUEST_TIMEOUT_SECS")
-        .unwrap_or_else(|_| "300".to_string()) // 5 minutes default for file uploads
-        .parse()
-        .unwrap_or(300);
+    let max_concurrent_requests = config.web.max_concurrent_requests;
+    let request_timeout_secs = config.web.request_timeout_secs;
 
     tracing::info!(
         "Server configured: max_concurrent={}, request_timeout={}s",
@@ -1313,8 +1320,7 @@ pub async fn run() {
         .layer(cors);
 
     // Run server
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    let listener = tokio::net::TcpListener::bind(config.web.into_addr())
         .await
         .unwrap();
 
@@ -1338,15 +1344,12 @@ async fn root() -> &'static str {
 /// - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins (required in production)
 /// - CORS_DEV_MODE: Set to "true" to allow localhost origins (for development)
 /// - ENVIRONMENT: Set to "production" to enforce strict CORS (default behavior)
-fn configure_cors() -> tower_http::cors::CorsLayer {
+fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLayer {
     use axum::http::{header, HeaderName, Method};
     use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
-    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
-    let dev_mode = std::env::var("CORS_DEV_MODE")
-        .map(|v| v.to_lowercase() == "true")
-        .unwrap_or(false);
-    let allowed_origins_str = std::env::var("CORS_ALLOWED_ORIGINS").ok();
+    let environment = &config.environment;
+    let dev_mode = config.dev_mode;
 
     // Allowed methods - restrict to actual API methods
     let allowed_methods = AllowMethods::list([
@@ -1383,12 +1386,10 @@ fn configure_cors() -> tower_http::cors::CorsLayer {
         ];
 
         // Add any explicitly configured origins
-        if let Some(ref configured) = allowed_origins_str {
-            for origin in configured.split(',') {
-                let trimmed = origin.trim().to_string();
-                if !trimmed.is_empty() && !origins.contains(&trimmed) {
-                    origins.push(trimmed);
-                }
+        for origin in &config.allowed_origins {
+            let trimmed = origin.trim().to_string();
+            if !trimmed.is_empty() && !origins.contains(&trimmed) {
+                origins.push(trimmed);
             }
         }
 
@@ -1401,10 +1402,11 @@ fn configure_cors() -> tower_http::cors::CorsLayer {
                 false
             }
         })
-    } else if let Some(ref configured) = allowed_origins_str {
+    } else if !config.allowed_origins.is_empty() {
         // Production mode with explicit allowlist
-        let origins: Vec<String> = configured
-            .split(',')
+        let origins: Vec<String> = config
+            .allowed_origins
+            .iter()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();

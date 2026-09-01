@@ -1,0 +1,75 @@
+[web]
+port = 3000
+listen_addr = "0.0.0.0"
+max_concurrent_requests = 1000
+request_timeout_secs = 300
+base_url = "http://localhost:3000"
+
+[database]
+url = "postgres://postgres:postgres@localhost:5432/clovalink"
+max_connections = 50
+min_connections = 5
+acquire_timeout_secs = 3
+idle_timeout_secs = 600
+max_lifetime_secs = 1800
+
+[storage]
+kind = "local"
+local_path = "uploads"
+encryption_key = ""
+s3_bucket = "clovalink-bucket"
+
+[redis]
+url = "redis://localhost:6379"
+
+[extensions]
+webhook_timeout_ms = 5000
+
+[cdn]
+use_presigned_urls = false
+presigned_url_expiry_secs = 3600
+domain = ""
+
+[transfer]
+small_concurrent = 50
+medium_concurrent = 20
+large_concurrent = 5
+large_bandwidth_mbps = 50
+
+[replication]
+enabled = false
+endpoint = ""
+bucket = ""
+region = "us-east-1"
+access_key = ""
+secret_key = ""
+mode = "backup"
+retry_seconds = 60
+workers = 4
+max_retries = 5
+
+[virus_scan]
+enabled = false
+host = "localhost"
+port = 3310
+timeout_ms = 30000
+workers = 4
+max_file_size_mb = 100
+max_queue_size = 10000
+
+[backup]
+master_key = ""
+max_concurrent = 2
+
+[api_usage]
+enabled = true
+sample_rate = 1.0
+
+[cors]
+environment = "development"
+dev_mode = true
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+]

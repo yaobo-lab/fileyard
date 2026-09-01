@@ -1,0 +1,28 @@
+# debug old configs
+run_mod = ""  
+
+# 日志配置
+# 日志级别(1:error,2:warn,3:info,4:debug,5:Trace)
+log.level = 4
+#大小切割(单位M)
+log.size_mb = 5
+# 保留天数
+# keep_day = 3
+# 打印风格 Default,Line,Module,Full
+log.style = "Line"
+# 日志目录
+log.dir="./logs"
+# 是否打印到控制台
+log.console = true
+#过滤的模块
+ log.filters = ["h2","ureq","rumqttc","network","tracing","rustls","hyper","reqwest","downloader-http-rs"]
+#log.filters = ["ureq","network","tracing","hyper","reqwest"]
+
+
+# web 配置
+web.port = 8087
+web.listen_addr = "127.0.0.1"
+web.auth=false
+web.api_key = ""
+web.session_pwd_hash=""
+ 

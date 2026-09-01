@@ -147,3 +147,4 @@ clovalink_auth = { path = "crates/auth" }
 clovalink_storage = { path = "crates/storage" }
 clovalink_extensions = { path = "crates/extensions" }
 clovalink_ai = { path = "crates/ai" }
+types = { path = "crates/types" }

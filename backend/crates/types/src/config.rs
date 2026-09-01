@@ -2,22 +2,31 @@ use anyhow::anyhow;
 use config::{Config, File, Source};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use toolkit_rs::{logger::LogConfig, AppResult};
+use toolkit_rs::AppResult;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conf {
-    pub run_mod: String,
-    pub log: LogConfig,
     pub web: WebServerConf,
+    pub database: DatabaseConf,
+    pub storage: StorageConf,
+    pub redis: RedisConf,
+    pub extensions: ExtensionsConf,
+    pub cdn: CdnConf,
+    pub transfer: TransferConf,
+    pub replication: ReplicationConf,
+    pub virus_scan: VirusScanConf,
+    pub backup: BackupConf,
+    pub api_usage: ApiUsageConf,
+    pub cors: CorsConf,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebServerConf {
     pub port: u16,
     pub listen_addr: String,
-    pub api_key: String,
-    pub auth: bool,
-    pub session_pwd_hash: String,
+    pub max_concurrent_requests: usize,
+    pub request_timeout_secs: u64,
+    pub base_url: String,
 }
 
 impl WebServerConf {
@@ -28,6 +37,93 @@ impl WebServerConf {
     pub fn into_http_addr(&self) -> String {
         format!("http://{}:{}", self.listen_addr, self.port)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConf {
+    pub url: String,
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub acquire_timeout_secs: u64,
+    pub idle_timeout_secs: u64,
+    pub max_lifetime_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageConf {
+    pub kind: String,
+    pub local_path: String,
+    pub encryption_key: Option<String>,
+    pub s3_bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedisConf {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionsConf {
+    pub webhook_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CdnConf {
+    pub use_presigned_urls: bool,
+    pub presigned_url_expiry_secs: u64,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferConf {
+    pub small_concurrent: usize,
+    pub medium_concurrent: usize,
+    pub large_concurrent: usize,
+    pub large_bandwidth_mbps: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicationConf {
+    pub enabled: bool,
+    pub endpoint: Option<String>,
+    pub bucket: String,
+    pub region: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub mode: String,
+    pub retry_seconds: u64,
+    pub workers: u32,
+    pub max_retries: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VirusScanConf {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub timeout_ms: u64,
+    pub workers: u32,
+    pub max_file_size_mb: i64,
+    pub max_queue_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupConf {
+    pub master_key: Option<String>,
+    pub max_concurrent: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiUsageConf {
+    pub enabled: bool,
+    pub sample_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorsConf {
+    pub environment: String,
+    pub dev_mode: bool,
+    pub allowed_origins: Vec<String>,
 }
 
 //读取配置文件
