@@ -11,8 +11,8 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::models::AutomationJob;
-use crate::webhook::{dispatch_webhook, AutomationEventPayload};
 use crate::permissions::{require_permission, Permission};
+use crate::webhook::{dispatch_webhook, AutomationEventPayload};
 
 const REDIS_AUTOMATION_LOCK_PREFIX: &str = "clovalink:automation:lock:";
 const LOCK_TTL_SECONDS: u64 = 300; // 5 minutes
@@ -33,9 +33,9 @@ pub enum SchedulerError {
 
 /// Parse a cron expression and get the next run time
 pub fn next_run_from_cron(cron_expr: &str) -> Result<DateTime<Utc>, SchedulerError> {
-    let schedule = Schedule::from_str(cron_expr)
-        .map_err(|e| SchedulerError::InvalidCron(e.to_string()))?;
-    
+    let schedule =
+        Schedule::from_str(cron_expr).map_err(|e| SchedulerError::InvalidCron(e.to_string()))?;
+
     schedule
         .upcoming(Utc)
         .next()
@@ -44,8 +44,7 @@ pub fn next_run_from_cron(cron_expr: &str) -> Result<DateTime<Utc>, SchedulerErr
 
 /// Validate a cron expression
 pub fn validate_cron(cron_expr: &str) -> Result<(), SchedulerError> {
-    Schedule::from_str(cron_expr)
-        .map_err(|e| SchedulerError::InvalidCron(e.to_string()))?;
+    Schedule::from_str(cron_expr).map_err(|e| SchedulerError::InvalidCron(e.to_string()))?;
     Ok(())
 }
 
@@ -65,7 +64,7 @@ impl Scheduler {
     ) -> Result<Self, SchedulerError> {
         let client = redis::Client::open(redis_url)
             .map_err(|e| SchedulerError::RedisError(e.to_string()))?;
-        
+
         let redis = redis::aio::ConnectionManager::new(client)
             .await
             .map_err(|e| SchedulerError::RedisError(e.to_string()))?;
@@ -120,10 +119,15 @@ impl Scheduler {
         let now = Utc::now();
 
         // Find jobs that are due
-        let due_jobs = self.store.extension_runtime().due_jobs(now.fixed_offset(), 10)
-        .await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
-        .into_iter().map(Into::into).collect::<Vec<AutomationJob>>();
+        let due_jobs = self
+            .store
+            .extension_runtime()
+            .due_jobs(now.fixed_offset(), 10)
+            .await
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<AutomationJob>>();
 
         for job in due_jobs {
             // Try to acquire lock for this job
@@ -138,7 +142,9 @@ impl Scheduler {
                 Err(e) => {
                     tracing::error!("Failed to execute automation job {}: {:?}", job.id, e);
                     // Update job with error status
-                    let _ = self.update_job_status(&job.id, "failed", Some(&e.to_string())).await;
+                    let _ = self
+                        .update_job_status(&job.id, "failed", Some(&e.to_string()))
+                        .await;
                 }
             }
 
@@ -187,11 +193,16 @@ impl Scheduler {
         .map_err(|e| SchedulerError::ExecutionFailed(e.to_string()))?;
 
         // Get extension details
-        let extension = self.store.extension_runtime().active_extension(job.extension_id)
-        .await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
-        .map(Into::into)
-        .ok_or(SchedulerError::ExecutionFailed("Extension not found or inactive".to_string()))?;
+        let extension = self
+            .store
+            .extension_runtime()
+            .active_extension(job.extension_id)
+            .await
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+            .map(Into::into)
+            .ok_or(SchedulerError::ExecutionFailed(
+                "Extension not found or inactive".to_string(),
+            ))?;
 
         // Build payload
         let payload = AutomationEventPayload {
@@ -228,8 +239,11 @@ impl Scheduler {
         status: &str,
         error: Option<&str>,
     ) -> Result<(), SchedulerError> {
-        self.store.extension_runtime().update_job_result(*job_id, status.to_owned(), error.map(str::to_owned)).await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+        self.store
+            .extension_runtime()
+            .update_job_result(*job_id, status.to_owned(), error.map(str::to_owned))
+            .await
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
@@ -239,8 +253,11 @@ impl Scheduler {
         if let Some(cron_expr) = &job.cron_expression {
             let next_run = next_run_from_cron(cron_expr)?;
 
-            self.store.extension_runtime().schedule_job(job.id, next_run.fixed_offset()).await
-            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+            self.store
+                .extension_runtime()
+                .schedule_job(job.id, next_run.fixed_offset())
+                .await
+                .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
         }
 
         Ok(())
@@ -248,11 +265,14 @@ impl Scheduler {
 
     /// Manually trigger a job
     pub async fn trigger_job(&self, job_id: Uuid) -> Result<(), SchedulerError> {
-        let job = self.store.extension_runtime().job(job_id)
-        .await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
-        .map(Into::into)
-        .ok_or(SchedulerError::JobNotFound)?;
+        let job = self
+            .store
+            .extension_runtime()
+            .job(job_id)
+            .await
+            .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+            .map(Into::into)
+            .ok_or(SchedulerError::JobNotFound)?;
 
         self.execute_job(&job).await
     }
@@ -272,8 +292,19 @@ pub async fn create_automation_job(
 
     let next_run = next_run_from_cron(cron_expression)?;
 
-    let job = store.extension_runtime().create_job(extension_id, tenant_id, name.to_owned(), cron_expression.to_owned(), next_run.fixed_offset(), config)
-        .await.map_err(|e| SchedulerError::DatabaseError(e.to_string()))?.into();
+    let job = store
+        .extension_runtime()
+        .create_job(
+            extension_id,
+            tenant_id,
+            name.to_owned(),
+            cron_expression.to_owned(),
+            next_run.fixed_offset(),
+            config,
+        )
+        .await
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+        .into();
 
     Ok(job)
 }
@@ -284,8 +315,14 @@ pub async fn get_automation_jobs(
     extension_id: Uuid,
     tenant_id: Uuid,
 ) -> Result<Vec<AutomationJob>, SchedulerError> {
-    let jobs = store.extension_runtime().jobs(extension_id, tenant_id).await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?.into_iter().map(Into::into).collect();
+    let jobs = store
+        .extension_runtime()
+        .jobs(extension_id, tenant_id)
+        .await
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+        .into_iter()
+        .map(Into::into)
+        .collect();
 
     Ok(jobs)
 }
@@ -296,8 +333,11 @@ pub async fn set_job_enabled(
     job_id: Uuid,
     enabled: bool,
 ) -> Result<(), SchedulerError> {
-    store.extension_runtime().set_job_enabled(job_id, enabled).await
-    .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+    store
+        .extension_runtime()
+        .set_job_enabled(job_id, enabled)
+        .await
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
     Ok(())
 }
@@ -307,9 +347,11 @@ pub async fn delete_automation_job(
     store: &clovalink_entity::DataStore,
     job_id: Uuid,
 ) -> Result<(), SchedulerError> {
-    store.extension_runtime().delete_job(job_id).await
-    .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+    store
+        .extension_runtime()
+        .delete_job(job_id)
+        .await
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
     Ok(())
 }
-

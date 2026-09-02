@@ -91,9 +91,7 @@ pub enum JobType {
         older_than_days: u32,
     },
     /// Apply retention policy (delete expired files)
-    RetentionCleanup {
-        tenant_id: Uuid,
-    },
+    RetentionCleanup { tenant_id: Uuid },
     /// Bulk file operation
     BulkFileOperation {
         tenant_id: Uuid,
@@ -266,7 +264,11 @@ impl JobQueue {
     }
 
     /// Mark a job as completed
-    pub async fn complete(&self, job_id: Uuid, result: Option<serde_json::Value>) -> Result<(), QueueError> {
+    pub async fn complete(
+        &self,
+        job_id: Uuid,
+        result: Option<serde_json::Value>,
+    ) -> Result<(), QueueError> {
         let mut conn = self.conn.write().await;
 
         let job_key = format!("{}:job:{}", self.queue_name, job_id);

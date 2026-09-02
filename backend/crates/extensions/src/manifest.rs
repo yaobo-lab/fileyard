@@ -162,7 +162,11 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), ManifestErr
     }
 
     // Validate slug format (lowercase alphanumeric with hyphens)
-    if !manifest.slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !manifest
+        .slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         return Err(ManifestError::InvalidValue(
             "slug must be lowercase alphanumeric with hyphens".to_string(),
         ));
@@ -213,7 +217,8 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), ManifestErr
             let ui = manifest.ui.as_ref().unwrap();
             if ui.sidebar.is_empty() && ui.buttons.is_empty() && ui.components.is_empty() {
                 return Err(ManifestError::ValidationError(
-                    "UI extension must define at least one sidebar item, button, or component".to_string(),
+                    "UI extension must define at least one sidebar item, button, or component"
+                        .to_string(),
                 ));
             }
             // Validate load_mode
@@ -229,9 +234,13 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), ManifestErr
                     "webhook URL required for file processor extensions".to_string(),
                 ));
             }
-            if !manifest.permissions.contains(&"file_processor:run".to_string()) {
+            if !manifest
+                .permissions
+                .contains(&"file_processor:run".to_string())
+            {
                 return Err(ManifestError::ValidationError(
-                    "file_processor extensions must request 'file_processor:run' permission".to_string(),
+                    "file_processor extensions must request 'file_processor:run' permission"
+                        .to_string(),
                 ));
             }
         }
@@ -295,4 +304,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

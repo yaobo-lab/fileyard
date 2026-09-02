@@ -1,6 +1,10 @@
 use sea_orm::DatabaseConnection;
 
-use crate::repositories::{AiRepository, AuthRepository, DepartmentRepository, ExtensionPermissionRepository, ExtensionRuntimeRepository};
+use crate::repositories::{
+    AiRepository, AuthRepository, DepartmentRepository, ExtensionPermissionRepository,
+    ExtensionRuntimeRepository, FileRepository, NotificationRepository,
+    ReplicationRepository,
+};
 
 /// The only database capability exposed to application crates.
 ///
@@ -36,4 +40,15 @@ impl DataStore {
         ExtensionRuntimeRepository::new(&self.db)
     }
 
+    pub fn replication(&self) -> ReplicationRepository<'_> {
+        ReplicationRepository::new(&self.db)
+    }
+
+    pub fn files(&self) -> FileRepository<'_> {
+        FileRepository::new(&self.db)
+    }
+
+    pub fn notifications(&self) -> NotificationRepository<'_> {
+        NotificationRepository::new(&self.db)
+    }
 }

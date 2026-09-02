@@ -90,7 +90,10 @@ pub async fn check_permission(
     installation_id: Uuid,
     permission: Permission,
 ) -> Result<bool, PermissionError> {
-    store.extension_permissions().has(installation_id, permission.as_str()).await
+    store
+        .extension_permissions()
+        .has(installation_id, permission.as_str())
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
@@ -101,7 +104,10 @@ pub async fn check_extension_permission(
     tenant_id: Uuid,
     permission: Permission,
 ) -> Result<bool, PermissionError> {
-    store.extension_permissions().has_for_tenant(extension_id, tenant_id, permission.as_str()).await
+    store
+        .extension_permissions()
+        .has_for_tenant(extension_id, tenant_id, permission.as_str())
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
@@ -113,9 +119,11 @@ pub async fn require_permission(
     permission: Permission,
 ) -> Result<(), PermissionError> {
     // First check if extension is installed and enabled
-    let installation = store.extension_permissions().installation(extension_id, tenant_id)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
+    let installation = store
+        .extension_permissions()
+        .installation(extension_id, tenant_id)
+        .await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
 
     let installation = installation.ok_or(PermissionError::NotInstalled)?;
 
@@ -141,7 +149,10 @@ pub async fn get_installation_permissions(
     store: &DataStore,
     installation_id: Uuid,
 ) -> Result<Vec<String>, PermissionError> {
-    store.extension_permissions().list(installation_id).await
+    store
+        .extension_permissions()
+        .list(installation_id)
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
@@ -159,9 +170,11 @@ pub async fn grant_permissions(
                 perm
             )));
         }
-
     }
-    store.extension_permissions().grant(installation_id, permissions).await
+    store
+        .extension_permissions()
+        .grant(installation_id, permissions)
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
@@ -171,7 +184,10 @@ pub async fn revoke_permission(
     installation_id: Uuid,
     permission: Permission,
 ) -> Result<(), PermissionError> {
-    store.extension_permissions().revoke(installation_id, permission.as_str()).await
+    store
+        .extension_permissions()
+        .revoke(installation_id, permission.as_str())
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
@@ -180,7 +196,9 @@ pub async fn revoke_all_permissions(
     store: &DataStore,
     installation_id: Uuid,
 ) -> Result<(), PermissionError> {
-    store.extension_permissions().revoke_all(installation_id).await
+    store
+        .extension_permissions()
+        .revoke_all(installation_id)
+        .await
         .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
-

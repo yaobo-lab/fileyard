@@ -379,7 +379,7 @@ pub async fn get_replication_status(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let status = clovalink_core::replication::get_status(&state.pool, &state.replication_config)
+    let status = clovalink_core::replication::get_status(&state.store, &state.replication_config)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get replication status: {:?}", e);
@@ -415,7 +415,7 @@ pub async fn get_replication_jobs(
     let status_filter = query.status.as_deref();
 
     let jobs =
-        clovalink_core::replication::get_pending_jobs(&state.pool, status_filter, limit, offset)
+        clovalink_core::replication::get_pending_jobs(&state.store, status_filter, limit, offset)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get replication jobs: {:?}", e);
@@ -441,7 +441,7 @@ pub async fn retry_failed_jobs(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let count = clovalink_core::replication::retry_failed_jobs(&state.pool)
+    let count = clovalink_core::replication::retry_failed_jobs(&state.store)
         .await
         .map_err(|e| {
             tracing::error!("Failed to retry failed jobs: {:?}", e);

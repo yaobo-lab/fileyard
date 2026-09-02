@@ -1,7 +1,7 @@
 //! Extension data models
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Extension type enum
@@ -80,16 +80,27 @@ pub struct Extension {
 
 impl From<clovalink_entity::entities::extensions::Model> for Extension {
     fn from(value: clovalink_entity::entities::extensions::Model) -> Self {
-        Self { id: value.id, tenant_id: value.tenant_id, name: value.name, slug: value.slug,
-            description: value.description, extension_type: value.extension_type, manifest_url: value.manifest_url,
-            webhook_url: value.webhook_url, public_key: value.public_key, signature_algorithm: value.signature_algorithm,
-            status: value.status, allowed_tenant_ids: value.allowed_tenant_ids,
-            created_at: value.created_at.with_timezone(&Utc), updated_at: value.updated_at.with_timezone(&Utc) }
+        Self {
+            id: value.id,
+            tenant_id: value.tenant_id,
+            name: value.name,
+            slug: value.slug,
+            description: value.description,
+            extension_type: value.extension_type,
+            manifest_url: value.manifest_url,
+            webhook_url: value.webhook_url,
+            public_key: value.public_key,
+            signature_algorithm: value.signature_algorithm,
+            status: value.status,
+            allowed_tenant_ids: value.allowed_tenant_ids,
+            created_at: value.created_at.with_timezone(&Utc),
+            updated_at: value.updated_at.with_timezone(&Utc),
+        }
     }
 }
 
 /// Extension version record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionVersion {
     pub id: Uuid,
     pub extension_id: Uuid,
@@ -101,7 +112,7 @@ pub struct ExtensionVersion {
 }
 
 /// Extension installation record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionInstallation {
     pub id: Uuid,
     pub extension_id: Uuid,
@@ -114,7 +125,7 @@ pub struct ExtensionInstallation {
 }
 
 /// Extension permission record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionPermission {
     pub id: Uuid,
     pub installation_id: Uuid,
@@ -123,7 +134,7 @@ pub struct ExtensionPermission {
 }
 
 /// Extension event trigger record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionEventTrigger {
     pub id: Uuid,
     pub extension_id: Uuid,
@@ -152,16 +163,26 @@ pub struct AutomationJob {
 
 impl From<clovalink_entity::entities::automation_jobs::Model> for AutomationJob {
     fn from(value: clovalink_entity::entities::automation_jobs::Model) -> Self {
-        Self { id:value.id, extension_id:value.extension_id, tenant_id:value.tenant_id, name:value.name,
-            cron_expression:value.cron_expression, next_run_at:value.next_run_at.with_timezone(&Utc),
-            last_run_at:value.last_run_at.map(|v|v.with_timezone(&Utc)), last_status:value.last_status,
-            last_error:value.last_error, enabled:value.enabled, config:value.config,
-            created_at:value.created_at.with_timezone(&Utc), updated_at:value.updated_at.with_timezone(&Utc) }
+        Self {
+            id: value.id,
+            extension_id: value.extension_id,
+            tenant_id: value.tenant_id,
+            name: value.name,
+            cron_expression: value.cron_expression,
+            next_run_at: value.next_run_at.with_timezone(&Utc),
+            last_run_at: value.last_run_at.map(|v| v.with_timezone(&Utc)),
+            last_status: value.last_status,
+            last_error: value.last_error,
+            enabled: value.enabled,
+            config: value.config,
+            created_at: value.created_at.with_timezone(&Utc),
+            updated_at: value.updated_at.with_timezone(&Utc),
+        }
     }
 }
 
 /// Webhook log record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionWebhookLog {
     pub id: Uuid,
     pub extension_id: Uuid,
@@ -295,4 +316,3 @@ pub struct UIComponent {
     pub entrypoint: String,
     pub load_mode: String,
 }
-

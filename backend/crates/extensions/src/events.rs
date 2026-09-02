@@ -132,13 +132,18 @@ async fn get_file_processor_extensions(
     store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
 ) -> Result<Vec<Extension>, clovalink_entity::DataError> {
-    Ok(store.extension_runtime().active_file_processors(tenant_id).await?
-        .into_iter().map(Into::into).collect())
+    Ok(store
+        .extension_runtime()
+        .active_file_processors(tenant_id)
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect())
 }
 
 /// Check if a file should be processed based on extension's filter config
 async fn should_process_file(_extension: &Extension, _event: &FileEvent) -> bool {
-    // For now, process all files. 
+    // For now, process all files.
     // In the future, check extension_event_triggers table for file type filters
     true
 }
@@ -150,7 +155,7 @@ async fn check_rate_limit(
     limit_per_minute: u32,
 ) -> bool {
     let key = format!("clovalink:ratelimit:ext:{}", extension_id);
-    
+
     let mut conn = match redis_client.get_multiplexed_async_connection().await {
         Ok(conn) => conn,
         Err(e) => {
@@ -245,4 +250,3 @@ pub async fn dispatch_file_deleted_event(
         });
     }
 }
-

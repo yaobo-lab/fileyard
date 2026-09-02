@@ -357,7 +357,6 @@ pub async fn run() {
     // Extension state for extension routes
     let extension_state = Arc::new(ExtensionState {
         store: app_state.store.clone(),
-        pool: pool.clone(),
         redis_url: redis_url.clone(),
         webhook_timeout_ms: extension_webhook_timeout_ms,
     });
@@ -408,7 +407,7 @@ pub async fn run() {
         log::info!("Starting {} replication workers...", worker_count);
 
         for worker_id in 0..worker_count {
-            let worker_pool = pool.clone();
+            let worker_store = app_state.store.clone();
             let worker_config = replication_config.clone();
             let worker_storage = storage.clone();
 
@@ -417,7 +416,7 @@ pub async fn run() {
                 let storage_reader = Arc::new(PrimaryStorageAdapter(worker_storage));
 
                 match clovalink_core::replication::ReplicationWorker::new(
-                    worker_pool,
+                    worker_store,
                     worker_config,
                     storage_reader,
                     worker_id,

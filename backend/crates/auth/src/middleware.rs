@@ -1,12 +1,12 @@
+use crate::jwt::verify_token;
 use axum::{
     extract::{Request, State},
     http::{header, StatusCode},
     middleware::Next,
     response::Response,
 };
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
-use crate::jwt::verify_token;
 
 /// Authenticated user context that gets inserted into request extensions
 #[derive(Debug, Clone)]
@@ -26,16 +26,18 @@ pub struct AuthDatabaseState {
 /// Generate session fingerprint from request headers
 /// Combines: User-Agent + Accept-Language + partial IP (first 3 octets)
 fn generate_fingerprint(req: &Request, ip: Option<&str>) -> String {
-    let user_agent = req.headers()
+    let user_agent = req
+        .headers()
         .get(header::USER_AGENT)
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
-    
-    let accept_language = req.headers()
+
+    let accept_language = req
+        .headers()
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
-    
+
     // Extract first 3 octets of IP (for privacy)
     let partial_ip = ip
         .map(|ip_str| {
@@ -48,9 +50,9 @@ fn generate_fingerprint(req: &Request, ip: Option<&str>) -> String {
             }
         })
         .unwrap_or_else(|| "unknown".to_string());
-    
+
     let fingerprint_data = format!("{}|{}|{}", user_agent, accept_language, partial_ip);
-    
+
     let mut hasher = Sha256::new();
     hasher.update(fingerprint_data.as_bytes());
     hex::encode(hasher.finalize())
@@ -61,7 +63,8 @@ fn generate_fingerprint(req: &Request, ip: Option<&str>) -> String {
 fn extract_client_ip(req: &Request) -> Option<String> {
     // Try X-Forwarded-For header first (common when behind proxy/load balancer)
     // Format: "client, proxy1, proxy2" - we want the first (original client) IP
-    if let Some(forwarded_for) = req.headers()
+    if let Some(forwarded_for) = req
+        .headers()
         .get("x-forwarded-for")
         .and_then(|h| h.to_str().ok())
     {
@@ -72,31 +75,31 @@ fn extract_client_ip(req: &Request) -> Option<String> {
             }
         }
     }
-    
+
     // Try X-Real-IP header (alternative)
-    if let Some(real_ip) = req.headers()
-        .get("x-real-ip")
-        .and_then(|h| h.to_str().ok())
-    {
+    if let Some(real_ip) = req.headers().get("x-real-ip").and_then(|h| h.to_str().ok()) {
         let ip = real_ip.trim();
         if !ip.is_empty() {
             return Some(ip.to_string());
         }
     }
-    
+
     // Fallback: try to get from connection info extension (direct connection)
     // This requires axum's ConnectInfo extractor to be configured
-    if let Some(connect_info) = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>() {
+    if let Some(connect_info) = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    {
         return Some(connect_info.0.ip().to_string());
     }
-    
+
     None
 }
 
 /// Check if an IP address matches any entry in a list (supports CIDR notation)
 fn ip_matches_any(ip: &str, list: &[String]) -> bool {
     use std::net::IpAddr;
-    
+
     // Parse the client IP
     let client_ip: IpAddr = match ip.parse() {
         Ok(ip) => ip,
@@ -116,12 +119,12 @@ fn ip_matches_any(ip: &str, list: &[String]) -> bool {
             if parts.len() != 2 {
                 continue;
             }
-            
+
             let network_ip: IpAddr = match parts[0].parse() {
                 Ok(ip) => ip,
                 Err(_) => continue,
             };
-            
+
             let prefix_len: u8 = match parts[1].parse() {
                 Ok(p) => p,
                 Err(_) => continue,
@@ -133,7 +136,11 @@ fn ip_matches_any(ip: &str, list: &[String]) -> bool {
                     if prefix_len > 32 {
                         continue;
                     }
-                    let mask = if prefix_len == 0 { 0 } else { !0u32 << (32 - prefix_len) };
+                    let mask = if prefix_len == 0 {
+                        0
+                    } else {
+                        !0u32 << (32 - prefix_len)
+                    };
                     let client_bits = u32::from(client);
                     let network_bits = u32::from(network);
                     if (client_bits & mask) == (network_bits & mask) {
@@ -146,7 +153,11 @@ fn ip_matches_any(ip: &str, list: &[String]) -> bool {
                     }
                     let client_bits = u128::from(client);
                     let network_bits = u128::from(network);
-                    let mask = if prefix_len == 0 { 0 } else { !0u128 << (128 - prefix_len) };
+                    let mask = if prefix_len == 0 {
+                        0
+                    } else {
+                        !0u128 << (128 - prefix_len)
+                    };
                     if (client_bits & mask) == (network_bits & mask) {
                         return true;
                     }
@@ -164,14 +175,14 @@ fn ip_matches_any(ip: &str, list: &[String]) -> bool {
             }
         }
     }
-    
+
     false
 }
 
 /// Authentication middleware with database validation
 /// Validates JWT token, checks user status (not suspended), and extracts user context
-/// 
-/// SECURITY: 
+///
+/// SECURITY:
 /// - Only accepts tokens from Authorization header (not URL params)
 /// - Checks database to ensure user is not suspended
 /// - Suspended users are immediately denied access even with valid JWT
@@ -181,13 +192,19 @@ pub async fn auth_middleware_with_db(
     next: Next,
 ) -> Result<Response, StatusCode> {
     // SECURITY: Only accept tokens from Authorization header, NOT from URL query params
-    let token = req.headers()
+    let token = req
+        .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .ok_or_else(|| {
             // Check if they tried to use token in URL and give helpful error
-            if req.uri().query().map(|q| q.contains("token=")).unwrap_or(false) {
+            if req
+                .uri()
+                .query()
+                .map(|q| q.contains("token="))
+                .unwrap_or(false)
+            {
                 tracing::warn!(
                     "Rejected token-in-URL authentication attempt for path: {}",
                     req.uri().path()
@@ -203,19 +220,15 @@ pub async fn auth_middleware_with_db(
     })?;
 
     // Parse UUIDs from string claims
-    let user_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let tenant_id = Uuid::parse_str(&claims.tenant_id)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let tenant_id = Uuid::parse_str(&claims.tenant_id).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // Extract client IP address early for security alerts
     let ip_address = extract_client_ip(&req);
 
     // SECURITY: Check if user is suspended or inactive in database
     // This ensures suspended users are kicked out immediately, not just on next login
-    let user_status = state.store.auth().user_status(user_id)
-    .await
-    .map_err(|e| {
+    let user_status = state.store.auth().user_status(user_id).await.map_err(|e| {
         tracing::error!("Database error checking user status: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -231,9 +244,17 @@ pub async fn auth_middleware_with_db(
             if user.suspended {
                 tracing::warn!("Rejected request from suspended user: {}", user_id);
                 // Create security alert for suspended user access attempt
-                let _ = state.store.auth().record_suspended_access_attempt(
-                    tenant_id, user_id, &user.email, req.uri().path(), ip_address.as_deref()
-                ).await;
+                let _ = state
+                    .store
+                    .auth()
+                    .record_suspended_access_attempt(
+                        tenant_id,
+                        user_id,
+                        &user.email,
+                        req.uri().path(),
+                        ip_address.as_deref(),
+                    )
+                    .await;
                 return Err(StatusCode::UNAUTHORIZED);
             }
         }
@@ -247,23 +268,29 @@ pub async fn auth_middleware_with_db(
     // SECURITY: Check if the session has been revoked
     // Hash the token to look up the session in the database
     let token_hash = {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
     };
 
-    let session_status = state.store.auth().session_is_revoked(&token_hash, user_id)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error checking session status: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let session_status = state
+        .store
+        .auth()
+        .session_is_revoked(&token_hash, user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking session status: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     match session_status {
         Some(true) => {
             // Session has been revoked
-            tracing::warn!("Rejected request from revoked session for user: {}", user_id);
+            tracing::warn!(
+                "Rejected request from revoked session for user: {}",
+                user_id
+            );
             return Err(StatusCode::UNAUTHORIZED);
         }
         None => {
@@ -282,7 +309,7 @@ pub async fn auth_middleware_with_db(
     if let Some(ref expected_fingerprint) = claims.fingerprint {
         let current_fingerprint = generate_fingerprint(&req, ip_address.as_deref());
         if &current_fingerprint != expected_fingerprint {
-            // Log at debug level to avoid log spam - fingerprint can vary due to 
+            // Log at debug level to avoid log spam - fingerprint can vary due to
             // browser updates, extension changes, or network changes
             tracing::debug!(
                 "Fingerprint mismatch for user {}: expected {}, got {}",
@@ -290,13 +317,13 @@ pub async fn auth_middleware_with_db(
                 &expected_fingerprint[..8], // Log only first 8 chars for privacy
                 &current_fingerprint[..8]
             );
-            
+
             // Note: We intentionally don't create security alerts for every fingerprint mismatch
             // because legitimate causes include:
             // - Browser updates changing User-Agent
             // - Network changes (mobile -> wifi)
             // - VPN connections changing apparent IP
-            // 
+            //
             // Instead, we rely on other signals (failed logins, unusual activity patterns)
             // for security alerting. The fingerprint is stored for forensic analysis if needed.
         }
@@ -304,12 +331,15 @@ pub async fn auth_middleware_with_db(
 
     // SECURITY: Check IP restrictions for tenant
     if let Some(ref client_ip) = ip_address {
-        let ip_restrictions = state.store.auth().tenant_ip_restrictions(tenant_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error checking IP restrictions: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let ip_restrictions = state
+            .store
+            .auth()
+            .tenant_ip_restrictions(tenant_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error checking IP restrictions: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         if let Some(tenant) = ip_restrictions {
             let mode = tenant.mode;
@@ -326,7 +356,8 @@ pub async fn auth_middleware_with_db(
                 }
                 "both" => {
                     // Must be in allowlist AND not in blocklist
-                    let in_allowlist = allowlist.is_empty() || ip_matches_any(client_ip, &allowlist);
+                    let in_allowlist =
+                        allowlist.is_empty() || ip_matches_any(client_ip, &allowlist);
                     let in_blocklist = ip_matches_any(client_ip, &blocklist);
                     !in_allowlist || in_blocklist
                 }
@@ -336,7 +367,9 @@ pub async fn auth_middleware_with_db(
             if is_blocked {
                 tracing::warn!(
                     "IP {} blocked by tenant {} restrictions (mode: {})",
-                    client_ip, tenant_id, mode
+                    client_ip,
+                    tenant_id,
+                    mode
                 );
                 return Err(StatusCode::FORBIDDEN);
             }
@@ -353,32 +386,35 @@ pub async fn auth_middleware_with_db(
     };
 
     req.extensions_mut().insert(auth_user.clone());
-    
+
     // Run the request
     let mut response = next.run(req).await;
-    
+
     // Also add AuthUser to response extensions for outer middleware (like API usage tracking)
     response.extensions_mut().insert(auth_user);
-    
+
     Ok(response)
 }
 
 /// Legacy authentication middleware (JWT only, no DB check)
 /// Use auth_middleware_with_db instead for full security
-/// 
+///
 /// SECURITY: Only accepts tokens from Authorization header.
 /// Token-in-URL (?token=...) is NOT supported as it's a security risk.
-pub async fn auth_middleware(
-    mut req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
+pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, StatusCode> {
     // SECURITY: Only accept tokens from Authorization header, NOT from URL query params
-    let token = req.headers()
+    let token = req
+        .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .ok_or_else(|| {
-            if req.uri().query().map(|q| q.contains("token=")).unwrap_or(false) {
+            if req
+                .uri()
+                .query()
+                .map(|q| q.contains("token="))
+                .unwrap_or(false)
+            {
                 tracing::warn!(
                     "Rejected token-in-URL authentication attempt for path: {}",
                     req.uri().path()
@@ -392,10 +428,8 @@ pub async fn auth_middleware(
         StatusCode::UNAUTHORIZED
     })?;
 
-    let user_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let tenant_id = Uuid::parse_str(&claims.tenant_id)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let tenant_id = Uuid::parse_str(&claims.tenant_id).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // Extract client IP address
     let ip_address = extract_client_ip(&req);
@@ -409,43 +443,40 @@ pub async fn auth_middleware(
     };
 
     req.extensions_mut().insert(auth_user.clone());
-    
+
     // Run the request
     let mut response = next.run(req).await;
-    
+
     // Also add AuthUser to response extensions for outer middleware
     response.extensions_mut().insert(auth_user);
-    
+
     Ok(response)
 }
 
-
 /// Optional authentication middleware
 /// Similar to auth_middleware but doesn't fail if no token is present
-/// 
+///
 /// SECURITY: Only accepts tokens from Authorization header (same as auth_middleware)
-pub async fn optional_auth_middleware(
-    mut req: Request,
-    next: Next,
-) -> Response {
+pub async fn optional_auth_middleware(mut req: Request, next: Next) -> Response {
     // SECURITY: Only accept tokens from Authorization header
-    let token = req.headers()
+    let token = req
+        .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string());
 
     let mut auth_user_for_response: Option<AuthUser> = None;
-    
+
     if let Some(token) = token {
         if let Ok(claims) = verify_token(&token) {
-             if let (Ok(user_id), Ok(tenant_id)) = (
+            if let (Ok(user_id), Ok(tenant_id)) = (
                 Uuid::parse_str(&claims.sub),
-                Uuid::parse_str(&claims.tenant_id)
+                Uuid::parse_str(&claims.tenant_id),
             ) {
                 // Extract client IP address
                 let ip_address = extract_client_ip(&req);
-                
+
                 let auth_user = AuthUser {
                     user_id,
                     tenant_id,
@@ -458,14 +489,14 @@ pub async fn optional_auth_middleware(
             }
         }
     }
-    
+
     let mut response = next.run(req).await;
-    
+
     // Also add AuthUser to response extensions for outer middleware
     if let Some(auth_user) = auth_user_for_response {
         response.extensions_mut().insert(auth_user);
     }
-    
+
     response
 }
 
@@ -500,5 +531,3 @@ pub fn require_manager(auth_user: &AuthUser) -> Result<(), StatusCode> {
         Err(StatusCode::FORBIDDEN)
     }
 }
-
-

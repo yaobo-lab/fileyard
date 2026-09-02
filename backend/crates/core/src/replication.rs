@@ -13,9 +13,7 @@ use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -29,7 +27,7 @@ pub enum ReplicationError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    DatabaseError(#[from] clovalink_entity::DataError),
     #[error("S3 error: {0}")]
     S3Error(String),
     #[error("Source file not found: {0}")]
@@ -127,8 +125,7 @@ impl ReplicationConfig {
 }
 
 /// Replication job status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "VARCHAR", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobStatus {
     Pending,
     Processing,
@@ -154,22 +151,7 @@ impl std::fmt::Display for JobOperation {
 }
 
 /// A replication job record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct ReplicationJob {
-    pub id: Uuid,
-    pub storage_path: String,
-    pub tenant_id: Uuid,
-    pub operation: String,
-    pub status: String,
-    pub retry_count: i32,
-    pub max_retries: i32,
-    pub next_retry_at: Option<DateTime<Utc>>,
-    pub error_message: Option<String>,
-    pub source_size_bytes: Option<i64>,
-    pub created_at: DateTime<Utc>,
-    pub started_at: Option<DateTime<Utc>>,
-    pub completed_at: Option<DateTime<Utc>>,
-}
+pub type ReplicationJob = clovalink_entity::entities::replication_jobs::Model;
 
 /// S3 client for replication to secondary bucket
 pub struct ReplicationClient {
@@ -273,13 +255,13 @@ impl ReplicationClient {
 /// Enqueue a replication job for an uploaded file.
 /// This is fire-and-forget - errors are logged but never propagate to callers.
 pub async fn enqueue_upload(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
     size_bytes: Option<i64>,
 ) -> Result<Uuid, ReplicationError> {
     enqueue_job(
-        pool,
+        store,
         storage_path,
         tenant_id,
         JobOperation::Upload,
@@ -291,42 +273,26 @@ pub async fn enqueue_upload(
 /// Enqueue a delete replication job (for mirror mode).
 /// This is fire-and-forget - errors are logged but never propagate to callers.
 pub async fn enqueue_delete(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
 ) -> Result<Uuid, ReplicationError> {
-    enqueue_job(pool, storage_path, tenant_id, JobOperation::Delete, None).await
+    enqueue_job(store, storage_path, tenant_id, JobOperation::Delete, None).await
 }
 
 /// Internal function to enqueue any replication job
 async fn enqueue_job(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
     operation: JobOperation,
     size_bytes: Option<i64>,
 ) -> Result<Uuid, ReplicationError> {
-    let job_id = Uuid::new_v4();
     let operation_str = operation.to_string();
-
-    // Use INSERT ... ON CONFLICT to handle duplicate pending jobs gracefully
-    let result = sqlx::query_scalar::<_, Uuid>(
-        r#"
-        INSERT INTO replication_jobs (id, storage_path, tenant_id, operation, source_size_bytes)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (storage_path, operation) WHERE status IN ('pending', 'processing')
-        DO UPDATE SET 
-            next_retry_at = NOW()
-        RETURNING id
-        "#,
-    )
-    .bind(job_id)
-    .bind(storage_path)
-    .bind(tenant_id)
-    .bind(&operation_str)
-    .bind(size_bytes)
-    .fetch_one(pool)
-    .await?;
+    let result = store
+        .replication()
+        .enqueue(storage_path, tenant_id, &operation_str, size_bytes)
+        .await?;
 
     debug!(
         target: "replication",
@@ -340,83 +306,24 @@ async fn enqueue_job(
 }
 
 /// Fetch the next pending job that's ready for processing
-pub async fn fetch_next_job(pool: &PgPool) -> Result<Option<ReplicationJob>, ReplicationError> {
-    let job = sqlx::query_as::<_, ReplicationJob>(
-        r#"
-        UPDATE replication_jobs
-        SET status = 'processing', started_at = NOW()
-        WHERE id = (
-            SELECT id FROM replication_jobs
-            WHERE status = 'pending' AND next_retry_at <= NOW()
-            ORDER BY created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING 
-            id, storage_path, tenant_id, operation, status,
-            retry_count, max_retries, next_retry_at, error_message,
-            source_size_bytes, created_at, started_at, completed_at
-        "#,
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(job)
+pub async fn fetch_next_job(store: &clovalink_entity::DataStore) -> Result<Option<ReplicationJob>, ReplicationError> {
+    Ok(store.replication().fetch_next().await?)
 }
 
 /// Mark a job as completed
-pub async fn complete_job(pool: &PgPool, job_id: Uuid) -> Result<(), ReplicationError> {
-    sqlx::query(
-        r#"
-        UPDATE replication_jobs
-        SET status = 'completed', completed_at = NOW(), error_message = NULL
-        WHERE id = $1
-        "#,
-    )
-    .bind(job_id)
-    .execute(pool)
-    .await?;
-
+pub async fn complete_job(store: &clovalink_entity::DataStore, job_id: Uuid) -> Result<(), ReplicationError> {
+    store.replication().complete(job_id).await?;
     Ok(())
 }
 
 /// Mark a job as failed, scheduling retry if attempts remain
 pub async fn fail_job(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     job_id: Uuid,
     error: &str,
     retry_seconds: u64,
 ) -> Result<bool, ReplicationError> {
-    // Calculate exponential backoff: base * 2^retry_count
-    let result = sqlx::query_scalar::<_, bool>(
-        r#"
-        UPDATE replication_jobs
-        SET 
-            retry_count = retry_count + 1,
-            error_message = $2,
-            status = CASE 
-                WHEN retry_count + 1 >= max_retries THEN 'failed'
-                ELSE 'pending'
-            END,
-            next_retry_at = CASE
-                WHEN retry_count + 1 >= max_retries THEN NULL
-                ELSE NOW() + (($3 * POWER(2, retry_count)) || ' seconds')::INTERVAL
-            END,
-            completed_at = CASE
-                WHEN retry_count + 1 >= max_retries THEN NOW()
-                ELSE NULL
-            END
-        WHERE id = $1
-        RETURNING (status = 'failed')
-        "#,
-    )
-    .bind(job_id)
-    .bind(error)
-    .bind(retry_seconds as i64)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(result)
+    Ok(store.replication().fail(job_id, error, retry_seconds).await?)
 }
 
 // =============================================================================
@@ -425,7 +332,7 @@ pub async fn fail_job(
 
 /// Replication worker that processes jobs in the background
 pub struct ReplicationWorker {
-    pool: PgPool,
+    store: clovalink_entity::DataStore,
     config: ReplicationConfig,
     replication_client: Option<Arc<ReplicationClient>>,
     primary_storage: Arc<dyn PrimaryStorageReader>,
@@ -444,7 +351,7 @@ pub trait PrimaryStorageReader: Send + Sync {
 impl ReplicationWorker {
     /// Create a new replication worker
     pub async fn new(
-        pool: PgPool,
+        store: clovalink_entity::DataStore,
         config: ReplicationConfig,
         primary_storage: Arc<dyn PrimaryStorageReader>,
         worker_id: u32,
@@ -456,7 +363,7 @@ impl ReplicationWorker {
         };
 
         Ok(Self {
-            pool,
+            store,
             config,
             replication_client,
             primary_storage,
@@ -508,7 +415,7 @@ impl ReplicationWorker {
 
     /// Process the next available job
     async fn process_next_job(&self) -> Result<bool, ReplicationError> {
-        let job = match fetch_next_job(&self.pool).await? {
+        let job = match fetch_next_job(&self.store).await? {
             Some(job) => job,
             None => return Ok(false),
         };
@@ -519,7 +426,7 @@ impl ReplicationWorker {
             job_id = %job.id,
             storage_path = %job.storage_path,
             operation = %job.operation,
-            retry_count = job.retry_count,
+            retry_count = job.retry_count.unwrap_or(0),
             "Processing replication job"
         );
 
@@ -539,7 +446,7 @@ impl ReplicationWorker {
 
         match result {
             Ok(()) => {
-                complete_job(&self.pool, job.id).await?;
+                complete_job(&self.store, job.id).await?;
                 info!(
                     target: "replication",
                     worker_id = self.worker_id,
@@ -550,7 +457,7 @@ impl ReplicationWorker {
             }
             Err(e) => {
                 let is_permanent = fail_job(
-                    &self.pool,
+                    &self.store,
                     job.id,
                     &e.to_string(),
                     self.config.retry_seconds,
@@ -573,7 +480,7 @@ impl ReplicationWorker {
                         job_id = %job.id,
                         storage_path = %job.storage_path,
                         error = %e,
-                        retry_count = job.retry_count + 1,
+                        retry_count = job.retry_count.unwrap_or(0) + 1,
                         "Replication job failed, will retry"
                     );
                 }
@@ -645,22 +552,10 @@ pub struct ReplicationStatus {
 
 /// Get replication status for admin dashboard
 pub async fn get_status(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     config: &ReplicationConfig,
 ) -> Result<ReplicationStatus, ReplicationError> {
-    let stats: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
-        r#"
-        SELECT
-            COUNT(*) FILTER (WHERE status = 'pending'),
-            COUNT(*) FILTER (WHERE status = 'processing'),
-            COUNT(*) FILTER (WHERE status = 'failed'),
-            COUNT(*) FILTER (WHERE status = 'completed' AND completed_at > NOW() - INTERVAL '1 hour'),
-            EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending')))::BIGINT
-        FROM replication_jobs
-        "#
-    )
-    .fetch_one(pool)
-    .await?;
+    let stats = store.replication().stats().await?;
 
     Ok(ReplicationStatus {
         enabled: config.enabled,
@@ -670,59 +565,27 @@ pub async fn get_status(
         } else {
             String::new()
         },
-        pending_jobs: stats.0.unwrap_or(0),
-        processing_jobs: stats.1.unwrap_or(0),
-        failed_jobs: stats.2.unwrap_or(0),
-        completed_last_hour: stats.3.unwrap_or(0),
-        oldest_pending_age_seconds: stats.4,
+        pending_jobs: stats.pending_jobs,
+        processing_jobs: stats.processing_jobs,
+        failed_jobs: stats.failed_jobs,
+        completed_last_hour: stats.completed_last_hour,
+        oldest_pending_age_seconds: stats.oldest_pending_age_seconds,
     })
 }
 
 /// Get pending/failed jobs for admin review
 pub async fn get_pending_jobs(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     status_filter: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ReplicationJob>, ReplicationError> {
     let status = status_filter.unwrap_or("pending");
 
-    let jobs = sqlx::query_as::<_, ReplicationJob>(
-        r#"
-        SELECT 
-            id, storage_path, tenant_id, operation, status,
-            retry_count, max_retries, next_retry_at, error_message,
-            source_size_bytes, created_at, started_at, completed_at
-        FROM replication_jobs
-        WHERE status = $1
-        ORDER BY created_at ASC
-        LIMIT $2 OFFSET $3
-        "#,
-    )
-    .bind(status)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(jobs)
+    Ok(store.replication().jobs(status, limit, offset).await?)
 }
 
 /// Retry all failed jobs (reset them to pending)
-pub async fn retry_failed_jobs(pool: &PgPool) -> Result<i64, ReplicationError> {
-    let result = sqlx::query(
-        r#"
-        UPDATE replication_jobs
-        SET status = 'pending', 
-            retry_count = 0, 
-            next_retry_at = NOW(),
-            error_message = NULL,
-            completed_at = NULL
-        WHERE status = 'failed'
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() as i64)
+pub async fn retry_failed_jobs(store: &clovalink_entity::DataStore) -> Result<i64, ReplicationError> {
+    Ok(store.replication().retry_failed().await?)
 }

@@ -34,7 +34,7 @@ pub struct TenantAiSettingsResponse {
     pub tenant_id: Uuid,
     pub enabled: bool,
     pub provider: String,
-    pub api_key_masked: Option<String>,  // Show only last 4 chars
+    pub api_key_masked: Option<String>, // Show only last 4 chars
     pub allowed_roles: Vec<String>,
     pub hipaa_approved_only: bool,
     pub sox_read_only: bool,
@@ -52,12 +52,12 @@ impl From<TenantAiSettings> for TenantAiSettingsResponse {
     fn from(settings: TenantAiSettings) -> Self {
         let api_key_masked = settings.api_key_encrypted.as_ref().map(|key| {
             if key.len() > 4 {
-                format!("••••••••{}", &key[key.len()-4..])
+                format!("••••••••{}", &key[key.len() - 4..])
             } else {
                 "••••".to_string()
             }
         });
-        
+
         Self {
             tenant_id: settings.tenant_id,
             enabled: settings.enabled,
@@ -85,7 +85,7 @@ pub struct UpdateAiSettingsInput {
     pub tenant_id: Option<Uuid>,
     pub enabled: Option<bool>,
     pub provider: Option<String>,
-    pub api_key: Option<String>,  // New key to set
+    pub api_key: Option<String>, // New key to set
     pub allowed_roles: Option<Vec<String>>,
     pub hipaa_approved_only: Option<bool>,
     pub sox_read_only: Option<bool>,
@@ -136,7 +136,7 @@ pub struct AiUsageLogWithUser {
 #[derive(Debug, Deserialize)]
 pub struct SummarizeRequest {
     pub file_id: Uuid,
-    pub max_length: Option<u32>,  // Optional max tokens for summary
+    pub max_length: Option<u32>, // Optional max tokens for summary
 }
 
 /// Answer request
@@ -196,4 +196,3 @@ pub struct UsageLogSummary {
     pub user_name: Option<String>,
     pub file_name: Option<String>,
 }
-

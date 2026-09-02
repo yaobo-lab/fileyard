@@ -3,7 +3,6 @@ use crate::models::Tenant;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -55,7 +54,7 @@ impl NotificationType {
 
 // ==================== Email Template Models ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailTemplate {
     pub id: Uuid,
     pub template_key: String,
@@ -68,7 +67,7 @@ pub struct EmailTemplate {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenantEmailTemplate {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -90,38 +89,11 @@ pub struct RenderedTemplate {
 
 /// Fetch email template (tenant override first, then global default)
 pub async fn get_email_template(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     template_key: &str,
 ) -> Option<(String, String, Option<String>)> {
-    // First, try to get tenant-specific template
-    let tenant_template: Option<TenantEmailTemplate> = sqlx::query_as(
-        "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
-    )
-    .bind(tenant_id)
-    .bind(template_key)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    if let Some(t) = tenant_template {
-        return Some((t.subject, t.body_html, t.body_text));
-    }
-
-    // Fall back to global template
-    let global_template: Option<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates WHERE template_key = $1"
-    )
-    .bind(template_key)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    global_template.map(|t| (t.subject, t.body_html, t.body_text))
+    store.notifications().email_template(tenant_id, template_key).await.ok().flatten()
 }
 
 /// Replace template variables with actual values
@@ -136,12 +108,12 @@ pub fn render_template(template: &str, variables: &HashMap<String, String>) -> S
 
 /// Render a complete email with template and variables
 pub async fn render_email_template(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     template_key: &str,
     variables: HashMap<String, String>,
 ) -> Option<RenderedTemplate> {
-    let (subject, body_html, body_text) = get_email_template(pool, tenant.id, template_key).await?;
+    let (subject, body_html, body_text) = get_email_template(store, tenant.id, template_key).await?;
 
     // Add default variables
     let mut all_vars = variables;
@@ -161,13 +133,13 @@ pub async fn render_email_template(
 
 /// Send a templated email directly (useful for transactional emails like password reset)
 pub async fn send_templated_email(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     to_email: &str,
     template_key: &str,
     variables: HashMap<String, String>,
 ) -> Result<(), String> {
-    let rendered = render_email_template(pool, tenant, template_key, variables)
+    let rendered = render_email_template(store, tenant, template_key, variables)
         .await
         .ok_or_else(|| format!("Email template '{}' not found", template_key))?;
 
@@ -178,7 +150,7 @@ pub async fn send_templated_email(
 
 // ==================== Notification Models ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -192,7 +164,7 @@ pub struct Notification {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationPreference {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -372,7 +344,7 @@ pub async fn create_notification(
 
 // ==================== Tenant Settings ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenantNotificationSetting {
     pub id: Uuid,
     pub tenant_id: Uuid,

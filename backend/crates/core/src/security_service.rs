@@ -8,12 +8,12 @@
 //! - Monitor blocked extension upload attempts
 //! - Detect excessive sharing patterns
 
-use sqlx::{PgPool, Row};
-use uuid::Uuid;
-use serde_json::json;
-use chrono::{Utc, Duration};
 use crate::models::Tenant;
 use crate::notification_service;
+use chrono::{Duration, Utc};
+use serde_json::json;
+use sqlx::{PgPool, Row};
+use uuid::Uuid;
 
 /// Alert severity levels
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,7 +110,7 @@ pub async fn create_alert(
     ip_address: Option<&str>,
 ) -> Result<Uuid, sqlx::Error> {
     let severity = alert_type.default_severity();
-    
+
     let result: (Uuid,) = sqlx::query_as(
         r#"
         INSERT INTO security_alerts (tenant_id, user_id, alert_type, severity, title, description, metadata, ip_address)
@@ -141,18 +141,17 @@ pub async fn create_alert(
     if matches!(severity, AlertSeverity::Critical | AlertSeverity::High) {
         if let Some(tid) = tenant_id {
             // Get tenant info for email notification
-            let tenant: Option<Tenant> = sqlx::query_as(
-                "SELECT * FROM tenants WHERE id = $1"
-            )
-            .bind(tid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+            let tenant: Option<Tenant> = sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
+                .bind(tid)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
 
             if let Some(tenant) = tenant {
                 // Get affected user email from metadata if available
-                let affected_user_email = metadata.get("email")
+                let affected_user_email = metadata
+                    .get("email")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
@@ -175,7 +174,9 @@ pub async fn create_alert(
                         &description_owned,
                         affected_user_email.as_deref(),
                         ip_owned.as_deref(),
-                    ).await {
+                    )
+                    .await
+                    {
                         tracing::error!("Failed to send security alert notification: {:?}", e);
                     }
                 });
@@ -199,7 +200,7 @@ pub async fn record_failed_login(
         r#"
         INSERT INTO failed_login_attempts (email, ip_address, reason)
         VALUES ($1, $2::inet, $3)
-        "#
+        "#,
     )
     .bind(email)
     .bind(ip_address)
@@ -213,7 +214,7 @@ pub async fn record_failed_login(
         r#"
         SELECT COUNT(*) FROM failed_login_attempts
         WHERE email = $1 AND attempted_at > $2
-        "#
+        "#,
     )
     .bind(email)
     .bind(five_minutes_ago)
@@ -229,7 +230,7 @@ pub async fn record_failed_login(
             WHERE alert_type = 'failed_login_spike'
             AND metadata->>'email' = $1
             AND created_at > $2
-            "#
+            "#,
         )
         .bind(email)
         .bind(thirty_minutes_ago)
@@ -238,12 +239,11 @@ pub async fn record_failed_login(
 
         if existing.0 == 0 {
             // Try to find tenant_id from user's email
-            let user_info: Option<(Uuid, Uuid)> = sqlx::query_as(
-                "SELECT id, tenant_id FROM users WHERE email = $1"
-            )
-            .bind(email)
-            .fetch_optional(pool)
-            .await?;
+            let user_info: Option<(Uuid, Uuid)> =
+                sqlx::query_as("SELECT id, tenant_id FROM users WHERE email = $1")
+                    .bind(email)
+                    .fetch_optional(pool)
+                    .await?;
 
             let (user_id, tenant_id) = match user_info {
                 Some((uid, tid)) => (Some(uid), Some(tid)),
@@ -256,7 +256,10 @@ pub async fn record_failed_login(
                 user_id,
                 AlertType::FailedLoginSpike,
                 &format!("Multiple failed login attempts for {}", email),
-                &format!("{} failed login attempts detected in the last 5 minutes", count.0),
+                &format!(
+                    "{} failed login attempts detected in the last 5 minutes",
+                    count.0
+                ),
                 json!({
                     "email": email,
                     "attempt_count": count.0,
@@ -264,7 +267,8 @@ pub async fn record_failed_login(
                     "reason": reason
                 }),
                 ip_address,
-            ).await?;
+            )
+            .await?;
 
             return Ok(true);
         }
@@ -298,7 +302,7 @@ pub async fn check_and_record_login_ip(
             login_count = user_login_history.login_count + 1,
             user_agent = COALESCE($3, user_login_history.user_agent)
         RETURNING (xmax = 0) as is_new
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(ip)
@@ -311,12 +315,11 @@ pub async fn check_and_record_login_ip(
     if is_new {
         // Check if user has logged in from at least one other IP before
         // (don't alert on very first login)
-        let history_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM user_login_history WHERE user_id = $1"
-        )
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
+        let history_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM user_login_history WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
 
         if history_count.0 > 1 {
             // This is a new IP and not the first login
@@ -333,7 +336,8 @@ pub async fn check_and_record_login_ip(
                     "user_agent": user_agent
                 }),
                 Some(ip),
-            ).await?;
+            )
+            .await?;
 
             return Ok(true);
         }
@@ -359,7 +363,10 @@ pub async fn alert_permission_escalation(
         Some(user_id),
         AlertType::PermissionEscalation,
         &format!("Role escalation: {} → {}", old_role, new_role),
-        &format!("User {} was promoted from {} to {}", user_email, old_role, new_role),
+        &format!(
+            "User {} was promoted from {} to {}",
+            user_email, old_role, new_role
+        ),
         json!({
             "email": user_email,
             "old_role": old_role,
@@ -367,7 +374,8 @@ pub async fn alert_permission_escalation(
             "changed_by": changed_by_id.to_string()
         }),
         ip_address,
-    ).await
+    )
+    .await
 }
 
 /// Create alert for suspended user attempting access
@@ -387,7 +395,7 @@ pub async fn alert_suspended_access_attempt(
         WHERE alert_type = 'suspended_access_attempt'
         AND user_id = $1
         AND created_at > $2
-        "#
+        "#,
     )
     .bind(user_id)
     .bind(one_hour_ago)
@@ -411,7 +419,8 @@ pub async fn alert_suspended_access_attempt(
             "attempted_action": attempted_action
         }),
         ip_address,
-    ).await
+    )
+    .await
 }
 
 /// Check for bulk download pattern and create alert if detected
@@ -432,7 +441,7 @@ pub async fn check_bulk_download(
         AND user_id = $2 
         AND action IN ('file_download', 'folder_download')
         AND created_at > $3
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(user_id)
@@ -449,7 +458,7 @@ pub async fn check_bulk_download(
             WHERE alert_type = 'bulk_download'
             AND user_id = $1
             AND created_at > $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(one_hour_ago)
@@ -463,14 +472,18 @@ pub async fn check_bulk_download(
                 Some(user_id),
                 AlertType::BulkDownload,
                 &format!("Bulk download detected for {}", user_email),
-                &format!("{} files downloaded in 10 minutes - potential data exfiltration", count.0),
+                &format!(
+                    "{} files downloaded in 10 minutes - potential data exfiltration",
+                    count.0
+                ),
                 json!({
                     "email": user_email,
                     "download_count": count.0,
                     "time_window_minutes": 10
                 }),
                 ip_address,
-            ).await?;
+            )
+            .await?;
 
             return Ok(true);
         }
@@ -515,7 +528,8 @@ pub async fn alert_blocked_extension(
             "is_public_upload": is_public_upload
         }),
         ip_address,
-    ).await
+    )
+    .await
 }
 
 /// Check for excessive sharing pattern and create alert if detected
@@ -535,7 +549,7 @@ pub async fn check_excessive_sharing(
         WHERE tenant_id = $1 
         AND created_by = $2 
         AND created_at > $3
-        "#
+        "#,
     )
     .bind(tenant_id)
     .bind(user_id)
@@ -552,7 +566,7 @@ pub async fn check_excessive_sharing(
             WHERE alert_type = 'excessive_sharing'
             AND user_id = $1
             AND created_at > $2
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(two_hours_ago)
@@ -573,7 +587,8 @@ pub async fn check_excessive_sharing(
                     "time_window_hours": 1
                 }),
                 ip_address,
-            ).await?;
+            )
+            .await?;
 
             return Ok(true);
         }
@@ -597,13 +612,17 @@ pub async fn alert_account_lockout(
         user_id,
         AlertType::AccountLockout,
         &format!("Account locked: {}", email),
-        &format!("Account locked after {} failed login attempts", failed_attempts),
+        &format!(
+            "Account locked after {} failed login attempts",
+            failed_attempts
+        ),
         json!({
             "email": email,
             "failed_attempts": failed_attempts
         }),
         ip_address,
-    ).await
+    )
+    .await
 }
 
 /// Clean up old failed login attempts (older than 24 hours)
@@ -613,7 +632,7 @@ pub async fn cleanup_old_failed_attempts(pool: &PgPool) -> Result<u64, sqlx::Err
         .bind(one_day_ago)
         .execute(pool)
         .await?;
-    
+
     Ok(result.rows_affected())
 }
 
@@ -646,7 +665,8 @@ pub async fn alert_malware_detected(
             "email": user_email
         }),
         None,
-    ).await
+    )
+    .await
 }
 
 /// Create alert for user auto-suspended due to malware uploads
@@ -660,14 +680,14 @@ pub async fn alert_user_suspended_malware(
     threat_name: &str,
 ) -> Result<Uuid, sqlx::Error> {
     // Get user email for the alert
-    let user_email: Option<(String,)> = sqlx::query_as(
-        "SELECT email FROM users WHERE id = $1"
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let user_email: Option<(String,)> = sqlx::query_as("SELECT email FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
 
-    let email = user_email.map(|(e,)| e).unwrap_or_else(|| "Unknown".to_string());
+    let email = user_email
+        .map(|(e,)| e)
+        .unwrap_or_else(|| "Unknown".to_string());
 
     create_alert(
         pool,
@@ -691,4 +711,3 @@ pub async fn alert_user_suspended_malware(
         None,
     ).await
 }
-

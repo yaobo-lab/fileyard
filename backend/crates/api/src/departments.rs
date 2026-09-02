@@ -28,12 +28,15 @@ pub async fn list_departments(
         auth.tenant_id
     };
 
-    let departments = state.store.departments().list(tenant_id)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to list departments: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let departments = state
+        .store
+        .departments()
+        .list(tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list departments: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!(departments)))
 }
@@ -58,16 +61,19 @@ pub async fn create_department(
         auth.tenant_id
     };
 
-    let department = state.store.departments().create(tenant_id, input.name, input.description)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create department: {:?}", e);
-        if e.to_string().contains("unique") {
-            StatusCode::CONFLICT
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    let department = state
+        .store
+        .departments()
+        .create(tenant_id, input.name, input.description)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create department: {:?}", e);
+            if e.to_string().contains("unique") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
 
     Ok(Json(json!(department)))
 }
@@ -85,7 +91,11 @@ pub async fn update_department(
     if input.name.is_none() && input.description.is_none() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let department = state.store.departments().update(id, auth.tenant_id, input.name, input.description).await
+    let department = state
+        .store
+        .departments()
+        .update(id, auth.tenant_id, input.name, input.description)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let department = department.ok_or(StatusCode::NOT_FOUND)?;
 
@@ -104,9 +114,12 @@ pub async fn delete_department(
     // Check if there are users or files assigned?
     // The DB constraint might handle it (ON DELETE SET NULL was used in migration).
 
-    let deleted = state.store.departments().delete(id, auth.tenant_id)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let deleted = state
+        .store
+        .departments()
+        .delete(id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if !deleted {
         return Err(StatusCode::NOT_FOUND);

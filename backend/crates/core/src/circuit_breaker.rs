@@ -35,7 +35,7 @@ impl From<u32> for CircuitState {
 }
 
 /// Circuit breaker for protecting against cascading failures
-/// 
+///
 /// Thread-safe implementation using atomics for lock-free operation
 pub struct CircuitBreaker {
     name: String,
@@ -90,16 +90,22 @@ impl CircuitBreaker {
     /// Returns true if request can proceed, false if circuit is open
     pub fn allow_request(&self) -> bool {
         self.check_state_transition();
-        
+
         let state = CircuitState::from(self.state.load(Ordering::SeqCst));
         match state {
             CircuitState::Closed => true,
             CircuitState::Open => {
-                debug!("Circuit breaker '{}' is OPEN - rejecting request", self.name);
+                debug!(
+                    "Circuit breaker '{}' is OPEN - rejecting request",
+                    self.name
+                );
                 false
             }
             CircuitState::HalfOpen => {
-                debug!("Circuit breaker '{}' is HALF-OPEN - allowing test request", self.name);
+                debug!(
+                    "Circuit breaker '{}' is HALF-OPEN - allowing test request",
+                    self.name
+                );
                 true
             }
         }
@@ -108,7 +114,7 @@ impl CircuitBreaker {
     /// Record a successful request
     pub fn record_success(&self) {
         let state = CircuitState::from(self.state.load(Ordering::SeqCst));
-        
+
         match state {
             CircuitState::Closed => {
                 // Reset failure count on success
@@ -118,10 +124,14 @@ impl CircuitBreaker {
                 let successes = self.half_open_successes.fetch_add(1, Ordering::SeqCst) + 1;
                 if successes >= self.success_threshold {
                     // Enough successes - close the circuit
-                    self.state.store(CircuitState::Closed as u32, Ordering::SeqCst);
+                    self.state
+                        .store(CircuitState::Closed as u32, Ordering::SeqCst);
                     self.failure_count.store(0, Ordering::SeqCst);
                     self.half_open_successes.store(0, Ordering::SeqCst);
-                    info!("Circuit breaker '{}' CLOSED after {} successful test requests", self.name, successes);
+                    info!(
+                        "Circuit breaker '{}' CLOSED after {} successful test requests",
+                        self.name, successes
+                    );
                 }
             }
             CircuitState::Open => {
@@ -135,15 +145,16 @@ impl CircuitBreaker {
     pub fn record_failure(&self) {
         let state = CircuitState::from(self.state.load(Ordering::SeqCst));
         let now = current_timestamp();
-        
+
         self.last_failure_time.store(now, Ordering::SeqCst);
-        
+
         match state {
             CircuitState::Closed => {
                 let failures = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
                 if failures >= self.failure_threshold {
                     // Too many failures - open the circuit
-                    self.state.store(CircuitState::Open as u32, Ordering::SeqCst);
+                    self.state
+                        .store(CircuitState::Open as u32, Ordering::SeqCst);
                     warn!(
                         "Circuit breaker '{}' OPENED after {} consecutive failures",
                         self.name, failures
@@ -152,9 +163,13 @@ impl CircuitBreaker {
             }
             CircuitState::HalfOpen => {
                 // Failure during test - go back to open
-                self.state.store(CircuitState::Open as u32, Ordering::SeqCst);
+                self.state
+                    .store(CircuitState::Open as u32, Ordering::SeqCst);
                 self.half_open_successes.store(0, Ordering::SeqCst);
-                warn!("Circuit breaker '{}' reopened after failure during test", self.name);
+                warn!(
+                    "Circuit breaker '{}' reopened after failure during test",
+                    self.name
+                );
             }
             CircuitState::Open => {
                 // Already open, just update timestamp
@@ -165,14 +180,15 @@ impl CircuitBreaker {
     /// Check if state should transition based on time
     fn check_state_transition(&self) {
         let state = CircuitState::from(self.state.load(Ordering::SeqCst));
-        
+
         if state == CircuitState::Open {
             let last_failure = self.last_failure_time.load(Ordering::SeqCst);
             let now = current_timestamp();
-            
+
             if now - last_failure >= self.recovery_timeout_secs {
                 // Recovery timeout elapsed - try half-open
-                self.state.store(CircuitState::HalfOpen as u32, Ordering::SeqCst);
+                self.state
+                    .store(CircuitState::HalfOpen as u32, Ordering::SeqCst);
                 self.half_open_successes.store(0, Ordering::SeqCst);
                 info!(
                     "Circuit breaker '{}' transitioning to HALF-OPEN after {}s",
@@ -183,7 +199,7 @@ impl CircuitBreaker {
     }
 
     /// Execute a fallible operation with circuit breaker protection
-    /// 
+    ///
     /// Returns Err(CircuitBreakerError::Open) if circuit is open,
     /// or the result of the operation otherwise
     pub async fn call<F, T, E>(&self, operation: F) -> Result<T, CircuitBreakerError<E>>
@@ -268,13 +284,13 @@ mod tests {
     #[test]
     fn test_circuit_opens_after_threshold() {
         let cb = CircuitBreaker::new("test", 3, 10, 2);
-        
+
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Closed);
-        
+
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Closed);
-        
+
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Open);
         assert!(!cb.allow_request());
@@ -283,15 +299,14 @@ mod tests {
     #[test]
     fn test_success_resets_failure_count() {
         let cb = CircuitBreaker::new("test", 3, 10, 2);
-        
+
         cb.record_failure();
         cb.record_failure();
         cb.record_success();
-        
+
         // Should be back to 0 failures
         cb.record_failure();
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Closed);
     }
 }
-

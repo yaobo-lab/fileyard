@@ -16,7 +16,10 @@ pub struct PageRequest {
 
 impl PageRequest {
     pub fn normalized(self) -> Self {
-        Self { page: self.page.max(1), per_page: self.per_page.clamp(1, 200) }
+        Self {
+            page: self.page.max(1),
+            per_page: self.per_page.clamp(1, 200),
+        }
     }
 
     pub fn offset(self) -> u64 {

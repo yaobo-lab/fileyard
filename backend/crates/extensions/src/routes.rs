@@ -7,7 +7,6 @@ use axum::{
     Extension as AxumExtension,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -15,20 +14,17 @@ use clovalink_auth::AuthUser;
 
 use crate::manifest::{fetch_manifest, parse_manifest};
 use crate::models::{
-    Extension, ExtensionVersion, ExtensionInstallation, ExtensionWebhookLog,
-    RegisterExtensionInput, InstallExtensionInput, ValidateManifestInput,
-    UpdateExtensionSettingsInput, UpdateExtensionAccessInput, CreateAutomationJobInput,
-    UISidebarItem, UIButton, UIComponent,
+    CreateAutomationJobInput, InstallExtensionInput, RegisterExtensionInput, UIButton, UIComponent,
+    UISidebarItem, UpdateExtensionAccessInput, UpdateExtensionSettingsInput, ValidateManifestInput,
 };
-use crate::permissions::{grant_permissions, get_installation_permissions, revoke_all_permissions};
+use crate::permissions::{get_installation_permissions, grant_permissions};
 use crate::scheduler::{create_automation_job, get_automation_jobs};
-use crate::webhook::{generate_hmac_secret, generate_ed25519_keypair};
+use crate::webhook::{generate_ed25519_keypair, generate_hmac_secret};
 
 /// Shared state for extension routes
 #[derive(Clone)]
 pub struct ExtensionState {
     pub store: clovalink_entity::DataStore,
-    pub pool: PgPool,
     pub redis_url: String,
     pub webhook_timeout_ms: u64,
 }
@@ -41,12 +37,10 @@ pub async fn register_extension(
     Json(input): Json<RegisterExtensionInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch and validate manifest
-    let manifest = fetch_manifest(&input.manifest_url)
-        .await
-        .map_err(|e| {
-            tracing::error!("Manifest fetch error: {:?}", e);
-            StatusCode::BAD_REQUEST
-        })?;
+    let manifest = fetch_manifest(&input.manifest_url).await.map_err(|e| {
+        tracing::error!("Manifest fetch error: {:?}", e);
+        StatusCode::BAD_REQUEST
+    })?;
 
     // Generate signing key based on algorithm
     let (public_key, signature_algorithm) = match input.signature_algorithm.as_deref() {
@@ -62,79 +56,42 @@ pub async fn register_extension(
         }
     };
 
-    // Insert extension with allowed_tenant_ids for cross-company access control
-    let allowed_tenants = input.allowed_tenant_ids.as_ref().map(|ids| ids.as_slice());
-    
-    let extension = sqlx::query_as!(
-        Extension,
-        r#"
-        INSERT INTO extensions (tenant_id, name, slug, description, extension_type, 
-                               manifest_url, webhook_url, public_key, signature_algorithm, allowed_tenant_ids)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, tenant_id, name, slug, description, extension_type,
-                  manifest_url, webhook_url, public_key, signature_algorithm,
-                  status, allowed_tenant_ids, created_at, updated_at
-        "#,
-        auth.tenant_id,
-        manifest.name,
-        manifest.slug,
-        manifest.description,
-        manifest.extension_type,
-        input.manifest_url,
-        manifest.webhook,
-        public_key,
-        signature_algorithm,
-        allowed_tenants
-    )
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to insert extension: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Insert version
     let manifest_json = serde_json::to_value(&manifest).unwrap_or(json!({}));
-    
-    sqlx::query!(
-        r#"
-        INSERT INTO extension_versions (extension_id, version, manifest, is_current)
-        VALUES ($1, $2, $3, true)
-        "#,
-        extension.id,
-        manifest.version,
-        manifest_json
-    )
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to insert extension version: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Insert event triggers if file_processor
-    if manifest.extension_type == "file_processor" {
-        let filter_config = if let Some(fp) = &manifest.file_processor {
+    let trigger_filter = if manifest.extension_type == "file_processor" {
+        Some(if let Some(fp) = &manifest.file_processor {
             serde_json::json!({
                 "file_types": fp.file_types,
                 "max_file_size_mb": fp.max_file_size_mb
             })
         } else {
             serde_json::json!({})
-        };
-
-        sqlx::query!(
-            r#"
-            INSERT INTO extension_event_triggers (extension_id, event_type, filter_config)
-            VALUES ($1, 'file_uploaded', $2)
-            "#,
-            extension.id,
-            filter_config
-        )
-        .execute(&state.pool)
+        })
+    } else {
+        None
+    };
+    let extension = state
+        .store
+        .extension_runtime()
+        .register(clovalink_entity::repositories::NewExtension {
+            tenant_id: auth.tenant_id,
+            name: manifest.name.clone(),
+            slug: manifest.slug.clone(),
+            description: manifest.description.clone(),
+            extension_type: manifest.extension_type.clone(),
+            manifest_url: input.manifest_url,
+            webhook_url: manifest.webhook.clone(),
+            public_key: public_key.clone(),
+            signature_algorithm,
+            allowed_tenant_ids: input.allowed_tenant_ids,
+            version: manifest.version.clone(),
+            manifest: manifest_json,
+            trigger_filter,
+        })
         .await
-        .ok();
-    }
+        .map_err(|e| {
+            tracing::error!("Failed to register extension: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!({
         "extension": extension,
@@ -152,86 +109,52 @@ pub async fn install_extension(
     Json(input): Json<InstallExtensionInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify extension exists and tenant has access
-    let extension = sqlx::query_as!(
-        Extension,
-        r#"
-        SELECT id, tenant_id, name, slug, description, extension_type,
-               manifest_url, webhook_url, public_key, signature_algorithm,
-               status, allowed_tenant_ids, created_at, updated_at
-        FROM extensions
-        WHERE id = $1 AND status = 'active'
-        "#,
-        extension_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let repository = state.store.extension_runtime();
+    let extension = repository
+        .extension(extension_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|extension| extension.status == "active")
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if tenant has access to install this extension
     let has_access = extension.tenant_id == auth.tenant_id  // Owner always has access
         || extension.allowed_tenant_ids
             .as_ref()
             .map(|ids| ids.contains(&auth.tenant_id))
-            .unwrap_or(false);  // If allowed_tenant_ids is None, only owner has access
+            .unwrap_or(false); // If allowed_tenant_ids is None, only owner has access
 
     if !has_access {
         tracing::warn!(
             "Tenant {} attempted to install extension {} without access",
-            auth.tenant_id, extension_id
+            auth.tenant_id,
+            extension_id
         );
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Get current version
-    let version = sqlx::query_as!(
-        ExtensionVersion,
-        r#"
-        SELECT id, extension_id, version, manifest, changelog, is_current, created_at
-        FROM extension_versions
-        WHERE extension_id = $1 AND is_current = true
-        "#,
-        extension_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Check if already installed
-    let existing = sqlx::query!(
-        "SELECT id FROM extension_installations WHERE extension_id = $1 AND tenant_id = $2",
-        extension_id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if existing.is_some() {
-        return Err(StatusCode::CONFLICT);
-    }
+    let version = repository
+        .current_version(extension_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Create installation
-    let installation = sqlx::query_as!(
-        ExtensionInstallation,
-        r#"
-        INSERT INTO extension_installations (extension_id, tenant_id, version_id, settings, installed_by)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, extension_id, tenant_id, version_id, enabled, settings, installed_by, installed_at
-        "#,
-        extension_id,
-        auth.tenant_id,
-        version.id,
-        input.settings.unwrap_or(json!({})),
-        auth.user_id
-    )
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create installation: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let installation = repository
+        .create_installation(
+            extension_id,
+            auth.tenant_id,
+            version.id,
+            input.settings.unwrap_or(json!({})),
+            auth.user_id,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create installation: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::CONFLICT)?;
 
     // Grant requested permissions
     grant_permissions(&state.store, installation.id, &input.permissions)
@@ -245,7 +168,8 @@ pub async fn install_extension(
     if extension.extension_type == "automation" {
         if let Some(manifest) = version.manifest.as_object() {
             if let Some(automation) = manifest.get("automation") {
-                if let Some(default_cron) = automation.get("default_cron").and_then(|v| v.as_str()) {
+                if let Some(default_cron) = automation.get("default_cron").and_then(|v| v.as_str())
+                {
                     let _ = create_automation_job(
                         &state.store,
                         extension_id,
@@ -276,37 +200,16 @@ pub async fn list_extensions(
     AxumExtension(auth): AxumExtension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // List extensions owned by tenant OR accessible via allowed_tenant_ids
-    let extensions = sqlx::query_as!(
-        Extension,
-        r#"
-        SELECT id, tenant_id, name, slug, description, extension_type,
-               manifest_url, webhook_url, public_key, signature_algorithm,
-               status, allowed_tenant_ids, created_at, updated_at
-        FROM extensions
-        WHERE status = 'active' AND (
-            tenant_id = $1 
-            OR $1 = ANY(allowed_tenant_ids)
-        )
-        ORDER BY created_at DESC
-        "#,
-        auth.tenant_id
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let extensions = state
+        .store
+        .extension_runtime()
+        .accessible_extensions(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get current versions for each extension
     let mut result = Vec::new();
-    for ext in extensions {
-        let version = sqlx::query!(
-            "SELECT version, manifest FROM extension_versions WHERE extension_id = $1 AND is_current = true",
-            ext.id
-        )
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
-
+    for (ext, version) in extensions {
         let is_owner = ext.tenant_id == auth.tenant_id;
 
         result.push(json!({
@@ -334,42 +237,31 @@ pub async fn list_installed_extensions(
     State(state): State<Arc<ExtensionState>>,
     AxumExtension(auth): AxumExtension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let installations = sqlx::query!(
-        r#"
-        SELECT ei.id as installation_id, ei.enabled, ei.settings, ei.installed_at,
-               e.id as extension_id, e.name, e.slug, e.description, e.extension_type,
-               e.status as extension_status,
-               ev.version, ev.manifest
-        FROM extension_installations ei
-        JOIN extensions e ON ei.extension_id = e.id
-        JOIN extension_versions ev ON ei.version_id = ev.id
-        WHERE ei.tenant_id = $1
-        ORDER BY ei.installed_at DESC
-        "#,
-        auth.tenant_id
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let installations = state
+        .store
+        .extension_runtime()
+        .installed_extensions(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut result = Vec::new();
     for inst in installations {
-        let permissions = get_installation_permissions(&state.store, inst.installation_id)
+        let permissions = get_installation_permissions(&state.store, inst.installation.id)
             .await
             .unwrap_or_default();
 
         result.push(json!({
-            "installation_id": inst.installation_id,
-            "extension_id": inst.extension_id,
-            "name": inst.name,
-            "slug": inst.slug,
-            "description": inst.description,
-            "type": inst.extension_type,
-            "version": inst.version,
-            "enabled": inst.enabled,
-            "settings": inst.settings,
+            "installation_id": inst.installation.id,
+            "extension_id": inst.extension.id,
+            "name": inst.extension.name,
+            "slug": inst.extension.slug,
+            "description": inst.extension.description,
+            "type": inst.extension.extension_type,
+            "version": inst.version.version,
+            "enabled": inst.installation.enabled,
+            "settings": inst.installation.settings,
             "permissions": permissions,
-            "installed_at": inst.installed_at
+            "installed_at": inst.installation.installed_at
         }));
     }
 
@@ -407,31 +299,22 @@ pub async fn get_ui_extensions(
     State(state): State<Arc<ExtensionState>>,
     AxumExtension(auth): AxumExtension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let installations = sqlx::query!(
-        r#"
-        SELECT e.id as extension_id, ev.manifest
-        FROM extension_installations ei
-        JOIN extensions e ON ei.extension_id = e.id
-        JOIN extension_versions ev ON ei.version_id = ev.id
-        WHERE ei.tenant_id = $1
-          AND ei.enabled = true
-          AND e.status = 'active'
-          AND e.extension_type = 'ui'
-        "#,
-        auth.tenant_id
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let installations = state
+        .store
+        .extension_runtime()
+        .active_ui_manifests(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut sidebar: Vec<UISidebarItem> = Vec::new();
     let mut buttons: Vec<UIButton> = Vec::new();
     let mut components: Vec<UIComponent> = Vec::new();
 
-    for inst in installations {
-        if let Some(manifest) = inst.manifest.as_object() {
+    for (extension_id, manifest_value) in installations {
+        if let Some(manifest) = manifest_value.as_object() {
             if let Some(ui) = manifest.get("ui") {
-                let _load_mode = ui.get("load_mode")
+                let _load_mode = ui
+                    .get("load_mode")
                     .and_then(|v| v.as_str())
                     .unwrap_or("iframe")
                     .to_string();
@@ -439,8 +322,10 @@ pub async fn get_ui_extensions(
                 // Parse sidebar items
                 if let Some(items) = ui.get("sidebar").and_then(|v| v.as_array()) {
                     for item in items {
-                        if let Ok(mut parsed) = serde_json::from_value::<UISidebarItem>(item.clone()) {
-                            parsed.extension_id = inst.extension_id;
+                        if let Ok(mut parsed) =
+                            serde_json::from_value::<UISidebarItem>(item.clone())
+                        {
+                            parsed.extension_id = extension_id;
                             sidebar.push(parsed);
                         }
                     }
@@ -450,7 +335,7 @@ pub async fn get_ui_extensions(
                 if let Some(items) = ui.get("buttons").and_then(|v| v.as_array()) {
                     for item in items {
                         if let Ok(mut parsed) = serde_json::from_value::<UIButton>(item.clone()) {
-                            parsed.extension_id = inst.extension_id;
+                            parsed.extension_id = extension_id;
                             buttons.push(parsed);
                         }
                     }
@@ -459,8 +344,9 @@ pub async fn get_ui_extensions(
                 // Parse components
                 if let Some(items) = ui.get("components").and_then(|v| v.as_array()) {
                     for item in items {
-                        if let Ok(mut parsed) = serde_json::from_value::<UIComponent>(item.clone()) {
-                            parsed.extension_id = inst.extension_id;
+                        if let Ok(mut parsed) = serde_json::from_value::<UIComponent>(item.clone())
+                        {
+                            parsed.extension_id = extension_id;
                             components.push(parsed);
                         }
                     }
@@ -487,47 +373,14 @@ pub async fn update_extension_settings(
     Path(extension_id): Path<Uuid>,
     Json(input): Json<UpdateExtensionSettingsInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Find installation
-    let installation = sqlx::query!(
-        "SELECT id, settings FROM extension_installations WHERE extension_id = $1 AND tenant_id = $2",
-        extension_id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Update enabled status if provided
-    if let Some(enabled) = input.enabled {
-        sqlx::query!(
-            "UPDATE extension_installations SET enabled = $1 WHERE id = $2",
-            enabled,
-            installation.id
-        )
-        .execute(&state.pool)
+    let updated = state
+        .store
+        .extension_runtime()
+        .update_installation(extension_id, auth.tenant_id, input.enabled, input.settings)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-
-    // Update settings if provided
-    if let Some(settings) = input.settings {
-        // Merge with existing settings
-        let mut current = installation.settings.as_object().cloned().unwrap_or_default();
-        if let Some(new_settings) = settings.as_object() {
-            for (k, v) in new_settings {
-                current.insert(k.clone(), v.clone());
-            }
-        }
-
-        sqlx::query!(
-            "UPDATE extension_installations SET settings = $1 WHERE id = $2",
-            serde_json::Value::Object(current),
-            installation.id
-        )
-        .execute(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !updated {
+        return Err(StatusCode::NOT_FOUND);
     }
 
     Ok(Json(json!({ "message": "Settings updated" })))
@@ -542,40 +395,22 @@ pub async fn update_extension_access(
     Path(extension_id): Path<Uuid>,
     Json(input): Json<UpdateExtensionAccessInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Verify extension exists and user is the owner
-    let extension = sqlx::query!(
-        "SELECT tenant_id FROM extensions WHERE id = $1",
-        extension_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Only the owner tenant can update access
-    if extension.tenant_id != auth.tenant_id {
-        tracing::warn!(
-            "Tenant {} attempted to update access for extension {} owned by {}",
-            auth.tenant_id, extension_id, extension.tenant_id
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Update allowed_tenant_ids
     if let Some(allowed_ids) = input.allowed_tenant_ids {
-        sqlx::query!(
-            "UPDATE extensions SET allowed_tenant_ids = $1 WHERE id = $2",
-            &allowed_ids[..],
-            extension_id
-        )
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update extension access: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        match state
+            .store
+            .extension_runtime()
+            .update_access(extension_id, auth.tenant_id, allowed_ids.clone())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update extension access: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })? {
+            None => return Err(StatusCode::NOT_FOUND),
+            Some(false) => return Err(StatusCode::FORBIDDEN),
+            Some(true) => {}
+        }
 
-        Ok(Json(json!({ 
+        Ok(Json(json!({
             "message": "Extension access updated",
             "allowed_tenant_ids": allowed_ids
         })))
@@ -591,38 +426,15 @@ pub async fn uninstall_extension(
     AxumExtension(auth): AxumExtension<AuthUser>,
     Path(extension_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Find installation
-    let installation = sqlx::query!(
-        "SELECT id FROM extension_installations WHERE extension_id = $1 AND tenant_id = $2",
-        extension_id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    // Revoke all permissions
-    let _ = revoke_all_permissions(&state.store, installation.id).await;
-
-    // Delete automation jobs
-    sqlx::query!(
-        "DELETE FROM automation_jobs WHERE extension_id = $1 AND tenant_id = $2",
-        extension_id,
-        auth.tenant_id
-    )
-    .execute(&state.pool)
-    .await
-    .ok();
-
-    // Delete installation (cascades to permissions)
-    sqlx::query!(
-        "DELETE FROM extension_installations WHERE id = $1",
-        installation.id
-    )
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let deleted = state
+        .store
+        .extension_runtime()
+        .uninstall(extension_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !deleted {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     Ok(Json(json!({ "message": "Extension uninstalled" })))
 }
@@ -635,20 +447,13 @@ pub async fn trigger_automation(
     Path(job_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify job exists and belongs to tenant
-    let job = sqlx::query!(
-        r#"
-        SELECT aj.id, aj.extension_id, e.name as extension_name
-        FROM automation_jobs aj
-        JOIN extensions e ON aj.extension_id = e.id
-        WHERE aj.id = $1 AND aj.tenant_id = $2
-        "#,
-        job_id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let extension_name = state
+        .store
+        .extension_runtime()
+        .tenant_job_extension_name(job_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Create scheduler and trigger job
     let scheduler = crate::scheduler::Scheduler::new(
@@ -670,7 +475,7 @@ pub async fn trigger_automation(
     Ok(Json(json!({
         "message": "Automation triggered",
         "job_id": job_id,
-        "extension": job.extension_name
+        "extension": extension_name
     })))
 }
 
@@ -683,22 +488,13 @@ pub async fn create_job(
     Json(input): Json<CreateAutomationJobInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify extension is installed and is automation type
-    let installation = sqlx::query!(
-        r#"
-        SELECT ei.id, e.extension_type
-        FROM extension_installations ei
-        JOIN extensions e ON ei.extension_id = e.id
-        WHERE e.id = $1 AND ei.tenant_id = $2 AND ei.enabled = true
-        "#,
-        extension_id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    if installation.extension_type != "automation" {
+    if !state
+        .store
+        .extension_runtime()
+        .is_enabled_automation(extension_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -744,23 +540,12 @@ pub async fn get_webhook_logs(
     AxumExtension(auth): AxumExtension<AuthUser>,
     Path(extension_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let logs = sqlx::query_as!(
-        ExtensionWebhookLog,
-        r#"
-        SELECT id, extension_id, tenant_id, event_type, payload, request_headers,
-               response_status, response_body, duration_ms, error_message, created_at
-        FROM extension_webhook_logs
-        WHERE extension_id = $1 AND tenant_id = $2
-        ORDER BY created_at DESC
-        LIMIT 100
-        "#,
-        extension_id,
-        auth.tenant_id
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let logs = state
+        .store
+        .extension_runtime()
+        .webhook_logs(extension_id, auth.tenant_id, 100)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!(logs)))
 }
-

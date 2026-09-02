@@ -797,11 +797,11 @@ pub async fn upload_file(
 
         // Enqueue S3 replication if enabled (only for new content, not deduplicated)
         if state.replication_config.enabled && !is_deduplicated {
-            let replication_pool = state.pool.clone();
+            let replication_store = state.store.clone();
             let storage_key = key.clone();
             tokio::spawn(async move {
                 if let Err(e) = clovalink_core::replication::enqueue_upload(
-                    &replication_pool,
+                    &replication_store,
                     &storage_key,
                     tenant_id,
                     Some(size),
@@ -3300,12 +3300,12 @@ pub async fn permanent_delete(
                     && state.replication_config.mode
                         == clovalink_core::replication::ReplicationMode::Mirror
                 {
-                    let replication_pool = state.pool.clone();
+                    let replication_store = state.store.clone();
                     let storage_key = fstorage.clone();
                     let tenant = tenant_id;
                     tokio::spawn(async move {
                         if let Err(e) = clovalink_core::replication::enqueue_delete(
-                            &replication_pool,
+                            &replication_store,
                             &storage_key,
                             tenant,
                         )

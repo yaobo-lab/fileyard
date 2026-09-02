@@ -698,12 +698,12 @@ pub async fn public_upload(
 
         // Enqueue S3 replication if enabled (only for new content, not deduplicated)
         if state.replication_config.enabled && !content_exists {
-            let replication_pool = state.pool.clone();
+            let replication_store = state.store.clone();
             let storage_key = storage_path.clone();
             let tenant_id = file_request.tenant_id;
             tokio::spawn(async move {
                 if let Err(e) = clovalink_core::replication::enqueue_upload(
-                    &replication_pool,
+                    &replication_store,
                     &storage_key,
                     tenant_id,
                     Some(size),
