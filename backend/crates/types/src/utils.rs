@@ -1,7 +1,5 @@
-use anyhow::anyhow;
 use chrono::Local;
 use std::fs::create_dir_all;
-use std::sync::OnceLock;
 use toolkit_rs::AppResult;
 pub fn get_time_stamp() -> i64 {
     Local::now().timestamp()
@@ -9,66 +7,6 @@ pub fn get_time_stamp() -> i64 {
 pub fn get_time_stamp_ms() -> i64 {
     Local::now().timestamp_millis()
 }
-
-//设备 uuid
-static MACHINE_ID: OnceLock<String> = OnceLock::new();
-//设备自身 mqtt 消息
-static MAC_MQTT_TOPIC: OnceLock<String> = OnceLock::new();
-
-pub fn set_machineid(uuid: String, skuid: &str) -> AppResult {
-    //订阅来自 mqtt服务器
-    let machine_mqtt_topic = format!("/local/sub/request/{}/{}", skuid, uuid);
-
-    MACHINE_ID
-        .set(uuid)
-        .map_err(|e| anyhow!("set device uuid error:{}", e))?;
-
-    MAC_MQTT_TOPIC
-        .set(machine_mqtt_topic)
-        .map_err(|e| anyhow!("set machine topic err:{}", e))?;
-
-    Ok(())
-}
-
-pub fn get_machineid() -> &'static str {
-    match MACHINE_ID.get() {
-        Some(s) => s,
-        None => {
-            unreachable!("machineid not initialized");
-        }
-    }
-}
-
-pub fn get_machine_topic() -> &'static str {
-    match MAC_MQTT_TOPIC.get() {
-        Some(s) => s,
-        None => {
-            unreachable!("machine topic not initialized");
-        }
-    }
-}
-
-pub fn _print_machine_id() {
-    match build_machine_id() {
-        Ok(id) => log::info!("[machineid] id: {id}"),
-        Err(error) => log::warn!("[machineid] unavailable: {error}"),
-    }
-}
-
-//获取设备指纹
-#[allow(unused_assignments)]
-pub fn build_machine_id() -> AppResult<String> {
-    let output = std::process::Command::new("hostname")
-        .output()
-        .map_err(|error| anyhow!("machine name is unavailable: {error}"))?;
-    let id = String::from_utf8(output.stdout)
-        .map_err(|error| anyhow!("machine name is not valid UTF-8: {error}"))?;
-    if id.trim().is_empty() {
-        return Err(anyhow!("machine name is empty"));
-    }
-    Ok(blake3::hash(id.as_bytes()).to_hex().to_string())
-}
-
 //
 pub fn content_as_str(d: &[u8]) -> Option<String> {
     match std::str::from_utf8(d) {
@@ -202,8 +140,6 @@ pub fn create_basic_dir() -> AppResult {
     create_dir_all(crate::UNZIP_PATH)?;
     create_dir_all(crate::BACKUP_PATH)?;
     create_dir_all(crate::FILEDB_PATH)?;
-    create_dir_all(crate::ZIGBEE_IMG_PATH)?;
-    create_dir_all(crate::MQTT_CERTS_PATH)?;
     create_dir_all(crate::RESOURCE_PATH)?;
     Ok(())
 }

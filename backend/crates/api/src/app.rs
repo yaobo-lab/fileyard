@@ -88,14 +88,7 @@ pub async fn run() {
     let config = types::config::get_config().clone();
 
     let cf = config.log.clone();
-    logger::setup(cf).unwrap_or_else(|e| {
-        ui::blank();
-        ui::error(&format!("日志初始化有误 err :{}", e));
-        process::exit(1);
-    });
-
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
+    logger::setup(cf).expect("日志初始化失败");
 
     // Initialize Storage
     let storage_type = &config.storage.kind;
@@ -108,9 +101,7 @@ pub async fn run() {
     let storage: Arc<dyn Storage> = if storage_type == "s3" {
         let bucket = config.storage.s3_bucket.clone();
         if encryption_key.is_some() {
-            tracing::info!(
-                "S3 storage uses provider-side encryption (ENCRYPTION_KEY ignored for S3)"
-            );
+            log::info!("S3 storage uses provider-side encryption (ENCRYPTION_KEY ignored for S3)");
         }
         Arc::new(S3Storage::new(bucket).await)
     } else {
@@ -118,22 +109,20 @@ pub async fn run() {
         if let Some(ref key_base64) = encryption_key {
             match EncryptedLocalStorage::from_base64_key(&config.storage.local_path, key_base64) {
                 Ok(encrypted_storage) => {
-                    tracing::info!("Local storage encryption ENABLED (ChaCha20-Poly1305)");
+                    log::info!("Local storage encryption ENABLED (ChaCha20-Poly1305)");
                     Arc::new(encrypted_storage)
                 }
                 Err(e) => {
-                    tracing::error!(
+                    log::error!(
                         "Failed to initialize encrypted storage: {}. Falling back to unencrypted.",
                         e
                     );
-                    tracing::warn!(
-                        "ENCRYPTION_KEY is set but invalid - files will NOT be encrypted!"
-                    );
+                    log::warn!("ENCRYPTION_KEY is set but invalid - files will NOT be encrypted!");
                     Arc::new(LocalStorage::new(&config.storage.local_path))
                 }
             }
         } else {
-            tracing::info!("Local storage encryption DISABLED (set ENCRYPTION_KEY to enable)");
+            log::info!("Local storage encryption DISABLED (set ENCRYPTION_KEY to enable)");
             Arc::new(LocalStorage::new(&config.storage.local_path))
         }
     };
@@ -144,11 +133,11 @@ pub async fn run() {
     // Initialize Redis Cache
     let cache = match Cache::new(&redis_url).await {
         Ok(c) => {
-            tracing::info!("Redis cache initialized successfully");
+            log::info!("Redis cache initialized successfully");
             Some(c)
         }
         Err(e) => {
-            tracing::warn!("Failed to initialize Redis cache (caching disabled): {}", e);
+            log::warn!("Failed to initialize Redis cache (caching disabled): {}", e);
             None
         }
     };
@@ -166,7 +155,7 @@ pub async fn run() {
     let idle_timeout_secs = config.database.idle_timeout_secs;
     let max_lifetime_secs = config.database.max_lifetime_secs;
 
-    tracing::info!(
+    log::info!(
         "Connecting to database (max_conn: {}, min_conn: {})...",
         max_connections,
         min_connections
@@ -182,7 +171,7 @@ pub async fn run() {
         .await
         .expect("Failed to connect to database");
 
-    tracing::info!("Database connected successfully with optimized pool settings");
+    log::info!("Database connected successfully with optimized pool settings");
 
     // Run migrations if needed
     sqlx::migrate!("../../migrations")
@@ -196,7 +185,7 @@ pub async fn run() {
     let cdn_domain = config.cdn.domain.clone();
 
     if use_presigned_urls {
-        tracing::info!(
+        log::info!(
             "Presigned URLs enabled (expiry: {}s, CDN: {:?})",
             presigned_url_expiry,
             cdn_domain
@@ -212,7 +201,7 @@ pub async fn run() {
             large_bandwidth_bps: config.transfer.large_bandwidth_mbps * 1024 * 1024,
         },
     ));
-    tracing::info!("Transfer scheduler initialized");
+    log::info!("Transfer scheduler initialized");
 
     // Load S3 replication configuration
     let replication_config = clovalink_core::replication::ReplicationConfig {
@@ -237,12 +226,12 @@ pub async fn run() {
     };
     if replication_config.enabled {
         if let Err(e) = replication_config.validate() {
-            tracing::error!(
+            log::error!(
                 "Replication configuration error: {}. Disabling replication.",
                 e
             );
         } else {
-            tracing::info!(
+            log::info!(
                 "S3 replication enabled: mode={:?}, bucket={}, workers={}",
                 replication_config.mode,
                 replication_config.bucket,
@@ -250,7 +239,7 @@ pub async fn run() {
             );
         }
     } else {
-        tracing::info!("S3 replication disabled");
+        log::info!("S3 replication disabled");
     }
 
     // Validate BACKUP_MASTER_KEY — required for backup at-rest encryption
@@ -263,16 +252,16 @@ pub async fn run() {
         .filter(|key| !key.is_empty())
     {
         Some(k) if k.len() >= 32 => {
-            tracing::info!(
+            log::info!(
                 "BACKUP_MASTER_KEY validated ({} chars) — backup at-rest encryption enabled",
                 k.len()
             );
         }
         Some(k) => {
-            tracing::error!("BACKUP_MASTER_KEY is too short ({} chars, minimum 32). Backup at-rest encryption will fail. Generate with: openssl rand -base64 48", k.len());
+            log::error!("BACKUP_MASTER_KEY is too short ({} chars, minimum 32). Backup at-rest encryption will fail. Generate with: openssl rand -base64 48", k.len());
         }
         None => {
-            tracing::warn!("BACKUP_MASTER_KEY not set — backup passphrase at-rest encryption disabled. Set it to enable scheduled backups. Generate with: openssl rand -base64 48");
+            log::warn!("BACKUP_MASTER_KEY not set — backup passphrase at-rest encryption disabled. Set it to enable scheduled backups. Generate with: openssl rand -base64 48");
         }
     }
 
@@ -283,10 +272,10 @@ pub async fn run() {
     let api_usage_enabled = config.api_usage.enabled;
 
     let api_usage_writer = if api_usage_enabled {
-        tracing::info!("API usage tracking enabled");
+        log::info!("API usage tracking enabled");
         Some(Arc::new(ApiUsageWriter::new(pool.clone())))
     } else {
-        tracing::info!("API usage tracking disabled");
+        log::info!("API usage tracking disabled");
         None
     };
 
@@ -301,14 +290,14 @@ pub async fn run() {
         max_queue_size: config.virus_scan.max_queue_size,
     };
     if virus_scan_config.enabled {
-        tracing::info!(
+        log::info!(
             "ClamAV virus scanning enabled: host={}, port={}, workers={}",
             virus_scan_config.host,
             virus_scan_config.port,
             virus_scan_config.workers
         );
     } else {
-        tracing::info!("ClamAV virus scanning disabled");
+        log::info!("ClamAV virus scanning disabled");
     }
 
     // Create ClamAV circuit breaker if virus scanning is enabled
@@ -365,11 +354,11 @@ pub async fn run() {
         .await
         {
             Ok(scheduler) => {
-                tracing::info!("Starting automation scheduler...");
+                log::info!("Starting automation scheduler...");
                 scheduler.start().await;
             }
             Err(e) => {
-                tracing::error!("Failed to start automation scheduler: {:?}", e);
+                log::error!("Failed to start automation scheduler: {:?}", e);
             }
         }
     });
@@ -396,7 +385,7 @@ pub async fn run() {
     // Start S3 replication workers if enabled
     if replication_config.enabled && replication_config.validate().is_ok() {
         let worker_count = replication_config.workers;
-        tracing::info!("Starting {} replication workers...", worker_count);
+        log::info!("Starting {} replication workers...", worker_count);
 
         for worker_id in 0..worker_count {
             let worker_pool = pool.clone();
@@ -419,10 +408,10 @@ pub async fn run() {
                         worker.run().await;
                     }
                     Err(e) => {
-                        tracing::error!(
-                            worker_id = worker_id,
-                            error = %e,
-                            "Failed to start replication worker"
+                        log::error!(
+                            "Failed to start replication worker: worker_id={}, error={}",
+                            worker_id,
+                            e
                         );
                     }
                 }
@@ -433,7 +422,7 @@ pub async fn run() {
     // Start virus scan workers if enabled
     if virus_scan_config.enabled {
         let worker_count = virus_scan_config.workers;
-        tracing::info!("Starting {} virus scan workers...", worker_count);
+        log::info!("Starting {} virus scan workers...", worker_count);
 
         // Use the circuit breaker we created earlier (stored in AppState for metrics access)
         let cb = clamav_circuit_breaker
@@ -1284,7 +1273,7 @@ pub async fn run() {
     let max_concurrent_requests = config.web.max_concurrent_requests;
     let request_timeout_secs = config.web.request_timeout_secs;
 
-    tracing::info!(
+    log::info!(
         "Server configured: max_concurrent={}, request_timeout={}s",
         max_concurrent_requests,
         request_timeout_secs
@@ -1332,7 +1321,7 @@ pub async fn run() {
         .await
         .unwrap();
 
-    tracing::info!("🚀 Server listening on {}", listener.local_addr().unwrap());
+    log::info!("🚀 Server listening on {}", listener.local_addr().unwrap());
     // Use into_make_service_with_connect_info to make SocketAddr available to rate limiting middleware
     axum::serve(
         listener,
@@ -1382,7 +1371,7 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
     // Build origin policy
     let allow_origin = if dev_mode || environment == "development" {
         // Development mode: allow localhost origins + any configured origins
-        tracing::warn!("CORS: Development mode enabled - allowing localhost origins");
+        log::warn!("CORS: Development mode enabled - allowing localhost origins");
 
         let mut origins: Vec<String> = vec![
             "http://localhost:3000".to_string(),
@@ -1401,7 +1390,7 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
             }
         }
 
-        tracing::info!("CORS: Allowed origins: {:?}", origins);
+        log::info!("CORS: Allowed origins: {:?}", origins);
 
         AllowOrigin::predicate(move |origin, _| {
             if let Ok(origin_str) = origin.to_str() {
@@ -1420,11 +1409,11 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
             .collect();
 
         if origins.is_empty() {
-            tracing::error!("CORS: CORS_ALLOWED_ORIGINS is empty in production mode!");
+            log::error!("CORS: CORS_ALLOWED_ORIGINS is empty in production mode!");
             // Fail safe - block all cross-origin requests
             AllowOrigin::predicate(|_, _| false)
         } else {
-            tracing::info!(
+            log::info!(
                 "CORS: Production mode with {} allowed origins",
                 origins.len()
             );
@@ -1438,7 +1427,7 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
         }
     } else {
         // Production mode without allowlist - fail safe
-        tracing::error!(
+        log::error!(
             "CORS: No CORS_ALLOWED_ORIGINS configured in production mode! \
             Set CORS_ALLOWED_ORIGINS or enable CORS_DEV_MODE=true for development."
         );
