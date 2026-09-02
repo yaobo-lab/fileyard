@@ -2,10 +2,11 @@ use anyhow::anyhow;
 use config::{Config, File, Source};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::OnceLock};
-use toolkit_rs::AppResult;
+use toolkit_rs::{logger::LogConfig, AppResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conf {
+    pub log: LogConfig,
     pub web: WebServerConf,
     pub database: DatabaseConf,
     pub storage: StorageConf,

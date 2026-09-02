@@ -11,6 +11,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
+use toolkit_rs::logger;
 use toolkit_rs::painc::{set_panic_handler, PaincConf};
 
 use crate::{
@@ -83,7 +84,15 @@ pub async fn run() {
         build_time: "".to_string(),
         painc_exit: true,
     });
+
     let config = types::config::get_config().clone();
+
+    let cf = config.log.clone();
+    logger::setup(cf).unwrap_or_else(|e| {
+        ui::blank();
+        ui::error(&format!("日志初始化有误 err :{}", e));
+        process::exit(1);
+    });
 
     // Initialize tracing
     tracing_subscriber::fmt::init();
