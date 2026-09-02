@@ -37,9 +37,8 @@ static TRUSTED_PROXY_CONFIG: OnceLock<TrustedProxyConfig> = OnceLock::new();
 
 fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
     TRUSTED_PROXY_CONFIG.get_or_init(|| {
-        let trust_all = std::env::var("TRUST_ALL_PROXIES")
-            .map(|v| v.to_lowercase() == "true")
-            .unwrap_or(false);
+        let source = &types::config::get_config().rate_limit;
+        let trust_all = source.trust_all_proxies;
 
         if trust_all {
             tracing::warn!(
@@ -48,9 +47,9 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
             );
         }
 
-        let trusted_ips: Vec<IpAddr> = std::env::var("TRUSTED_PROXY_IPS")
-            .unwrap_or_default()
-            .split(',')
+        let trusted_ips: Vec<IpAddr> = source
+            .trusted_proxy_ips
+            .iter()
             .filter_map(|s| {
                 let trimmed = s.trim();
                 if trimmed.is_empty() {
@@ -123,10 +122,7 @@ impl RateLimitConfig {
     /// Global per-IP rate limit - applies to ALL requests
     /// Configurable via environment variables
     pub fn global() -> Self {
-        let burst_size = std::env::var("PER_IP_BURST_SIZE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(200);
+        let burst_size = types::config::get_config().rate_limit.per_ip_burst_size;
 
         Self {
             max_requests: burst_size, // Allow burst up to this
@@ -392,15 +388,11 @@ pub async fn rate_limit_global(
     next: Next,
 ) -> Response {
     // Get configurable limits from environment
-    let requests_per_sec: u32 = std::env::var("PER_IP_REQUESTS_PER_SEC")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100);
+    let requests_per_sec = types::config::get_config()
+        .rate_limit
+        .per_ip_requests_per_sec;
 
-    let burst_size: u32 = std::env::var("PER_IP_BURST_SIZE")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(200);
+    let burst_size = types::config::get_config().rate_limit.per_ip_burst_size;
 
     let config = RateLimitConfig {
         max_requests: burst_size,

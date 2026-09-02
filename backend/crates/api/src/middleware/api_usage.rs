@@ -190,10 +190,7 @@ impl Default for SamplingConfig {
     fn default() -> Self {
         Self {
             // Sample 10% by default (can be increased in low-traffic environments)
-            default_rate: std::env::var("API_USAGE_SAMPLE_RATE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.1),
+            default_rate: types::config::get_config().api_usage.sample_rate,
             // Always track these important endpoints
             high_priority_endpoints: vec![
                 "/api/upload",

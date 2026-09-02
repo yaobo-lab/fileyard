@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use config::{Config, File, Source};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{path::Path, sync::OnceLock};
 use toolkit_rs::AppResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,6 +18,10 @@ pub struct Conf {
     pub backup: BackupConf,
     pub api_usage: ApiUsageConf,
     pub cors: CorsConf,
+    pub auth: AuthConf,
+    pub discord: DiscordConf,
+    pub rate_limit: RateLimitConf,
+    pub frontend_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +128,54 @@ pub struct CorsConf {
     pub environment: String,
     pub dev_mode: bool,
     pub allowed_origins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConf {
+    pub jwt_secret: String,
+    pub jwt_secret_secondary: Option<String>,
+    pub jwt_issuer: String,
+    pub jwt_audience: String,
+    pub jwt_expiry_secs: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordConf {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConf {
+    pub trust_all_proxies: bool,
+    pub trusted_proxy_ips: Vec<String>,
+    pub per_ip_requests_per_sec: u32,
+    pub per_ip_burst_size: u32,
+}
+
+static CONFIG: OnceLock<Conf> = OnceLock::new();
+
+pub fn init_config(config: Conf) -> AppResult<()> {
+    CONFIG
+        .set(config)
+        .map_err(|_| anyhow!("configuration is already initialized"))
+}
+
+pub fn get_config() -> &'static Conf {
+    CONFIG.get_or_init(|| {
+        read_config("etc/config.toml").unwrap_or_else(|_| {
+            let workspace_config = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join("etc/config.toml");
+            read_config(
+                workspace_config
+                    .to_str()
+                    .expect("Configuration path is not valid UTF-8"),
+            )
+            .expect("Failed to read etc/config.toml")
+        })
+    })
 }
 
 //读取配置文件

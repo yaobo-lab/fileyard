@@ -54,12 +54,15 @@ impl Default for ReplicationMode {
 
 impl std::str::FromStr for ReplicationMode {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "backup" => Ok(ReplicationMode::Backup),
             "mirror" => Ok(ReplicationMode::Mirror),
-            _ => Err(format!("Invalid replication mode: {}. Use 'backup' or 'mirror'", s)),
+            _ => Err(format!(
+                "Invalid replication mode: {}. Use 'backup' or 'mirror'",
+                s
+            )),
         }
     }
 }
@@ -80,54 +83,45 @@ pub struct ReplicationConfig {
 }
 
 impl ReplicationConfig {
-    /// Load configuration from environment variables
-    pub fn from_env() -> Self {
-        let enabled = std::env::var("REPLICATION_ENABLED")
-            .map(|v| v.to_lowercase() == "true")
-            .unwrap_or(false);
-        
+    /// Load configuration from the application TOML configuration.
+    pub fn from_config() -> Self {
+        let source = &types::config::get_config().replication;
         Self {
-            enabled,
-            endpoint: std::env::var("REPLICATION_ENDPOINT").ok().filter(|s| !s.is_empty()),
-            bucket: std::env::var("REPLICATION_BUCKET").unwrap_or_default(),
-            region: std::env::var("REPLICATION_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
-            access_key: std::env::var("REPLICATION_ACCESS_KEY").unwrap_or_default(),
-            secret_key: std::env::var("REPLICATION_SECRET_KEY").unwrap_or_default(),
-            mode: std::env::var("REPLICATION_MODE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or_default(),
-            retry_seconds: std::env::var("REPLICATION_RETRY_SECONDS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(60),
-            workers: std::env::var("REPLICATION_WORKERS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(4),
-            max_retries: std::env::var("REPLICATION_MAX_RETRIES")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5),
+            enabled: source.enabled,
+            endpoint: source.endpoint.clone().filter(|s| !s.is_empty()),
+            bucket: source.bucket.clone(),
+            region: source.region.clone(),
+            access_key: source.access_key.clone(),
+            secret_key: source.secret_key.clone(),
+            mode: source.mode.parse().unwrap_or_default(),
+            retry_seconds: source.retry_seconds,
+            workers: source.workers,
+            max_retries: source.max_retries,
         }
     }
-    
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), ReplicationError> {
         if !self.enabled {
             return Ok(());
         }
-        
+
         if self.bucket.is_empty() {
-            return Err(ReplicationError::ConfigError("REPLICATION_BUCKET is required".into()));
+            return Err(ReplicationError::ConfigError(
+                "REPLICATION_BUCKET is required".into(),
+            ));
         }
         if self.access_key.is_empty() {
-            return Err(ReplicationError::ConfigError("REPLICATION_ACCESS_KEY is required".into()));
+            return Err(ReplicationError::ConfigError(
+                "REPLICATION_ACCESS_KEY is required".into(),
+            ));
         }
         if self.secret_key.is_empty() {
-            return Err(ReplicationError::ConfigError("REPLICATION_SECRET_KEY is required".into()));
+            return Err(ReplicationError::ConfigError(
+                "REPLICATION_SECRET_KEY is required".into(),
+            ));
         }
-        
+
         Ok(())
     }
 }
@@ -187,11 +181,11 @@ impl ReplicationClient {
     /// Create a new replication client from config
     pub async fn new(config: &ReplicationConfig) -> Result<Self, ReplicationError> {
         config.validate()?;
-        
+
         if !config.enabled {
             return Err(ReplicationError::Disabled);
         }
-        
+
         let credentials = Credentials::new(
             &config.access_key,
             &config.secret_key,
@@ -199,31 +193,31 @@ impl ReplicationClient {
             None,
             "replication",
         );
-        
+
         let mut s3_config_builder = aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new(config.region.clone()))
             .credentials_provider(credentials)
             .force_path_style(true); // Required for many S3-compatible services
-        
+
         // Set custom endpoint if provided (for non-AWS S3-compatible services)
         if let Some(ref endpoint) = config.endpoint {
             s3_config_builder = s3_config_builder.endpoint_url(endpoint);
         }
-        
+
         let s3_config = s3_config_builder.build();
         let client = Client::from_conf(s3_config);
-        
+
         Ok(Self {
             client,
             bucket: config.bucket.clone(),
         })
     }
-    
+
     /// Copy an object from source bytes to the secondary bucket
     pub async fn replicate_object(&self, key: &str, data: Vec<u8>) -> Result<(), ReplicationError> {
         let body = ByteStream::from(data);
-        
+
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -232,10 +226,10 @@ impl ReplicationClient {
             .send()
             .await
             .map_err(|e| ReplicationError::S3Error(e.to_string()))?;
-        
+
         Ok(())
     }
-    
+
     /// Delete an object from the secondary bucket (for mirror mode)
     pub async fn delete_object(&self, key: &str) -> Result<(), ReplicationError> {
         self.client
@@ -245,13 +239,14 @@ impl ReplicationClient {
             .send()
             .await
             .map_err(|e| ReplicationError::S3Error(e.to_string()))?;
-        
+
         Ok(())
     }
-    
+
     /// Check if an object exists in the secondary bucket
     pub async fn object_exists(&self, key: &str) -> Result<bool, ReplicationError> {
-        match self.client
+        match self
+            .client
             .head_object()
             .bucket(&self.bucket)
             .key(key)
@@ -283,7 +278,14 @@ pub async fn enqueue_upload(
     tenant_id: Uuid,
     size_bytes: Option<i64>,
 ) -> Result<Uuid, ReplicationError> {
-    enqueue_job(pool, storage_path, tenant_id, JobOperation::Upload, size_bytes).await
+    enqueue_job(
+        pool,
+        storage_path,
+        tenant_id,
+        JobOperation::Upload,
+        size_bytes,
+    )
+    .await
 }
 
 /// Enqueue a delete replication job (for mirror mode).
@@ -306,7 +308,7 @@ async fn enqueue_job(
 ) -> Result<Uuid, ReplicationError> {
     let job_id = Uuid::new_v4();
     let operation_str = operation.to_string();
-    
+
     // Use INSERT ... ON CONFLICT to handle duplicate pending jobs gracefully
     let result = sqlx::query_scalar::<_, Uuid>(
         r#"
@@ -316,7 +318,7 @@ async fn enqueue_job(
         DO UPDATE SET 
             next_retry_at = NOW()
         RETURNING id
-        "#
+        "#,
     )
     .bind(job_id)
     .bind(storage_path)
@@ -325,7 +327,7 @@ async fn enqueue_job(
     .bind(size_bytes)
     .fetch_one(pool)
     .await?;
-    
+
     debug!(
         target: "replication",
         job_id = %result,
@@ -333,7 +335,7 @@ async fn enqueue_job(
         operation = %operation_str,
         "Enqueued replication job"
     );
-    
+
     Ok(result)
 }
 
@@ -354,11 +356,11 @@ pub async fn fetch_next_job(pool: &PgPool) -> Result<Option<ReplicationJob>, Rep
             id, storage_path, tenant_id, operation, status,
             retry_count, max_retries, next_retry_at, error_message,
             source_size_bytes, created_at, started_at, completed_at
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await?;
-    
+
     Ok(job)
 }
 
@@ -369,12 +371,12 @@ pub async fn complete_job(pool: &PgPool, job_id: Uuid) -> Result<(), Replication
         UPDATE replication_jobs
         SET status = 'completed', completed_at = NOW(), error_message = NULL
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(job_id)
     .execute(pool)
     .await?;
-    
+
     Ok(())
 }
 
@@ -406,14 +408,14 @@ pub async fn fail_job(
             END
         WHERE id = $1
         RETURNING (status = 'failed')
-        "#
+        "#,
     )
     .bind(job_id)
     .bind(error)
     .bind(retry_seconds as i64)
     .fetch_one(pool)
     .await?;
-    
+
     Ok(result)
 }
 
@@ -433,7 +435,10 @@ pub struct ReplicationWorker {
 /// Trait for reading from primary storage (implemented by the main storage backend)
 #[async_trait::async_trait]
 pub trait PrimaryStorageReader: Send + Sync {
-    async fn download(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
+    async fn download(
+        &self,
+        key: &str,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 impl ReplicationWorker {
@@ -449,7 +454,7 @@ impl ReplicationWorker {
         } else {
             None
         };
-        
+
         Ok(Self {
             pool,
             config,
@@ -458,7 +463,7 @@ impl ReplicationWorker {
             worker_id,
         })
     }
-    
+
     /// Run the worker loop
     pub async fn run(self) {
         if !self.config.enabled {
@@ -469,7 +474,7 @@ impl ReplicationWorker {
             );
             return;
         }
-        
+
         info!(
             target: "replication",
             worker_id = self.worker_id,
@@ -477,7 +482,7 @@ impl ReplicationWorker {
             bucket = %self.config.bucket,
             "Replication worker started"
         );
-        
+
         loop {
             match self.process_next_job().await {
                 Ok(true) => {
@@ -500,14 +505,14 @@ impl ReplicationWorker {
             }
         }
     }
-    
+
     /// Process the next available job
     async fn process_next_job(&self) -> Result<bool, ReplicationError> {
         let job = match fetch_next_job(&self.pool).await? {
             Some(job) => job,
             None => return Ok(false),
         };
-        
+
         info!(
             target: "replication",
             worker_id = self.worker_id,
@@ -517,16 +522,21 @@ impl ReplicationWorker {
             retry_count = job.retry_count,
             "Processing replication job"
         );
-        
-        let client = self.replication_client.as_ref()
+
+        let client = self
+            .replication_client
+            .as_ref()
             .ok_or(ReplicationError::Disabled)?;
-        
+
         let result = match job.operation.as_str() {
             "upload" => self.process_upload_job(client, &job).await,
             "delete" => self.process_delete_job(client, &job).await,
-            _ => Err(ReplicationError::ConfigError(format!("Unknown operation: {}", job.operation))),
+            _ => Err(ReplicationError::ConfigError(format!(
+                "Unknown operation: {}",
+                job.operation
+            ))),
         };
-        
+
         match result {
             Ok(()) => {
                 complete_job(&self.pool, job.id).await?;
@@ -539,8 +549,14 @@ impl ReplicationWorker {
                 );
             }
             Err(e) => {
-                let is_permanent = fail_job(&self.pool, job.id, &e.to_string(), self.config.retry_seconds).await?;
-                
+                let is_permanent = fail_job(
+                    &self.pool,
+                    job.id,
+                    &e.to_string(),
+                    self.config.retry_seconds,
+                )
+                .await?;
+
                 if is_permanent {
                     error!(
                         target: "replication",
@@ -563,10 +579,10 @@ impl ReplicationWorker {
                 }
             }
         }
-        
+
         Ok(true)
     }
-    
+
     /// Process an upload replication job
     async fn process_upload_job(
         &self,
@@ -574,17 +590,20 @@ impl ReplicationWorker {
         job: &ReplicationJob,
     ) -> Result<(), ReplicationError> {
         // Download from primary storage
-        let data = self.primary_storage
+        let data = self
+            .primary_storage
             .download(&job.storage_path)
             .await
-            .map_err(|e| ReplicationError::SourceNotFound(format!("{}: {}", job.storage_path, e)))?;
-        
+            .map_err(|e| {
+                ReplicationError::SourceNotFound(format!("{}: {}", job.storage_path, e))
+            })?;
+
         // Upload to secondary storage
         client.replicate_object(&job.storage_path, data).await?;
-        
+
         Ok(())
     }
-    
+
     /// Process a delete replication job (mirror mode only)
     async fn process_delete_job(
         &self,
@@ -600,9 +619,9 @@ impl ReplicationWorker {
             );
             return Ok(());
         }
-        
+
         client.delete_object(&job.storage_path).await?;
-        
+
         Ok(())
     }
 }
@@ -625,7 +644,10 @@ pub struct ReplicationStatus {
 }
 
 /// Get replication status for admin dashboard
-pub async fn get_status(pool: &PgPool, config: &ReplicationConfig) -> Result<ReplicationStatus, ReplicationError> {
+pub async fn get_status(
+    pool: &PgPool,
+    config: &ReplicationConfig,
+) -> Result<ReplicationStatus, ReplicationError> {
     let stats: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
         r#"
         SELECT
@@ -639,11 +661,15 @@ pub async fn get_status(pool: &PgPool, config: &ReplicationConfig) -> Result<Rep
     )
     .fetch_one(pool)
     .await?;
-    
+
     Ok(ReplicationStatus {
         enabled: config.enabled,
         mode: format!("{:?}", config.mode).to_lowercase(),
-        bucket: if config.enabled { config.bucket.clone() } else { String::new() },
+        bucket: if config.enabled {
+            config.bucket.clone()
+        } else {
+            String::new()
+        },
         pending_jobs: stats.0.unwrap_or(0),
         processing_jobs: stats.1.unwrap_or(0),
         failed_jobs: stats.2.unwrap_or(0),
@@ -660,7 +686,7 @@ pub async fn get_pending_jobs(
     offset: i64,
 ) -> Result<Vec<ReplicationJob>, ReplicationError> {
     let status = status_filter.unwrap_or("pending");
-    
+
     let jobs = sqlx::query_as::<_, ReplicationJob>(
         r#"
         SELECT 
@@ -671,14 +697,14 @@ pub async fn get_pending_jobs(
         WHERE status = $1
         ORDER BY created_at ASC
         LIMIT $2 OFFSET $3
-        "#
+        "#,
     )
     .bind(status)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
     .await?;
-    
+
     Ok(jobs)
 }
 
@@ -693,11 +719,10 @@ pub async fn retry_failed_jobs(pool: &PgPool) -> Result<i64, ReplicationError> {
             error_message = NULL,
             completed_at = NULL
         WHERE status = 'failed'
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
-    
+
     Ok(result.rows_affected() as i64)
 }
-

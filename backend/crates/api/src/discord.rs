@@ -23,7 +23,7 @@ use clovalink_auth::middleware::AuthUser;
 
 // ==================== Configuration ====================
 
-/// Discord OAuth configuration from environment
+/// Discord OAuth configuration from `etc/config.toml`.
 #[derive(Clone)]
 pub struct DiscordConfig {
     pub client_id: String,
@@ -32,15 +32,19 @@ pub struct DiscordConfig {
 }
 
 impl DiscordConfig {
-    pub fn from_env() -> Option<Self> {
-        let client_id = std::env::var("DISCORD_CLIENT_ID").ok()?;
-        let client_secret = std::env::var("DISCORD_CLIENT_SECRET").ok()?;
-        let redirect_uri = std::env::var("DISCORD_REDIRECT_URI").ok()?;
+    pub fn from_config() -> Option<Self> {
+        let source = &types::config::get_config().discord;
+        if source.client_id.is_empty()
+            || source.client_secret.is_empty()
+            || source.redirect_uri.is_empty()
+        {
+            return None;
+        }
 
         Some(Self {
-            client_id,
-            client_secret,
-            redirect_uri,
+            client_id: source.client_id.clone(),
+            client_secret: source.client_secret.clone(),
+            redirect_uri: source.redirect_uri.clone(),
         })
     }
 }
@@ -224,7 +228,7 @@ pub async fn start_oauth(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Redirect, (StatusCode, Json<Value>)> {
     // Check if Discord is configured
-    let config = DiscordConfig::from_env().ok_or_else(|| {
+    let config = DiscordConfig::from_config().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
@@ -321,7 +325,7 @@ pub async fn oauth_callback(
         .await;
 
     // Get Discord config
-    let config = DiscordConfig::from_env().ok_or((
+    let config = DiscordConfig::from_config().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "Discord not configured".to_string(),
     ))?;

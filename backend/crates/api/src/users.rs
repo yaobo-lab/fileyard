@@ -1654,8 +1654,7 @@ pub async fn send_password_reset_email(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Build reset URL (frontend will handle this route)
-    let frontend_url =
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| format!("https://{}", tenant.domain));
+    let frontend_url = types::config::get_config().frontend_url.clone();
     let reset_url = format!("{}/reset-password?token={}", frontend_url, token);
 
     // Build variables for email template

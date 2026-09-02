@@ -118,8 +118,7 @@ pub async fn create_file_request(
     .execute(&state.pool)
     .await;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
 
     Ok(Json(json!({
         "id": request.id,
@@ -240,8 +239,7 @@ pub async fn list_file_requests(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
 
     let results: Vec<Value> = requests
         .iter()
@@ -336,8 +334,7 @@ pub async fn get_file_request(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
 
     Ok(Json(json!({
         "id": request.id,

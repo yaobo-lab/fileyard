@@ -17,6 +17,7 @@ redis = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
+types = { workspace = true }
 
 # S3 Replication
 aws-config = { workspace = true }

@@ -94,37 +94,7 @@ impl Default for TransferSchedulerConfig {
     }
 }
 
-impl TransferSchedulerConfig {
-    /// Load configuration from environment variables
-    pub fn from_env() -> Self {
-        let small_concurrent = std::env::var("TRANSFER_SMALL_CONCURRENT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_SMALL_CONCURRENT);
-
-        let medium_concurrent = std::env::var("TRANSFER_MEDIUM_CONCURRENT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_MEDIUM_CONCURRENT);
-
-        let large_concurrent = std::env::var("TRANSFER_LARGE_CONCURRENT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_LARGE_CONCURRENT);
-
-        let large_bandwidth_mbps: u32 = std::env::var("TRANSFER_LARGE_BANDWIDTH_MBPS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(50);
-
-        Self {
-            small_concurrent,
-            medium_concurrent,
-            large_concurrent,
-            large_bandwidth_bps: large_bandwidth_mbps * 1024 * 1024,
-        }
-    }
-}
+impl TransferSchedulerConfig {}
 
 /// A permit that must be held while a transfer is in progress.
 /// Dropping this permit releases the slot for another transfer.
@@ -150,7 +120,7 @@ pub struct TransferScheduler {
 impl TransferScheduler {
     /// Create a new transfer scheduler with default configuration
     pub fn new() -> Self {
-        Self::with_config(TransferSchedulerConfig::from_env())
+        Self::with_config(TransferSchedulerConfig::default())
     }
 
     /// Create a new transfer scheduler with custom configuration

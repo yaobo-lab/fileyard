@@ -1,3 +1,5 @@
+frontend_url = "http://localhost:5173"
+
 [web]
 port = 3000
 listen_addr = "0.0.0.0"
@@ -64,6 +66,24 @@ max_concurrent = 2
 [api_usage]
 enabled = true
 sample_rate = 1.0
+
+[auth]
+jwt_secret = "INSECURE_DEV_SECRET_DO_NOT_USE_IN_PRODUCTION_12345"
+jwt_secret_secondary = ""
+jwt_issuer = "clovalink"
+jwt_audience = "clovalink-api"
+jwt_expiry_secs = 604800
+
+[discord]
+client_id = ""
+client_secret = ""
+redirect_uri = ""
+
+[rate_limit]
+trust_all_proxies = false
+trusted_proxy_ips = []
+per_ip_requests_per_sec = 100
+per_ip_burst_size = 200
 
 [cors]
 environment = "development"

@@ -166,8 +166,7 @@ pub async fn sp_metadata(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
 
     let metadata = saml_xml::generate_sp_metadata(
@@ -234,8 +233,7 @@ async fn start_saml_flow(
         )
     })?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
 
     // Generate request ID and relay state
@@ -307,8 +305,7 @@ pub async fn saml_acs(
     headers: HeaderMap,
     Form(form): Form<SamlAcsForm>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let frontend_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let frontend_url = types::config::get_config().web.base_url.clone();
 
     // Step 1: Validate RelayState
     let relay_state = form
@@ -719,8 +716,7 @@ pub async fn create_provider(
         ));
     }
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let sp_entity_id = format!("{}/api/auth/saml/metadata/{}", base_url, input.slug);
 
     let provider: SamlProvider = sqlx::query_as(
@@ -1029,8 +1025,7 @@ pub async fn test_provider(
         }
     }
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
 
     Ok(Json(json!({
         "success": cert_valid,

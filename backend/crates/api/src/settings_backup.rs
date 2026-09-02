@@ -94,9 +94,11 @@ fn derive_master_key_bytes(master_key: &[u8]) -> [u8; KEY_SIZE] {
 
 /// Check if BACKUP_MASTER_KEY is configured and valid (≥32 chars)
 pub(crate) fn is_master_key_configured() -> bool {
-    std::env::var("BACKUP_MASTER_KEY")
-        .map(|k| k.len() >= 32)
-        .unwrap_or(false)
+    types::config::get_config()
+        .backup
+        .master_key
+        .as_ref()
+        .is_some_and(|key| key.len() >= 32)
 }
 
 /// Normalize a cron expression to 6-field format (with seconds) for the `cron` crate.
@@ -113,8 +115,8 @@ fn normalize_cron(expr: &str) -> String {
 /// Encrypt a passphrase for at-rest storage using BACKUP_MASTER_KEY env var.
 /// Returns "enc:<base64(nonce + ciphertext)>" if master key is set, or plaintext if not.
 fn encrypt_passphrase_at_rest(passphrase: &str) -> String {
-    let master_key = match std::env::var("BACKUP_MASTER_KEY") {
-        Ok(k) if k.len() >= 32 => k,
+    let master_key = match types::config::get_config().backup.master_key.as_deref() {
+        Some(k) if k.len() >= 32 => k,
         _ => {
             tracing::warn!("BACKUP_MASTER_KEY not set or too short — storing passphrase without at-rest encryption");
             return passphrase.to_string();
@@ -153,8 +155,11 @@ fn decrypt_passphrase_at_rest(stored: &str) -> Result<String, &'static str> {
         return Ok(stored.to_string());
     }
 
-    let master_key = std::env::var("BACKUP_MASTER_KEY")
-        .map_err(|_| "BACKUP_MASTER_KEY not set — cannot decrypt passphrase")?;
+    let master_key = types::config::get_config()
+        .backup
+        .master_key
+        .as_deref()
+        .ok_or("BACKUP_MASTER_KEY not set — cannot decrypt passphrase")?;
     if master_key.len() < 32 {
         return Err("BACKUP_MASTER_KEY too short");
     }
@@ -3800,10 +3805,7 @@ pub async fn backup_metrics(
         CircuitState::HalfOpen => "half_open",
     };
 
-    let max_concurrent: usize = std::env::var("BACKUP_MAX_CONCURRENT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2);
+    let max_concurrent = types::config::get_config().backup.max_concurrent;
     let available = state.backup_semaphore.available_permits();
 
     // Aggregate stats from backup_history
@@ -4233,7 +4235,7 @@ async fn get_or_create_auto_passphrase(pool: &sqlx::PgPool) -> Result<String, St
             })?;
 
             // If stored as plaintext and master key is available, re-encrypt in place
-            if !stored.starts_with(ENCRYPTED_PREFIX) && std::env::var("BACKUP_MASTER_KEY").is_ok() {
+            if !stored.starts_with(ENCRYPTED_PREFIX) && is_master_key_configured() {
                 let encrypted = encrypt_passphrase_at_rest(&passphrase);
                 let _ = sqlx::query(
                     "UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'auto_backup_passphrase'"

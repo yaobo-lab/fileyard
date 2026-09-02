@@ -58,9 +58,11 @@ pub fn _print_machine_id() {
 //获取设备指纹
 #[allow(unused_assignments)]
 pub fn build_machine_id() -> AppResult<String> {
-    let id = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .map_err(|_| anyhow!("machine name is unavailable"))?;
+    let output = std::process::Command::new("hostname")
+        .output()
+        .map_err(|error| anyhow!("machine name is unavailable: {error}"))?;
+    let id = String::from_utf8(output.stdout)
+        .map_err(|error| anyhow!("machine name is not valid UTF-8: {error}"))?;
     if id.trim().is_empty() {
         return Err(anyhow!("machine name is empty"));
     }

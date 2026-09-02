@@ -83,8 +83,7 @@ pub async fn run() {
         build_time: "".to_string(),
         painc_exit: true,
     });
-    let config = types::config::read_config::<types::config::Conf>("etc/config.toml")
-        .expect("Failed to read etc/config.toml");
+    let config = types::config::get_config().clone();
 
     // Initialize tracing
     tracing_subscriber::fmt::init();

@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use crate::circuit_breaker::CircuitBreaker;
 use crate::models::Tenant;
-use crate::security_service;
 use crate::notification_service;
+use crate::security_service;
 
 // =============================================================================
 // Errors
@@ -119,33 +119,17 @@ pub struct VirusScanConfig {
 }
 
 impl VirusScanConfig {
-    /// Load configuration from environment variables
-    pub fn from_env() -> Self {
+    /// Load configuration from the application TOML configuration.
+    pub fn from_config() -> Self {
+        let source = &types::config::get_config().virus_scan;
         Self {
-            enabled: std::env::var("CLAMAV_ENABLED")
-                .map(|v| v.to_lowercase() == "true")
-                .unwrap_or(false),
-            host: std::env::var("CLAMAV_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            port: std::env::var("CLAMAV_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3310),
-            timeout_ms: std::env::var("CLAMAV_TIMEOUT_MS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(30000),
-            workers: std::env::var("CLAMAV_WORKERS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(4),
-            max_file_size_mb: std::env::var("CLAMAV_MAX_FILE_SIZE_MB")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(100),
-            max_queue_size: std::env::var("CLAMAV_MAX_QUEUE_SIZE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(10000), // Default 10k pending jobs max
+            enabled: source.enabled,
+            host: source.host.clone(),
+            port: source.port,
+            timeout_ms: source.timeout_ms,
+            workers: source.workers,
+            max_file_size_mb: source.max_file_size_mb,
+            max_queue_size: source.max_queue_size,
         }
     }
 
@@ -342,10 +326,13 @@ impl ClamAvClient {
         let connect_timeout = self.connect_timeout();
         let op_timeout = Duration::from_secs(5); // Short timeout for ping
 
-        let mut stream = timeout(connect_timeout, TcpStream::connect(self.config.clamd_addr()))
-            .await
-            .map_err(|_| VirusScanError::ConnectionTimeout)?
-            .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
+        let mut stream = timeout(
+            connect_timeout,
+            TcpStream::connect(self.config.clamd_addr()),
+        )
+        .await
+        .map_err(|_| VirusScanError::ConnectionTimeout)?
+        .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
 
         timeout(op_timeout, stream.write_all(b"zPING\0"))
             .await
@@ -365,10 +352,13 @@ impl ClamAvClient {
         let connect_timeout = self.connect_timeout();
         let op_timeout = Duration::from_secs(5); // Short timeout for version
 
-        let mut stream = timeout(connect_timeout, TcpStream::connect(self.config.clamd_addr()))
-            .await
-            .map_err(|_| VirusScanError::ConnectionTimeout)?
-            .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
+        let mut stream = timeout(
+            connect_timeout,
+            TcpStream::connect(self.config.clamd_addr()),
+        )
+        .await
+        .map_err(|_| VirusScanError::ConnectionTimeout)?
+        .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
 
         timeout(op_timeout, stream.write_all(b"zVERSION\0"))
             .await
@@ -392,10 +382,13 @@ impl ClamAvClient {
         let connect_timeout = self.connect_timeout();
         let op_timeout = self.operation_timeout();
 
-        let mut stream = timeout(connect_timeout, TcpStream::connect(self.config.clamd_addr()))
-            .await
-            .map_err(|_| VirusScanError::ConnectionTimeout)?
-            .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
+        let mut stream = timeout(
+            connect_timeout,
+            TcpStream::connect(self.config.clamd_addr()),
+        )
+        .await
+        .map_err(|_| VirusScanError::ConnectionTimeout)?
+        .map_err(|e| VirusScanError::ConnectionError(e.to_string()))?;
 
         // Send INSTREAM command
         timeout(op_timeout, stream.write_all(b"zINSTREAM\0"))
@@ -479,7 +472,7 @@ pub struct ScanJob {
 }
 
 /// Enqueue a virus scan job for a file
-/// 
+///
 /// If `max_queue_size` is provided and > 0, will reject with QueueFull error
 /// if the pending queue exceeds that limit.
 pub async fn enqueue_scan(
@@ -492,7 +485,7 @@ pub async fn enqueue_scan(
 }
 
 /// Enqueue a virus scan job with backpressure control
-/// 
+///
 /// If `max_queue_size` > 0, will reject with QueueFull error if the pending
 /// queue exceeds that limit. Set to 0 to disable backpressure.
 pub async fn enqueue_scan_with_backpressure(
@@ -505,7 +498,7 @@ pub async fn enqueue_scan_with_backpressure(
     // Check queue size if backpressure is enabled
     if max_queue_size > 0 {
         let queue_size: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM virus_scan_jobs WHERE status IN ('pending', 'scanning')"
+            "SELECT COUNT(*) FROM virus_scan_jobs WHERE status IN ('pending', 'scanning')",
         )
         .fetch_one(pool)
         .await?;
@@ -611,22 +604,21 @@ pub async fn skip_job(pool: &PgPool, job_id: Uuid, reason: &str) -> Result<(), V
 /// Calculate exponential backoff delay in seconds based on retry count
 fn calculate_backoff_delay(retry_count: i32) -> i64 {
     match retry_count {
-        0 => 30,     // 30 seconds
-        1 => 120,    // 2 minutes
-        2 => 600,    // 10 minutes
-        _ => 600,    // Cap at 10 minutes
+        0 => 30,  // 30 seconds
+        1 => 120, // 2 minutes
+        2 => 600, // 10 minutes
+        _ => 600, // Cap at 10 minutes
     }
 }
 
 /// Mark a scan job as failed with exponential backoff retry
 pub async fn fail_job(pool: &PgPool, job_id: Uuid, error: &str) -> Result<(), VirusScanError> {
     // Get current retry count to calculate backoff
-    let retry_count: Option<i32> = sqlx::query_scalar(
-        "SELECT retry_count FROM virus_scan_jobs WHERE id = $1"
-    )
-    .bind(job_id)
-    .fetch_optional(pool)
-    .await?;
+    let retry_count: Option<i32> =
+        sqlx::query_scalar("SELECT retry_count FROM virus_scan_jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(pool)
+            .await?;
 
     let current_retry = retry_count.unwrap_or(0);
     let backoff_secs = calculate_backoff_delay(current_retry);
@@ -824,7 +816,9 @@ pub async fn check_and_suspend_uploader(
             file_id,
             file_name,
             threat_name,
-        ).await {
+        )
+        .await
+        {
             error!(
                 target: "virus_scan",
                 user_id = %user_id,
@@ -854,7 +848,10 @@ pub async fn check_and_suspend_uploader(
 /// Trait for file storage access (implemented by storage backend)
 #[async_trait::async_trait]
 pub trait FileStorageReader: Send + Sync {
-    async fn download(&self, key: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
+    async fn download(
+        &self,
+        key: &str,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
     async fn delete(&self, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
@@ -898,9 +895,9 @@ impl VirusScanWorker {
     ) -> Self {
         let circuit_breaker = Arc::new(CircuitBreaker::new(
             format!("clamav-worker-{}", worker_id),
-            5,   // failure threshold
-            30,  // recovery timeout seconds
-            3,   // success threshold to close
+            5,  // failure threshold
+            30, // recovery timeout seconds
+            3,  // success threshold to close
         ));
         Self::new(pool, config, storage, worker_id, circuit_breaker)
     }
@@ -1030,11 +1027,7 @@ impl VirusScanWorker {
 
         // Check file type filter
         if !settings.file_types.is_empty() {
-            let ext = storage_path
-                .rsplit('.')
-                .next()
-                .unwrap_or("")
-                .to_lowercase();
+            let ext = storage_path.rsplit('.').next().unwrap_or("").to_lowercase();
             if !settings.file_types.iter().any(|t| t.to_lowercase() == ext) {
                 skip_job(
                     &self.pool,
@@ -1055,7 +1048,12 @@ impl VirusScanWorker {
                 job_id = %job.id,
                 "Circuit breaker is open, requeuing job"
             );
-            requeue_job(&self.pool, job.id, "Circuit breaker open - ClamAV unavailable").await?;
+            requeue_job(
+                &self.pool,
+                job.id,
+                "Circuit breaker open - ClamAV unavailable",
+            )
+            .await?;
             // Sleep a bit before the next iteration to avoid spinning
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             return Ok(true);
@@ -1186,10 +1184,11 @@ impl VirusScanWorker {
             // Send security alert and notifications
             let threat = scan_result.threat_name.as_deref().unwrap_or("Unknown");
             let action_str = action_taken.unwrap_or("flagged");
-            
+
             // Get file info for notifications
-            let file_info: Option<(String, Option<Uuid>, Option<String>, Option<String>)> = sqlx::query_as(
-                r#"
+            let file_info: Option<(String, Option<Uuid>, Option<String>, Option<String>)> =
+                sqlx::query_as(
+                    r#"
                 SELECT 
                     fm.name,
                     fm.owner_id,
@@ -1198,13 +1197,13 @@ impl VirusScanWorker {
                 FROM files_metadata fm
                 LEFT JOIN users u ON u.id = fm.owner_id
                 WHERE fm.id = $1
-                "#
-            )
-            .bind(job.file_id)
-            .fetch_optional(&self.pool)
-            .await
-            .ok()
-            .flatten();
+                "#,
+                )
+                .bind(job.file_id)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
 
             if let Some((file_name, uploader_id, uploader_email, uploader_role)) = file_info {
                 // Create security alert
@@ -1217,7 +1216,9 @@ impl VirusScanWorker {
                     threat,
                     action_str,
                     uploader_email.as_deref(),
-                ).await {
+                )
+                .await
+                {
                     error!(
                         target: "virus_scan",
                         file_id = %job.file_id,
@@ -1229,14 +1230,13 @@ impl VirusScanWorker {
                 // Send notifications if configured
                 if settings.notify_admin || settings.notify_uploader {
                     // Get tenant for notifications
-                    let tenant: Option<Tenant> = sqlx::query_as(
-                        "SELECT * FROM tenants WHERE id = $1"
-                    )
-                    .bind(job.tenant_id)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .ok()
-                    .flatten();
+                    let tenant: Option<Tenant> =
+                        sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
+                            .bind(job.tenant_id)
+                            .fetch_optional(&self.pool)
+                            .await
+                            .ok()
+                            .flatten();
 
                     if let Some(tenant) = tenant {
                         if let Err(e) = notification_service::notify_malware_detection(
@@ -1251,7 +1251,9 @@ impl VirusScanWorker {
                             uploader_role.as_deref(),
                             settings.notify_admin,
                             settings.notify_uploader,
-                        ).await {
+                        )
+                        .await
+                        {
                             error!(
                                 target: "virus_scan",
                                 file_id = %job.file_id,
@@ -1280,7 +1282,9 @@ impl VirusScanWorker {
                                 job.file_id,
                                 &file_name,
                                 threat,
-                            ).await {
+                            )
+                            .await
+                            {
                                 error!(
                                     target: "virus_scan",
                                     user_id = %user_id,
@@ -1341,7 +1345,7 @@ pub struct ScanMetrics {
 
 /// Get virus scan metrics for admin dashboard
 pub async fn get_metrics(
-    pool: &PgPool, 
+    pool: &PgPool,
     config: &VirusScanConfig,
     circuit_breaker: Option<&CircuitBreaker>,
 ) -> Result<ScanMetrics, VirusScanError> {
@@ -1435,18 +1439,16 @@ pub async fn get_scan_history(
     // Get total count
     let total: (i64,) = if infected_only {
         sqlx::query_as(
-            "SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1 AND is_infected = true"
+            "SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1 AND is_infected = true",
         )
         .bind(tenant_id)
         .fetch_one(pool)
         .await?
     } else {
-        sqlx::query_as(
-            "SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_one(pool)
-        .await?
+        sqlx::query_as("SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await?
     };
 
     let items = if infected_only {
@@ -1551,7 +1553,21 @@ pub async fn get_quarantined_files(
     .await?;
 
     // Get quarantined files with uploader info
-    let results = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, Option<i64>, DateTime<Utc>, Option<Uuid>, Option<String>, Option<String>)>(
+    let results = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            String,
+            String,
+            String,
+            Option<i64>,
+            DateTime<Utc>,
+            Option<Uuid>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         r#"
         SELECT 
             qf.id,
@@ -1579,20 +1595,33 @@ pub async fn get_quarantined_files(
 
     let items: Vec<QuarantinedFileResponse> = results
         .into_iter()
-        .map(|(id, file_id, file_name, original_path, threat_name, size, quarantined_at, owner_id, owner_name, owner_email)| {
-            QuarantinedFileResponse {
+        .map(
+            |(
                 id,
                 file_id,
                 file_name,
                 original_path,
                 threat_name,
-                original_size: size.unwrap_or(0),
+                size,
                 quarantined_at,
-                uploader_id: owner_id,
-                uploader_name: owner_name,
-                uploader_email: owner_email,
-            }
-        })
+                owner_id,
+                owner_name,
+                owner_email,
+            )| {
+                QuarantinedFileResponse {
+                    id,
+                    file_id,
+                    file_name,
+                    original_path,
+                    threat_name,
+                    original_size: size.unwrap_or(0),
+                    quarantined_at,
+                    uploader_id: owner_id,
+                    uploader_name: owner_name,
+                    uploader_email: owner_email,
+                }
+            },
+        )
         .collect();
 
     Ok(QuarantineListResponse {
@@ -1602,5 +1631,3 @@ pub async fn get_quarantined_files(
         offset,
     })
 }
-
-

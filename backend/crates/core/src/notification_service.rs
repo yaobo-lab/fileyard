@@ -1,11 +1,11 @@
+use crate::mailer;
+use crate::models::Tenant;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use crate::mailer;
-use crate::models::Tenant;
+use uuid::Uuid;
 
 // ==================== Notification Types ====================
 
@@ -97,7 +97,7 @@ pub async fn get_email_template(
     // First, try to get tenant-specific template
     let tenant_template: Option<TenantEmailTemplate> = sqlx::query_as(
         "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2"
+         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
     )
     .bind(tenant_id)
     .bind(template_key)
@@ -145,10 +145,12 @@ pub async fn render_email_template(
 
     // Add default variables
     let mut all_vars = variables;
-    all_vars.entry("company_name".to_string()).or_insert_with(|| tenant.name.clone());
-    all_vars.entry("app_url".to_string()).or_insert_with(|| {
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "https://app.clovalink.com".to_string())
-    });
+    all_vars
+        .entry("company_name".to_string())
+        .or_insert_with(|| tenant.name.clone());
+    all_vars
+        .entry("app_url".to_string())
+        .or_insert_with(|| types::config::get_config().frontend_url.clone());
 
     Some(RenderedTemplate {
         subject: render_template(&subject, &all_vars),
@@ -165,9 +167,10 @@ pub async fn send_templated_email(
     template_key: &str,
     variables: HashMap<String, String>,
 ) -> Result<(), String> {
-    let rendered = render_email_template(pool, tenant, template_key, variables).await
+    let rendered = render_email_template(pool, tenant, template_key, variables)
+        .await
         .ok_or_else(|| format!("Email template '{}' not found", template_key))?;
-    
+
     mailer::send_email(tenant, to_email, &rendered.subject, &rendered.body_html)
         .await
         .map_err(|e| format!("Failed to send email: {:?}", e))
@@ -233,8 +236,7 @@ pub fn can_receive_notification(
             | NotificationType::MalwareDetected => false,
         },
         "Employee" => match notification_type {
-            NotificationType::FileShared
-            | NotificationType::ApprovalDecision => true,
+            NotificationType::FileShared | NotificationType::ApprovalDecision => true,
             NotificationType::FileUpload | NotificationType::RequestExpiring => {
                 // Only if they own the resource
                 resource_owner_id.map_or(false, |owner| owner == user_id)
@@ -266,10 +268,11 @@ pub async fn create_notification(
     user_email: Option<&str>,
 ) -> Result<Notification, sqlx::Error> {
     let event_type = notification_type.event_type();
-    
+
     // Get effective preferences (merges tenant settings + user preferences, exempts SuperAdmins)
-    let effective_prefs = get_effective_preferences(pool, tenant.id, user_id, user_role, event_type).await;
-    
+    let effective_prefs =
+        get_effective_preferences(pool, tenant.id, user_id, user_role, event_type).await;
+
     // If notification type is disabled at company level, skip entirely
     if !effective_prefs.notification_enabled {
         // Return a placeholder notification (not stored)
@@ -286,10 +289,10 @@ pub async fn create_notification(
             created_at: Utc::now(),
         });
     }
-    
+
     let mut email_sent = false;
     let mut notification_id = None;
-    
+
     // Create in-app notification if enabled
     if effective_prefs.in_app_enabled {
         let notif: Notification = sqlx::query_as(
@@ -307,27 +310,34 @@ pub async fn create_notification(
         .bind(metadata.clone().unwrap_or(json!({})))
         .fetch_one(pool)
         .await?;
-        
+
         notification_id = Some(notif.id);
     }
-    
+
     // Send email if enabled and user email is provided
     if effective_prefs.email_enabled {
         if let Some(email) = user_email {
             // Use database templates with fallback
             let (email_subject, email_body) = format_email_body_with_template(
-                pool, tenant, &notification_type, title, message, &metadata
-            ).await;
-            
+                pool,
+                tenant,
+                &notification_type,
+                title,
+                message,
+                &metadata,
+            )
+            .await;
+
             match mailer::send_email(tenant, email, &email_subject, &email_body).await {
                 Ok(_) => {
                     email_sent = true;
                     // Update notification to mark email as sent
                     if let Some(nid) = notification_id {
-                        let _ = sqlx::query("UPDATE notifications SET email_sent = true WHERE id = $1")
-                            .bind(nid)
-                            .execute(pool)
-                            .await;
+                        let _ =
+                            sqlx::query("UPDATE notifications SET email_sent = true WHERE id = $1")
+                                .bind(nid)
+                                .execute(pool)
+                                .await;
                     }
                 }
                 Err(e) => {
@@ -336,7 +346,7 @@ pub async fn create_notification(
             }
         }
     }
-    
+
     // Return the notification (or a placeholder if not created)
     if let Some(nid) = notification_id {
         sqlx::query_as("SELECT * FROM notifications WHERE id = $1")
@@ -372,7 +382,7 @@ pub struct TenantNotificationSetting {
     pub in_app_enforced: bool,
     pub default_email: bool,
     pub default_in_app: bool,
-    pub role: Option<String>,  // NULL = applies to all roles, specific value = role-specific
+    pub role: Option<String>, // NULL = applies to all roles, specific value = role-specific
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -403,11 +413,11 @@ async fn get_tenant_settings_for_role(
     .await
     .ok()
     .flatten();
-    
+
     if role_specific.is_some() {
         return role_specific;
     }
-    
+
     // Fall back to global settings (role = NULL)
     sqlx::query_as(
         "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 AND event_type = $2 AND role IS NULL"
@@ -428,13 +438,13 @@ async fn get_user_preferences(
 ) -> Result<NotificationPreference, sqlx::Error> {
     // Try to get existing preference
     let preference: Option<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 AND event_type = $2"
+        "SELECT * FROM notification_preferences WHERE user_id = $1 AND event_type = $2",
     )
     .bind(user_id)
     .bind(event_type)
     .fetch_optional(pool)
     .await?;
-    
+
     // Return existing or create default
     match preference {
         Some(p) => Ok(p),
@@ -485,13 +495,14 @@ pub async fn get_effective_preferences(
             },
         };
     }
-    
+
     // Get tenant settings (role-specific first, then global)
-    let tenant_settings = get_tenant_settings_for_role(pool, tenant_id, event_type, user_role).await;
-    
+    let tenant_settings =
+        get_tenant_settings_for_role(pool, tenant_id, event_type, user_role).await;
+
     // Get user preferences
     let user_prefs = get_user_preferences(pool, user_id, event_type).await.ok();
-    
+
     match tenant_settings {
         Some(ts) => {
             // Tenant has explicit settings
@@ -503,11 +514,17 @@ pub async fn get_effective_preferences(
                     notification_enabled: false,
                 };
             }
-            
+
             // Merge with user preferences
-            let user_email = user_prefs.as_ref().map(|p| p.email_enabled).unwrap_or(ts.default_email);
-            let user_in_app = user_prefs.as_ref().map(|p| p.in_app_enabled).unwrap_or(ts.default_in_app);
-            
+            let user_email = user_prefs
+                .as_ref()
+                .map(|p| p.email_enabled)
+                .unwrap_or(ts.default_email);
+            let user_in_app = user_prefs
+                .as_ref()
+                .map(|p| p.in_app_enabled)
+                .unwrap_or(ts.default_in_app);
+
             EffectivePreferences {
                 // If enforced, it's always on; otherwise use user preference
                 email_enabled: ts.email_enforced || user_email,
@@ -546,10 +563,12 @@ async fn format_email_body_with_template(
     let mut variables = HashMap::new();
     variables.insert("user_name".to_string(), "User".to_string()); // Default, will be overridden
     variables.insert("company_name".to_string(), tenant.name.clone());
-    variables.insert("app_url".to_string(), 
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "https://app.clovalink.com".to_string()));
+    variables.insert(
+        "app_url".to_string(),
+        types::config::get_config().frontend_url.clone(),
+    );
     variables.insert("message".to_string(), message.to_string());
-    
+
     // Extract variables from metadata
     if let Some(meta) = metadata {
         if let Some(obj) = meta.as_object() {
@@ -564,14 +583,16 @@ async fn format_email_body_with_template(
             }
         }
     }
-    
+
     let template_key = notification_type.as_str();
-    
+
     // Try to get template from database
-    if let Some(rendered) = render_email_template(pool, tenant, template_key, variables.clone()).await {
+    if let Some(rendered) =
+        render_email_template(pool, tenant, template_key, variables.clone()).await
+    {
         return (rendered.subject, rendered.body_html);
     }
-    
+
     // Fallback to hardcoded template
     let fallback_html = format!(
         r#"<!DOCTYPE html>
@@ -608,7 +629,7 @@ async fn format_email_body_with_template(
         message = message,
         company_name = tenant.name,
     );
-    
+
     (title.to_string(), fallback_html)
 }
 
@@ -635,7 +656,7 @@ pub async fn notify_file_upload(
     ) {
         return Ok(());
     }
-    
+
     let title = format!("New upload to \"{}\"", request_name);
     let message = format!(
         "{} uploaded \"{}\" to your file request.",
@@ -648,7 +669,7 @@ pub async fn notify_file_upload(
         "request_name": request_name,
         "uploader_name": uploader_name
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -659,8 +680,9 @@ pub async fn notify_file_upload(
         &message,
         Some(metadata),
         Some(request_owner_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -683,21 +705,24 @@ pub async fn notify_expiring_request(
     ) {
         return Ok(());
     }
-    
+
     let title = format!("File request \"{}\" expiring soon", request_name);
     let message = if days_until_expiry == 0 {
         format!("Your file request \"{}\" expires today!", request_name)
     } else if days_until_expiry == 1 {
         format!("Your file request \"{}\" expires tomorrow.", request_name)
     } else {
-        format!("Your file request \"{}\" expires in {} days.", request_name, days_until_expiry)
+        format!(
+            "Your file request \"{}\" expires in {} days.",
+            request_name, days_until_expiry
+        )
     };
     let metadata = json!({
         "request_id": request_id,
         "request_name": request_name,
         "days_until_expiry": days_until_expiry
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -708,8 +733,9 @@ pub async fn notify_expiring_request(
         &message,
         Some(metadata),
         Some(user_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -724,15 +750,10 @@ pub async fn notify_user_created(
     new_user_email: &str,
     new_user_role: &str,
 ) -> Result<(), sqlx::Error> {
-    if !can_receive_notification(
-        admin_role,
-        &NotificationType::UserCreated,
-        admin_id,
-        None,
-    ) {
+    if !can_receive_notification(admin_role, &NotificationType::UserCreated, admin_id, None) {
         return Ok(());
     }
-    
+
     let title = "New user added".to_string();
     let message = format!(
         "{} ({}) was added as {} to the organization.",
@@ -743,7 +764,7 @@ pub async fn notify_user_created(
         "new_user_name": new_user_name,
         "new_user_role": new_user_role
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -754,8 +775,9 @@ pub async fn notify_user_created(
         &message,
         Some(metadata),
         Some(admin_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -777,7 +799,7 @@ pub async fn notify_role_changed(
         "old_role": old_role,
         "new_role": new_role
     });
-    
+
     // User always receives their own role change notification
     // Use new_role since that's their current role
     create_notification(
@@ -790,8 +812,9 @@ pub async fn notify_role_changed(
         &message,
         Some(metadata),
         Some(user_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -813,13 +836,13 @@ pub async fn notify_compliance_alert(
     ) {
         return Ok(());
     }
-    
+
     let title = format!("Compliance Alert: {}", alert_type);
     let metadata = json!({
         "alert_type": alert_type,
         "compliance_mode": tenant.compliance_mode
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -830,8 +853,9 @@ pub async fn notify_compliance_alert(
         alert_message,
         Some(metadata),
         Some(admin_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -852,30 +876,34 @@ pub async fn notify_storage_warning(
     ) {
         return Ok(());
     }
-    
+
     let (title, message) = if percentage_used >= 100 {
         (
             "Storage quota exceeded".to_string(),
-            "Your storage quota has been exceeded. Please free up space or upgrade your plan.".to_string()
+            "Your storage quota has been exceeded. Please free up space or upgrade your plan."
+                .to_string(),
         )
     } else if percentage_used >= 90 {
         (
             "Storage quota critical".to_string(),
-            format!("You have used {}% of your storage quota. Consider freeing up space.", percentage_used)
+            format!(
+                "You have used {}% of your storage quota. Consider freeing up space.",
+                percentage_used
+            ),
         )
     } else {
         (
             "Storage quota warning".to_string(),
-            format!("You have used {}% of your storage quota.", percentage_used)
+            format!("You have used {}% of your storage quota.", percentage_used),
         )
     };
-    
+
     let metadata = json!({
         "percentage_used": percentage_used,
         "storage_used_bytes": tenant.storage_used_bytes,
         "storage_quota_bytes": tenant.storage_quota_bytes
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -886,8 +914,9 @@ pub async fn notify_storage_warning(
         &message,
         Some(metadata),
         Some(admin_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -903,16 +932,13 @@ pub async fn notify_file_shared(
     file_id: Uuid,
 ) -> Result<(), sqlx::Error> {
     let title = format!("{} shared a file with you", sharer_name);
-    let message = format!(
-        "{} shared \"{}\" with you.",
-        sharer_name, file_name
-    );
+    let message = format!("{} shared \"{}\" with you.", sharer_name, file_name);
     let metadata = json!({
         "file_id": file_id,
         "file_name": file_name,
         "sharer_name": sharer_name
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -923,8 +949,9 @@ pub async fn notify_file_shared(
         &message,
         Some(metadata),
         Some(user_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -942,12 +969,12 @@ pub async fn get_tenant_admins(
         WHERE tenant_id = $1 
         AND role IN ('SuperAdmin', 'Admin') 
         AND status = 'active'
-        "#
+        "#,
     )
     .bind(tenant_id)
     .fetch_all(pool)
     .await?;
-    
+
     Ok(admins)
 }
 
@@ -961,7 +988,7 @@ pub async fn notify_all_admins(
     metadata: Option<Value>,
 ) -> Result<(), sqlx::Error> {
     let admins = get_tenant_admins(pool, tenant.id).await?;
-    
+
     for (admin_id, admin_email, admin_role) in admins {
         if can_receive_notification(&admin_role, &notification_type, admin_id, None) {
             let _ = create_notification(
@@ -974,10 +1001,11 @@ pub async fn notify_all_admins(
                 message,
                 metadata.clone(),
                 Some(&admin_email),
-            ).await;
+            )
+            .await;
         }
     }
-    
+
     Ok(())
 }
 
@@ -995,16 +1023,17 @@ pub async fn notify_security_alert(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Get all admins in this tenant
     let admins = get_tenant_admins(pool, tenant.id).await?;
-    
+
     if admins.is_empty() {
-        tracing::warn!("No admins found for tenant {} to notify about security alert", tenant.id);
+        tracing::warn!(
+            "No admins found for tenant {} to notify about security alert",
+            tenant.id
+        );
         return Ok(());
     }
 
     // Get APP_URL for links
-    let app_url = std::env::var("APP_URL")
-        .or_else(|_| std::env::var("BASE_URL"))
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let app_url = types::config::get_config().web.base_url.clone();
 
     // Format alert type for display
     let alert_type_display = alert_type
@@ -1021,19 +1050,19 @@ pub async fn notify_security_alert(
         .join(" ");
 
     // Format timestamp
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    let timestamp = chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S UTC")
+        .to_string();
 
     // Send email to each admin
     for (admin_id, admin_email, _admin_role) in admins {
         // Get admin's name
-        let admin_name: Option<String> = sqlx::query_scalar(
-            "SELECT name FROM users WHERE id = $1"
-        )
-        .bind(admin_id)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
+        let admin_name: Option<String> = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
 
         let admin_name = admin_name.unwrap_or_else(|| "Admin".to_string());
 
@@ -1047,27 +1076,35 @@ pub async fn notify_security_alert(
         variables.insert("alert_type".to_string(), alert_type.to_string());
         variables.insert("alert_type_display".to_string(), alert_type_display.clone());
         variables.insert("timestamp".to_string(), timestamp.clone());
-        variables.insert("affected_user".to_string(), affected_user_email.unwrap_or("N/A").to_string());
-        variables.insert("ip_address".to_string(), ip_address.unwrap_or("N/A").to_string());
+        variables.insert(
+            "affected_user".to_string(),
+            affected_user_email.unwrap_or("N/A").to_string(),
+        );
+        variables.insert(
+            "ip_address".to_string(),
+            ip_address.unwrap_or("N/A").to_string(),
+        );
         variables.insert("tenant_name".to_string(), tenant.name.clone());
         variables.insert("app_url".to_string(), app_url.clone());
 
         // Render and send email
-        if let Some(rendered) = render_email_template(pool, tenant, "security_alert", variables).await {
-            if let Err(e) = mailer::send_email(
-                tenant,
-                &admin_email,
-                &rendered.subject,
-                &rendered.body_html,
-            ).await {
+        if let Some(rendered) =
+            render_email_template(pool, tenant, "security_alert", variables).await
+        {
+            if let Err(e) =
+                mailer::send_email(tenant, &admin_email, &rendered.subject, &rendered.body_html)
+                    .await
+            {
                 tracing::error!(
                     "Failed to send security alert email to {}: {:?}",
-                    admin_email, e
+                    admin_email,
+                    e
                 );
             } else {
                 tracing::info!(
                     "Sent security alert email to {} for {} alert",
-                    admin_email, severity
+                    admin_email,
+                    severity
                 );
             }
         } else {
@@ -1089,15 +1126,11 @@ pub async fn notify_security_alert(
                 app_url
             );
 
-            if let Err(e) = mailer::send_email(
-                tenant,
-                &admin_email,
-                &subject,
-                &body,
-            ).await {
+            if let Err(e) = mailer::send_email(tenant, &admin_email, &subject, &body).await {
                 tracing::error!(
                     "Failed to send fallback security alert email to {}: {:?}",
-                    admin_email, e
+                    admin_email,
+                    e
                 );
             }
         }
@@ -1129,7 +1162,7 @@ pub async fn notify_malware_detected_admin(
     ) {
         return Ok(());
     }
-    
+
     let title = format!("Malware Detected: {}", threat_name);
     let message = format!(
         "A file uploaded to your organization was detected as malicious.\n\n\
@@ -1149,7 +1182,7 @@ pub async fn notify_malware_detected_admin(
         "action_taken": action_taken,
         "uploader_email": uploader_email
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -1160,8 +1193,9 @@ pub async fn notify_malware_detected_admin(
         &message,
         Some(metadata),
         Some(admin_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -1186,7 +1220,7 @@ pub async fn notify_malware_detected_uploader(
     ) {
         return Ok(());
     }
-    
+
     let title = "Security Alert: File removed".to_string();
     let message = format!(
         "A file you uploaded was flagged as potentially harmful and has been {}.\n\n\
@@ -1203,7 +1237,7 @@ pub async fn notify_malware_detected_uploader(
         "threat_name": threat_name,
         "action_taken": action_taken
     });
-    
+
     create_notification(
         pool,
         tenant,
@@ -1214,8 +1248,9 @@ pub async fn notify_malware_detected_uploader(
         &message,
         Some(metadata),
         Some(user_email),
-    ).await?;
-    
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -1248,15 +1283,18 @@ pub async fn notify_malware_detection(
                 threat_name,
                 action_taken,
                 uploader_email,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!(
                     "Failed to notify admin {} about malware detection: {:?}",
-                    admin_email, e
+                    admin_email,
+                    e
                 );
             }
         }
     }
-    
+
     // Notify uploader if enabled and we know who they are
     if notify_uploader {
         if let (Some(uid), Some(email), Some(role)) = (uploader_id, uploader_email, uploader_role) {
@@ -1270,14 +1308,17 @@ pub async fn notify_malware_detection(
                 file_name,
                 threat_name,
                 action_taken,
-            ).await {
+            )
+            .await
+            {
                 tracing::error!(
                     "Failed to notify uploader {} about malware detection: {:?}",
-                    email, e
+                    email,
+                    e
                 );
             }
         }
     }
-    
+
     Ok(())
 }

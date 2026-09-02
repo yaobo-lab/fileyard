@@ -223,9 +223,9 @@ pub async fn detailed_health(
     });
 
     // Storage check with actual connectivity test
-    let storage_type = std::env::var("STORAGE_TYPE").unwrap_or_else(|_| "local".to_string());
+    let storage_type = types::config::get_config().storage.kind.clone();
     let storage_bucket = if storage_type == "s3" {
-        std::env::var("S3_BUCKET").ok()
+        Some(types::config::get_config().storage.s3_bucket.clone())
     } else {
         None
     };

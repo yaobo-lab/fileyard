@@ -5086,8 +5086,7 @@ pub async fn create_file_share(
     )
     .await;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let share_link = format!("{}/share/{}", base_url, token);
 
     // Send notifications if sharing with a specific user

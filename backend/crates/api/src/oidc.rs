@@ -245,8 +245,7 @@ pub async fn start_oidc_auth(
         )
     })?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
 
     // Discover OIDC endpoints
@@ -326,8 +325,7 @@ pub async fn oidc_callback(
     headers: HeaderMap,
     Query(params): Query<OidcCallbackParams>,
 ) -> Result<Redirect, (StatusCode, String)> {
-    let frontend_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let frontend_url = types::config::get_config().web.base_url.clone();
 
     // Handle IdP errors
     if let Some(error) = params.error {
@@ -391,8 +389,7 @@ pub async fn oidc_callback(
                 )
             })?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
 
     // Discover OIDC endpoints and exchange code for tokens
@@ -901,8 +898,7 @@ pub async fn link_oidc_identity(
         )
     })?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
 
     let issuer = IssuerUrl::new(provider.issuer_url.clone()).map_err(|_| {

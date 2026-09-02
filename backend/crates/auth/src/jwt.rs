@@ -1,5 +1,5 @@
 //! JWT Token Generation and Verification
-//! 
+//!
 //! Security features:
 //! - No hardcoded fallback secrets
 //! - Issuer and audience validation
@@ -8,11 +8,10 @@
 
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
-/// JWT configuration loaded from environment
+/// JWT configuration loaded from the application TOML configuration.
 struct JwtConfig {
     /// Primary JWT secret (required)
     secret: String,
@@ -28,62 +27,38 @@ struct JwtConfig {
 
 static JWT_CONFIG: OnceLock<JwtConfig> = OnceLock::new();
 
-/// Initialize JWT configuration from environment
-/// 
+/// Initialize JWT configuration from `etc/config.toml`.
+///
 /// # Panics
 /// Panics if JWT_SECRET is not set and ENVIRONMENT is not "development" or "dev"
 fn get_jwt_config() -> &'static JwtConfig {
     JWT_CONFIG.get_or_init(|| {
-        let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string());
-        let is_dev = environment == "development" || environment == "dev";
-        
-        // Get JWT secret - REQUIRED in production
-        let secret = match env::var("JWT_SECRET") {
-            Ok(s) if !s.is_empty() => {
-                if s.len() < 32 {
-                    tracing::warn!("JWT_SECRET is less than 32 characters - consider using a longer secret");
-                }
-                s
-            }
-            _ => {
-                if is_dev {
-                    tracing::warn!(
-                        "JWT_SECRET not set - using insecure development secret. \
-                        DO NOT use this in production!"
-                    );
-                    // Only allow fallback in explicit dev mode
-                    "INSECURE_DEV_SECRET_DO_NOT_USE_IN_PRODUCTION_12345".to_string()
-                } else {
-                    panic!(
-                        "JWT_SECRET environment variable is required in production. \
-                        Set JWT_SECRET to a secure random string (at least 32 characters). \
-                        For development, set ENVIRONMENT=development"
-                    );
-                }
-            }
-        };
-        
-        // Secondary secret for key rotation (optional)
-        let secret_secondary = env::var("JWT_SECRET_SECONDARY").ok().filter(|s| !s.is_empty());
+        let source = &types::config::get_config().auth;
+        let secret = source.jwt_secret.clone();
+        assert!(!secret.is_empty(), "auth.jwt_secret must be configured");
+        if secret.len() < 32 {
+            tracing::warn!("auth.jwt_secret is less than 32 characters");
+        }
+        let secret_secondary = source
+            .jwt_secret_secondary
+            .clone()
+            .filter(|s| !s.is_empty());
         if secret_secondary.is_some() {
             tracing::info!("JWT key rotation enabled: secondary secret configured");
         }
-        
+
         // Issuer and audience for token validation
-        let issuer = env::var("JWT_ISSUER").unwrap_or_else(|_| "clovalink".to_string());
-        let audience = env::var("JWT_AUDIENCE").unwrap_or_else(|_| "clovalink-api".to_string());
-        
-        // Token expiry (default 7 days)
-        let expiry_secs: usize = env::var("JWT_EXPIRY_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(7 * 24 * 60 * 60);
-        
+        let issuer = source.jwt_issuer.clone();
+        let audience = source.jwt_audience.clone();
+        let expiry_secs = source.jwt_expiry_secs;
+
         tracing::info!(
-            "JWT configured: issuer={}, audience={}, expiry={}s", 
-            issuer, audience, expiry_secs
+            "JWT configured: issuer={}, audience={}, expiry={}s",
+            issuer,
+            audience,
+            expiry_secs
         );
-        
+
         JwtConfig {
             secret,
             secret_secondary,
@@ -159,22 +134,22 @@ pub fn generate_token_with_fingerprint(
 }
 
 /// Verify and decode a JWT token
-/// 
+///
 /// Validates:
 /// - Signature (tries primary secret, then secondary for rotation)
 /// - Expiration time
 /// - Issuer and audience (if present in token)
 pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let config = get_jwt_config();
-    
+
     // Build validation rules
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.leeway = 60; // 60 seconds leeway for clock drift
-    
+
     // Validate issuer if configured
     validation.set_issuer(&[&config.issuer]);
-    
+
     // Validate audience if configured
     validation.set_audience(&[&config.audience]);
 
@@ -213,7 +188,7 @@ pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
 #[allow(dead_code)]
 pub fn verify_token_legacy(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let config = get_jwt_config();
-    
+
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.leeway = 60;
@@ -233,21 +208,16 @@ pub fn verify_token_legacy(token: &str) -> Result<Claims, jsonwebtoken::errors::
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_token_roundtrip() {
-        // Set up test environment
-        std::env::set_var("ENVIRONMENT", "development");
-        std::env::set_var("JWT_SECRET", "test-secret-for-unit-tests-only-32chars");
-        std::env::set_var("JWT_ISSUER", "test-issuer");
-        std::env::set_var("JWT_AUDIENCE", "test-audience");
-        
         let user_id = Uuid::new_v4();
         let tenant_id = Uuid::new_v4();
         let role = "Admin".to_string();
-        
-        let token = generate_token(user_id, tenant_id, role.clone()).expect("Failed to generate token");
-        
+
+        let token =
+            generate_token(user_id, tenant_id, role.clone()).expect("Failed to generate token");
+
         // Note: verify_token will fail in tests because OnceLock is already initialized
         // In a real test, you'd need to handle this differently
         assert!(!token.is_empty());
