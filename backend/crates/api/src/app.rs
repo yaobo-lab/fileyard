@@ -458,6 +458,7 @@ pub async fn run() {
                 let storage_reader = Arc::new(VirusScanStorageAdapter(worker_storage));
                 let worker = clovalink_core::virus_scan::VirusScanWorker::new(
                     worker_pool,
+                    app_state.store.clone(),
                     worker_config,
                     storage_reader,
                     worker_id,

@@ -164,6 +164,13 @@ pub struct Notification {
     pub created_at: DateTime<Utc>,
 }
 
+fn notification_from_entity(model: clovalink_entity::entities::notifications::Model) -> Notification {
+    Notification { id: model.id, user_id: model.user_id, tenant_id: model.tenant_id,
+        notification_type: model.notification_type, title: model.title, message: model.message,
+        metadata: model.metadata.unwrap_or_else(|| json!({})), is_read: model.is_read,
+        email_sent: model.email_sent, created_at: model.created_at.into() }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationPreference {
     pub id: Uuid,
@@ -229,7 +236,7 @@ pub fn can_receive_notification(
 /// Respects both tenant-level settings and user preferences
 /// SuperAdmins are exempt from tenant-level controls
 pub async fn create_notification(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     user_id: Uuid,
     user_role: &str,
@@ -238,12 +245,12 @@ pub async fn create_notification(
     message: &str,
     metadata: Option<Value>,
     user_email: Option<&str>,
-) -> Result<Notification, sqlx::Error> {
+) -> Result<Notification, clovalink_entity::DataError> {
     let event_type = notification_type.event_type();
 
     // Get effective preferences (merges tenant settings + user preferences, exempts SuperAdmins)
     let effective_prefs =
-        get_effective_preferences(pool, tenant.id, user_id, user_role, event_type).await;
+        get_effective_preferences(store, tenant.id, user_id, user_role, event_type).await;
 
     // If notification type is disabled at company level, skip entirely
     if !effective_prefs.notification_enabled {
@@ -267,21 +274,8 @@ pub async fn create_notification(
 
     // Create in-app notification if enabled
     if effective_prefs.in_app_enabled {
-        let notif: Notification = sqlx::query_as(
-            r#"
-            INSERT INTO notifications (user_id, tenant_id, notification_type, title, message, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
-            "#
-        )
-        .bind(user_id)
-        .bind(tenant.id)
-        .bind(notification_type.as_str())
-        .bind(title)
-        .bind(message)
-        .bind(metadata.clone().unwrap_or(json!({})))
-        .fetch_one(pool)
-        .await?;
+        let notif = store.notifications().create(user_id, tenant.id, notification_type.as_str(), title,
+            message, metadata.clone().unwrap_or_else(|| json!({}))).await?;
 
         notification_id = Some(notif.id);
     }
@@ -291,7 +285,7 @@ pub async fn create_notification(
         if let Some(email) = user_email {
             // Use database templates with fallback
             let (email_subject, email_body) = format_email_body_with_template(
-                pool,
+                store,
                 tenant,
                 &notification_type,
                 title,
@@ -305,11 +299,7 @@ pub async fn create_notification(
                     email_sent = true;
                     // Update notification to mark email as sent
                     if let Some(nid) = notification_id {
-                        let _ =
-                            sqlx::query("UPDATE notifications SET email_sent = true WHERE id = $1")
-                                .bind(nid)
-                                .execute(pool)
-                                .await;
+                        let _ = store.notifications().mark_email_sent(nid).await;
                     }
                 }
                 Err(e) => {
@@ -321,10 +311,8 @@ pub async fn create_notification(
 
     // Return the notification (or a placeholder if not created)
     if let Some(nid) = notification_id {
-        sqlx::query_as("SELECT * FROM notifications WHERE id = $1")
-            .bind(nid)
-            .fetch_one(pool)
-            .await
+        let model = store.notifications().by_id(nid).await?.ok_or(clovalink_entity::DataError::NotFound)?;
+        Ok(notification_from_entity(model))
     } else {
         // Return a placeholder notification (not stored)
         Ok(Notification {
@@ -369,72 +357,26 @@ pub struct EffectivePreferences {
 
 /// Get tenant notification settings for an event type, checking role-specific first then global
 async fn get_tenant_settings_for_role(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     event_type: &str,
     role: &str,
 ) -> Option<TenantNotificationSetting> {
-    // First try to get role-specific settings
-    let role_specific: Option<TenantNotificationSetting> = sqlx::query_as(
-        "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 AND event_type = $2 AND role = $3"
-    )
-    .bind(tenant_id)
-    .bind(event_type)
-    .bind(role)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    if role_specific.is_some() {
-        return role_specific;
-    }
-
-    // Fall back to global settings (role = NULL)
-    sqlx::query_as(
-        "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 AND event_type = $2 AND role IS NULL"
-    )
-    .bind(tenant_id)
-    .bind(event_type)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
+    store.notifications().tenant_setting(tenant_id, event_type, role).await.ok().flatten().map(|m| TenantNotificationSetting {
+        id:m.id, tenant_id:m.tenant_id, event_type:m.event_type, enabled:m.enabled, email_enforced:m.email_enforced,
+        in_app_enforced:m.in_app_enforced, default_email:m.default_email, default_in_app:m.default_in_app,
+        role:m.role, created_at:m.created_at.into(), updated_at:m.updated_at.into() })
 }
 
 /// Get user preferences for a specific event type
 async fn get_user_preferences(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     user_id: Uuid,
     event_type: &str,
-) -> Result<NotificationPreference, sqlx::Error> {
-    // Try to get existing preference
-    let preference: Option<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 AND event_type = $2",
-    )
-    .bind(user_id)
-    .bind(event_type)
-    .fetch_optional(pool)
-    .await?;
-
-    // Return existing or create default
-    match preference {
-        Some(p) => Ok(p),
-        None => {
-            // Insert default preference
-            sqlx::query_as(
-                r#"
-                INSERT INTO notification_preferences (user_id, event_type, email_enabled, in_app_enabled)
-                VALUES ($1, $2, true, true)
-                RETURNING *
-                "#
-            )
-            .bind(user_id)
-            .bind(event_type)
-            .fetch_one(pool)
-            .await
-        }
-    }
+) -> Result<NotificationPreference, clovalink_entity::DataError> {
+    let m = store.notifications().user_preference(user_id, event_type).await?;
+    Ok(NotificationPreference { id:m.id, user_id:m.user_id, event_type:m.event_type, email_enabled:m.email_enabled,
+        in_app_enabled:m.in_app_enabled, created_at:m.created_at.into(), updated_at:m.updated_at.into() })
 }
 
 /// Get effective preferences by merging tenant settings with user preferences
@@ -445,7 +387,7 @@ async fn get_user_preferences(
 /// - If tenant enforces email/in-app, users can't disable it
 /// - Otherwise, user preferences apply
 pub async fn get_effective_preferences(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_role: &str,
@@ -453,7 +395,7 @@ pub async fn get_effective_preferences(
 ) -> EffectivePreferences {
     // SuperAdmins are exempt from tenant-level notification controls
     if user_role == "SuperAdmin" {
-        let user_prefs = get_user_preferences(pool, user_id, event_type).await.ok();
+        let user_prefs = get_user_preferences(store, user_id, event_type).await.ok();
         return match user_prefs {
             Some(up) => EffectivePreferences {
                 email_enabled: up.email_enabled,
@@ -470,10 +412,10 @@ pub async fn get_effective_preferences(
 
     // Get tenant settings (role-specific first, then global)
     let tenant_settings =
-        get_tenant_settings_for_role(pool, tenant_id, event_type, user_role).await;
+        get_tenant_settings_for_role(store, tenant_id, event_type, user_role).await;
 
     // Get user preferences
-    let user_prefs = get_user_preferences(pool, user_id, event_type).await.ok();
+    let user_prefs = get_user_preferences(store, user_id, event_type).await.ok();
 
     match tenant_settings {
         Some(ts) => {
@@ -524,7 +466,7 @@ pub async fn get_effective_preferences(
 
 /// Format email body using database templates with fallback to hardcoded template
 async fn format_email_body_with_template(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     notification_type: &NotificationType,
     title: &str,
@@ -560,7 +502,7 @@ async fn format_email_body_with_template(
 
     // Try to get template from database
     if let Some(rendered) =
-        render_email_template(pool, tenant, template_key, variables.clone()).await
+        render_email_template(store, tenant, template_key, variables.clone()).await
     {
         return (rendered.subject, rendered.body_html);
     }
@@ -609,7 +551,7 @@ async fn format_email_body_with_template(
 
 /// Notify about a file upload to a file request
 pub async fn notify_file_upload(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     request_owner_id: Uuid,
     request_owner_email: &str,
@@ -619,7 +561,7 @@ pub async fn notify_file_upload(
     file_name: &str,
     file_id: Uuid,
     request_id: Uuid,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(
         request_owner_role,
         &NotificationType::FileUpload,
@@ -643,7 +585,7 @@ pub async fn notify_file_upload(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         request_owner_id,
         request_owner_role,
@@ -660,7 +602,7 @@ pub async fn notify_file_upload(
 
 /// Notify about expiring file requests
 pub async fn notify_expiring_request(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     user_id: Uuid,
     user_email: &str,
@@ -668,7 +610,7 @@ pub async fn notify_expiring_request(
     request_name: &str,
     request_id: Uuid,
     days_until_expiry: i32,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(
         user_role,
         &NotificationType::RequestExpiring,
@@ -696,7 +638,7 @@ pub async fn notify_expiring_request(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         user_id,
         user_role,
@@ -713,7 +655,7 @@ pub async fn notify_expiring_request(
 
 /// Notify admins about new user creation
 pub async fn notify_user_created(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     admin_id: Uuid,
     admin_email: &str,
@@ -721,7 +663,7 @@ pub async fn notify_user_created(
     new_user_name: &str,
     new_user_email: &str,
     new_user_role: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(admin_role, &NotificationType::UserCreated, admin_id, None) {
         return Ok(());
     }
@@ -738,7 +680,7 @@ pub async fn notify_user_created(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         admin_id,
         admin_role,
@@ -755,13 +697,13 @@ pub async fn notify_user_created(
 
 /// Notify user about role change
 pub async fn notify_role_changed(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     user_id: Uuid,
     user_email: &str,
     old_role: &str,
     new_role: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     let title = "Your role has been updated".to_string();
     let message = format!(
         "Your role has been changed from {} to {}.",
@@ -775,7 +717,7 @@ pub async fn notify_role_changed(
     // User always receives their own role change notification
     // Use new_role since that's their current role
     create_notification(
-        pool,
+        store,
         tenant,
         user_id,
         new_role,
@@ -792,14 +734,14 @@ pub async fn notify_role_changed(
 
 /// Notify admins about compliance alerts
 pub async fn notify_compliance_alert(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     admin_id: Uuid,
     admin_email: &str,
     admin_role: &str,
     alert_type: &str,
     alert_message: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(
         admin_role,
         &NotificationType::ComplianceAlert,
@@ -816,7 +758,7 @@ pub async fn notify_compliance_alert(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         admin_id,
         admin_role,
@@ -833,13 +775,13 @@ pub async fn notify_compliance_alert(
 
 /// Notify admins about storage warnings
 pub async fn notify_storage_warning(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     admin_id: Uuid,
     admin_email: &str,
     admin_role: &str,
     percentage_used: i32,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(
         admin_role,
         &NotificationType::StorageWarning,
@@ -877,7 +819,7 @@ pub async fn notify_storage_warning(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         admin_id,
         admin_role,
@@ -894,7 +836,7 @@ pub async fn notify_storage_warning(
 
 /// Notify user about file being shared with them
 pub async fn notify_file_shared(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     user_id: Uuid,
     user_email: &str,
@@ -902,7 +844,7 @@ pub async fn notify_file_shared(
     sharer_name: &str,
     file_name: &str,
     file_id: Uuid,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     let title = format!("{} shared a file with you", sharer_name);
     let message = format!("{} shared \"{}\" with you.", sharer_name, file_name);
     let metadata = json!({
@@ -912,7 +854,7 @@ pub async fn notify_file_shared(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         user_id,
         user_role,
@@ -931,40 +873,27 @@ pub async fn notify_file_shared(
 
 /// Get all admins for a tenant to send them notifications
 pub async fn get_tenant_admins(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
-) -> Result<Vec<(Uuid, String, String)>, sqlx::Error> {
-    let admins: Vec<(Uuid, String, String)> = sqlx::query_as(
-        r#"
-        SELECT id, email, role 
-        FROM users 
-        WHERE tenant_id = $1 
-        AND role IN ('SuperAdmin', 'Admin') 
-        AND status = 'active'
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(admins)
+) -> Result<Vec<(Uuid, String, String)>, clovalink_entity::DataError> {
+    store.notifications().tenant_admins(tenant_id).await
 }
 
 /// Notify all admins of a tenant about an event
 pub async fn notify_all_admins(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     notification_type: NotificationType,
     title: &str,
     message: &str,
     metadata: Option<Value>,
-) -> Result<(), sqlx::Error> {
-    let admins = get_tenant_admins(pool, tenant.id).await?;
+) -> Result<(), clovalink_entity::DataError> {
+    let admins = get_tenant_admins(store, tenant.id).await?;
 
     for (admin_id, admin_email, admin_role) in admins {
         if can_receive_notification(&admin_role, &notification_type, admin_id, None) {
             let _ = create_notification(
-                pool,
+                store,
                 tenant,
                 admin_id,
                 &admin_role,
@@ -984,7 +913,7 @@ pub async fn notify_all_admins(
 /// Send security alert emails to all admins in a tenant
 /// Only triggers for Critical and High severity alerts
 pub async fn notify_security_alert(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     alert_type: &str,
     severity: &str,
@@ -994,7 +923,7 @@ pub async fn notify_security_alert(
     ip_address: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Get all admins in this tenant
-    let admins = get_tenant_admins(pool, tenant.id).await?;
+    let admins = get_tenant_admins(store, tenant.id).await?;
 
     if admins.is_empty() {
         tracing::warn!(
@@ -1029,12 +958,7 @@ pub async fn notify_security_alert(
     // Send email to each admin
     for (admin_id, admin_email, _admin_role) in admins {
         // Get admin's name
-        let admin_name: Option<String> = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
-            .bind(admin_id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+        let admin_name = store.notifications().user_name(admin_id).await.ok().flatten();
 
         let admin_name = admin_name.unwrap_or_else(|| "Admin".to_string());
 
@@ -1061,7 +985,7 @@ pub async fn notify_security_alert(
 
         // Render and send email
         if let Some(rendered) =
-            render_email_template(pool, tenant, "security_alert", variables).await
+            render_email_template(store, tenant, "security_alert", variables).await
         {
             if let Err(e) =
                 mailer::send_email(tenant, &admin_email, &rendered.subject, &rendered.body_html)
@@ -1115,7 +1039,7 @@ pub async fn notify_security_alert(
 
 /// Notify admins about malware detection
 pub async fn notify_malware_detected_admin(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     admin_id: Uuid,
     admin_email: &str,
@@ -1125,7 +1049,7 @@ pub async fn notify_malware_detected_admin(
     threat_name: &str,
     action_taken: &str,
     uploader_email: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     if !can_receive_notification(
         admin_role,
         &NotificationType::MalwareDetected,
@@ -1156,7 +1080,7 @@ pub async fn notify_malware_detected_admin(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         admin_id,
         admin_role,
@@ -1173,7 +1097,7 @@ pub async fn notify_malware_detected_admin(
 
 /// Notify the file uploader about malware detection in their file
 pub async fn notify_malware_detected_uploader(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     user_id: Uuid,
     user_email: &str,
@@ -1182,7 +1106,7 @@ pub async fn notify_malware_detected_uploader(
     file_name: &str,
     threat_name: &str,
     action_taken: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     // For MalwareDetected, uploader can receive if they own the file
     if !can_receive_notification(
         user_role,
@@ -1211,7 +1135,7 @@ pub async fn notify_malware_detected_uploader(
     });
 
     create_notification(
-        pool,
+        store,
         tenant,
         user_id,
         user_role,
@@ -1228,7 +1152,7 @@ pub async fn notify_malware_detected_uploader(
 
 /// Notify all relevant parties about malware detection (convenience function)
 pub async fn notify_malware_detection(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant: &Tenant,
     file_id: Uuid,
     file_name: &str,
@@ -1239,13 +1163,13 @@ pub async fn notify_malware_detection(
     uploader_role: Option<&str>,
     notify_admin: bool,
     notify_uploader: bool,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), clovalink_entity::DataError> {
     // Notify admins if enabled
     if notify_admin {
-        let admins = get_tenant_admins(pool, tenant.id).await?;
+        let admins = get_tenant_admins(store, tenant.id).await?;
         for (admin_id, admin_email, admin_role) in admins {
             if let Err(e) = notify_malware_detected_admin(
-                pool,
+                store,
                 tenant,
                 admin_id,
                 &admin_email,
@@ -1271,7 +1195,7 @@ pub async fn notify_malware_detection(
     if notify_uploader {
         if let (Some(uid), Some(email), Some(role)) = (uploader_id, uploader_email, uploader_role) {
             if let Err(e) = notify_malware_detected_uploader(
-                pool,
+                store,
                 tenant,
                 uid,
                 email,

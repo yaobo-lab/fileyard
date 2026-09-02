@@ -858,6 +858,7 @@ pub trait FileStorageReader: Send + Sync {
 /// Virus scan worker that processes jobs in the background
 pub struct VirusScanWorker {
     pool: PgPool,
+    store: clovalink_entity::DataStore,
     config: VirusScanConfig,
     client: ClamAvClient,
     storage: Arc<dyn FileStorageReader>,
@@ -869,6 +870,7 @@ impl VirusScanWorker {
     /// Create a new virus scan worker
     pub fn new(
         pool: PgPool,
+        store: clovalink_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
         worker_id: u32,
@@ -877,6 +879,7 @@ impl VirusScanWorker {
         let client = ClamAvClient::new(config.clone());
         Self {
             pool,
+            store,
             config,
             client,
             storage,
@@ -889,6 +892,7 @@ impl VirusScanWorker {
     /// (5 failures to open, 30s recovery, 3 successes to close)
     pub fn with_default_circuit_breaker(
         pool: PgPool,
+        store: clovalink_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
         worker_id: u32,
@@ -899,7 +903,7 @@ impl VirusScanWorker {
             30, // recovery timeout seconds
             3,  // success threshold to close
         ));
-        Self::new(pool, config, storage, worker_id, circuit_breaker)
+        Self::new(pool, store, config, storage, worker_id, circuit_breaker)
     }
 
     /// Run the worker loop
@@ -1240,7 +1244,7 @@ impl VirusScanWorker {
 
                     if let Some(tenant) = tenant {
                         if let Err(e) = notification_service::notify_malware_detection(
-                            &self.pool,
+                            &self.store,
                             &tenant,
                             job.file_id,
                             &file_name,
