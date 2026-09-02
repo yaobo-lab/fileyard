@@ -158,7 +158,7 @@ pub async fn notify_expiring_requests(
                 .await
             {
                 let _ = notification_service::notify_expiring_request(
-                    &state.pool,
+                    &state.store,
                     &tenant,
                     created_by,
                     &user_email,
@@ -245,7 +245,7 @@ pub async fn check_storage_quotas(
                 if recent_warning.map(|(c,)| c).unwrap_or(0) == 0 {
                     // No recent warning at this threshold, send one
                     let _ = notification_service::notify_all_admins(
-                        &state.pool,
+                        &state.store,
                         &tenant,
                         notification_service::NotificationType::StorageWarning,
                         &if percentage >= 100 {

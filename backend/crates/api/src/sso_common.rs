@@ -350,6 +350,7 @@ async fn link_sso_identity(pool: &PgPool, identity: &SsoIdentityParams, user_id:
 /// Handles: suspension check, 2FA check, fingerprinting, JWT generation,
 /// session record, IP tracking. Returns a token or pending_2fa redirect.
 pub async fn create_sso_session(
+    store: &clovalink_entity::DataStore,
     pool: &PgPool,
     user: &User,
     tenant: &Tenant,
@@ -475,7 +476,7 @@ pub async fn create_sso_session(
 
     // Track login IP for security
     let _ = security_service::check_and_record_login_ip(
-        pool,
+        store,
         user.id,
         tenant.id,
         ip_address.as_deref(),

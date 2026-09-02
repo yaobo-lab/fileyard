@@ -449,7 +449,7 @@ pub async fn run() {
             .expect("Circuit breaker should exist when ClamAV is enabled");
 
         for worker_id in 0..worker_count {
-            let worker_pool = pool.clone();
+            let worker_store = app_state.store.clone();
             let worker_config = virus_scan_config.clone();
             let worker_storage = storage.clone();
             let worker_circuit_breaker = cb.clone();
@@ -457,8 +457,7 @@ pub async fn run() {
             tokio::spawn(async move {
                 let storage_reader = Arc::new(VirusScanStorageAdapter(worker_storage));
                 let worker = clovalink_core::virus_scan::VirusScanWorker::new(
-                    worker_pool,
-                    app_state.store.clone(),
+                    worker_store,
                     worker_config,
                     storage_reader,
                     worker_id,

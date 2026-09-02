@@ -75,7 +75,7 @@ pub async fn login(
         None => {
             // Track failed login attempt for security
             let _ = security_service::record_failed_login(
-                &state.pool,
+                &state.store,
                 &input.email,
                 ip_address.as_deref(),
                 "user_not_found",
@@ -165,7 +165,7 @@ pub async fn login(
     if !password_valid {
         // Track failed login attempt for security
         let _ = security_service::record_failed_login(
-            &state.pool,
+            &state.store,
             &input.email,
             ip_address.as_deref(),
             "invalid_password",
@@ -245,7 +245,7 @@ pub async fn login(
             if !totp.check_current(&code).unwrap_or(false) {
                 // Track failed 2FA attempt
                 let _ = security_service::record_failed_login(
-                    &state.pool,
+                    &state.store,
                     &input.email,
                     ip_address.as_deref(),
                     "invalid_2fa_code",
@@ -356,7 +356,7 @@ pub async fn login(
 
     // Track login IP for security (detect new IP logins)
     let _ = security_service::check_and_record_login_ip(
-        &state.pool,
+        &state.store,
         user.id,
         active_tenant.id,
         ip_address.as_deref(),

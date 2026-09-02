@@ -459,7 +459,7 @@ pub async fn upload_file(
                     );
                     // Create security alert for blocked extension attempt
                     let _ = security_service::alert_blocked_extension(
-                        &state.pool,
+                        &state.store,
                         tenant_id,
                         Some(auth.user_id),
                         Some(&auth.email),
@@ -820,11 +820,11 @@ pub async fn upload_file(
 
         // Enqueue virus scan job if enabled (non-blocking)
         if state.virus_scan_config.enabled {
-            let scan_pool = state.pool.clone();
+            let scan_store = state.store.clone();
             let max_queue_size = state.virus_scan_config.max_queue_size;
             tokio::spawn(async move {
                 if let Err(e) = clovalink_core::virus_scan::enqueue_scan_with_backpressure(
-                    &scan_pool,
+                    &scan_store,
                     file_id,
                     tenant_id,
                     0, // Normal priority
@@ -925,7 +925,7 @@ pub async fn upload_file(
                     .await
                     {
                         let _ = notification_service::notify_all_admins(
-                            &state.pool,
+                            &state.store,
                             &tenant,
                             notification_service::NotificationType::ApprovalRequired,
                             "File Pending Approval",
@@ -2138,7 +2138,7 @@ pub async fn download_file(
     // Check for bulk download pattern (security alert)
     if !is_preview {
         let _ = security_service::check_bulk_download(
-            &state.pool,
+            &state.store,
             tenant_id,
             auth.user_id,
             &auth.email,
@@ -5078,7 +5078,7 @@ pub async fn create_file_share(
 
     // Check for excessive sharing pattern (security alert)
     let _ = security_service::check_excessive_sharing(
-        &state.pool,
+        &state.store,
         tenant_id,
         auth.user_id,
         &auth.email,
@@ -5113,12 +5113,12 @@ pub async fn create_file_share(
         if let (Some((recipient_email, recipient_role)), Some(tenant)) =
             (recipient_info, tenant.clone())
         {
-            let pool = state.pool.clone();
+            let store = state.store.clone();
             let file_name_clone = file_name.clone();
             let sharer_name_clone = sharer_name.clone();
             tokio::spawn(async move {
                 let _ = notification_service::notify_file_shared(
-                    &pool,
+                    &store,
                     &tenant,
                     recipient_id,
                     &recipient_email,

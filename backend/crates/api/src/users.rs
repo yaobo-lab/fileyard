@@ -345,7 +345,7 @@ pub async fn create_user(
 
     // Notify all admins about the new user
     let _ = notification_service::notify_all_admins(
-        &state.pool,
+        &state.store,
         &tenant,
         notification_service::NotificationType::UserCreated,
         "New user added",
@@ -534,7 +534,7 @@ pub async fn update_user(
 
             if is_escalation {
                 let _ = security_service::alert_permission_escalation(
-                    &state.pool,
+                    &state.store,
                     auth.tenant_id,
                     id,
                     auth.user_id,
@@ -553,7 +553,7 @@ pub async fn update_user(
                 .await
             {
                 let _ = notification_service::notify_role_changed(
-                    &state.pool,
+                    &state.store,
                     &tenant,
                     id,
                     &user_email,
@@ -1665,7 +1665,7 @@ pub async fn send_password_reset_email(
 
     // Send templated email
     let email_sent = clovalink_core::notification_service::send_templated_email(
-        &state.pool,
+        &state.store,
         &tenant,
         &target_email,
         "password_reset",

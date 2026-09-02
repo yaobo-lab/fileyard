@@ -651,6 +651,7 @@ pub async fn saml_acs(
 
     // Create session via shared logic
     match sso_common::create_sso_session(
+        &state.store,
         &state.pool,
         &user,
         &tenant,

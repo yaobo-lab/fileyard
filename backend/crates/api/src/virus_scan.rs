@@ -29,7 +29,7 @@ pub async fn get_settings(
 ) -> Result<Json<TenantScanSettings>, StatusCode> {
     require_admin(&auth)?;
 
-    let settings = virus_scan::get_tenant_settings(&state.pool, auth.tenant_id)
+    let settings = virus_scan::get_tenant_settings(&state.store, auth.tenant_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get virus scan settings: {:?}", e);
@@ -69,7 +69,7 @@ pub async fn update_settings(
     }
 
     let settings = virus_scan::update_tenant_settings(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         req.enabled,
         req.file_types,
@@ -104,7 +104,7 @@ pub async fn get_metrics(
     // Get circuit breaker reference if available
     let cb_ref = state.clamav_circuit_breaker.as_ref().map(|cb| cb.as_ref());
 
-    let metrics = virus_scan::get_metrics(&state.pool, &state.virus_scan_config, cb_ref)
+    let metrics = virus_scan::get_metrics(&state.store, &state.virus_scan_config, cb_ref)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get virus scan metrics: {:?}", e);
@@ -140,7 +140,7 @@ pub async fn get_scan_results(
     let infected_only = params.infected_only.unwrap_or(false);
 
     let results =
-        virus_scan::get_scan_history(&state.pool, auth.tenant_id, limit, offset, infected_only)
+        virus_scan::get_scan_history(&state.store, auth.tenant_id, limit, offset, infected_only)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get scan history: {:?}", e);
@@ -166,7 +166,7 @@ pub async fn get_quarantined_files(
     let limit = params.limit.unwrap_or(50).min(500) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    let results = virus_scan::get_quarantined_files(&state.pool, auth.tenant_id, limit, offset)
+    let results = virus_scan::get_quarantined_files(&state.store, auth.tenant_id, limit, offset)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get quarantined files: {:?}", e);
@@ -256,7 +256,7 @@ pub async fn rescan_file(
     }
 
     // Enqueue scan job with high priority
-    let job_id = virus_scan::enqueue_scan(&state.pool, file_id, auth.tenant_id, 100)
+    let job_id = virus_scan::enqueue_scan(&state.store, file_id, auth.tenant_id, 100)
         .await
         .map_err(|e| {
             tracing::error!("Failed to enqueue rescan: {:?}", e);
@@ -264,7 +264,7 @@ pub async fn rescan_file(
         })?;
 
     // Reset file scan status
-    virus_scan::update_file_scan_status(&state.pool, file_id, "pending")
+    virus_scan::update_file_scan_status(&state.store, file_id, "pending")
         .await
         .map_err(|e| {
             tracing::error!("Failed to update file scan status: {:?}", e);

@@ -239,7 +239,7 @@ pub async fn update_compliance(
         .await
     {
         let _ = notification_service::notify_all_admins(
-            &state.pool,
+            &state.store,
             &tenant,
             notification_service::NotificationType::ComplianceAlert,
             &format!("Compliance mode changed to {}", compliance_mode),

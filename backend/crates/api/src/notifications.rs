@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 // ==================== Tenant Notification Settings ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenantNotificationSetting {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -85,6 +85,10 @@ pub struct NotificationListResponse {
     pub limit: i64,
 }
 
+fn notification(m: clovalink_entity::entities::notifications::Model)->Notification{Notification{id:m.id,user_id:m.user_id,tenant_id:m.tenant_id,notification_type:m.notification_type,title:m.title,message:m.message,metadata:m.metadata.unwrap_or_else(||json!({})),is_read:m.is_read,email_sent:m.email_sent,created_at:m.created_at.into()}}
+fn preference(m: clovalink_entity::entities::notification_preferences::Model)->NotificationPreference{NotificationPreference{id:m.id,user_id:m.user_id,event_type:m.event_type,email_enabled:m.email_enabled,in_app_enabled:m.in_app_enabled,created_at:m.created_at.into(),updated_at:m.updated_at.into()}}
+fn tenant_setting(m: clovalink_entity::entities::tenant_notification_settings::Model)->TenantNotificationSetting{TenantNotificationSetting{id:m.id,tenant_id:m.tenant_id,event_type:m.event_type,enabled:m.enabled,email_enforced:m.email_enforced,in_app_enforced:m.in_app_enforced,default_email:m.default_email,default_in_app:m.default_in_app,role:m.role,created_at:m.created_at.into(),updated_at:m.updated_at.into()}}
+
 // ==================== Handlers ====================
 
 /// List notifications for the current user
@@ -99,72 +103,13 @@ pub async fn list_notifications(
     let offset = (page - 1) * limit;
     let unread_only = params.unread_only.unwrap_or(false);
 
-    // Get notifications
-    let notifications: Vec<Notification> = if unread_only {
-        sqlx::query_as(
-            r#"
-            SELECT * FROM notifications 
-            WHERE user_id = $1 AND is_read = false
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(auth.user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch notifications: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    } else {
-        sqlx::query_as(
-            r#"
-            SELECT * FROM notifications 
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(auth.user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch notifications: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    };
-
-    // Get total count
-    let total: (i64,) = if unread_only {
-        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,))
-    } else {
-        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,))
-    };
-
-    // Get unread count
-    let unread_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,));
+    let (rows,total,unread_count)=state.store.notifications().list(auth.user_id,unread_only,limit as u64,offset as u64).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let notifications=rows.into_iter().map(notification).collect();
 
     Ok(Json(NotificationListResponse {
         notifications,
-        total: total.0,
-        unread_count: unread_count.0,
+        total,
+        unread_count,
         page,
         limit,
     }))
@@ -176,14 +121,9 @@ pub async fn get_unread_count(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,));
+    let (_,_,count)=state.store.notifications().list(auth.user_id,true,1,0).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(json!({ "unread_count": count.0 })))
+    Ok(Json(json!({ "unread_count": count })))
 }
 
 /// Mark a notification as read
@@ -193,18 +133,7 @@ pub async fn mark_as_read(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let result =
-        sqlx::query("UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2")
-            .bind(notification_id)
-            .bind(auth.user_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to mark notification as read: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-    if result.rows_affected() == 0 {
+    if !state.store.notifications().mark_read(notification_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -217,20 +146,11 @@ pub async fn mark_all_as_read(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let result = sqlx::query(
-        "UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false",
-    )
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to mark all notifications as read: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let marked=state.store.notifications().mark_all_read(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
-        "marked_count": result.rows_affected()
+        "marked_count": marked
     })))
 }
 
@@ -241,17 +161,7 @@ pub async fn delete_notification(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let result = sqlx::query("DELETE FROM notifications WHERE id = $1 AND user_id = $2")
-        .bind(notification_id)
-        .bind(auth.user_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete notification: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    if result.rows_affected() == 0 {
+    if !state.store.notifications().delete(notification_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -265,20 +175,11 @@ pub async fn get_preferences(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Vec<NotificationPreference>>, StatusCode> {
     // Get existing preferences
-    let preferences: Vec<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch preferences: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let mut preferences=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // If no preferences exist, create defaults
     if preferences.is_empty() {
-        let event_types = vec![
+        let event_types = [
             "file_upload",
             "request_expiring",
             "user_action",
@@ -287,36 +188,11 @@ pub async fn get_preferences(
             "file_shared",
         ];
 
-        for event_type in event_types {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO notification_preferences (user_id, event_type, email_enabled, in_app_enabled)
-                VALUES ($1, $2, true, true)
-                ON CONFLICT (user_id, event_type) DO NOTHING
-                "#
-            )
-            .bind(auth.user_id)
-            .bind(event_type)
-            .execute(&state.pool)
-            .await;
-        }
-
-        // Fetch again
-        let preferences: Vec<NotificationPreference> = sqlx::query_as(
-            "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
-        )
-        .bind(auth.user_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch preferences: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        return Ok(Json(preferences));
+        state.store.notifications().ensure_default_preferences(auth.user_id,&event_types).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        preferences=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
-    Ok(Json(preferences))
+    Ok(Json(preferences.into_iter().map(preference).collect()))
 }
 
 /// Update notification preferences
@@ -327,47 +203,7 @@ pub async fn update_preferences(
     Json(input): Json<UpdatePreferencesInput>,
 ) -> Result<Json<Vec<NotificationPreference>>, StatusCode> {
     for pref in input.preferences {
-        // Build dynamic update query
-        let mut updates = Vec::new();
-        let mut bind_index = 3; // user_id is $1, event_type is $2
-
-        if pref.email_enabled.is_some() {
-            updates.push(format!("email_enabled = ${}", bind_index));
-            bind_index += 1;
-        }
-        if pref.in_app_enabled.is_some() {
-            updates.push(format!("in_app_enabled = ${}", bind_index));
-        }
-
-        if updates.is_empty() {
-            continue;
-        }
-
-        updates.push("updated_at = NOW()".to_string());
-        let update_clause = updates.join(", ");
-
-        // We need to use a dynamic query here
-        let query = format!(
-            r#"
-            INSERT INTO notification_preferences (user_id, event_type, email_enabled, in_app_enabled)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (user_id, event_type) 
-            DO UPDATE SET {}
-            "#,
-            update_clause
-        );
-
-        sqlx::query(&query)
-            .bind(auth.user_id)
-            .bind(&pref.event_type)
-            .bind(pref.email_enabled.unwrap_or(true))
-            .bind(pref.in_app_enabled.unwrap_or(true))
-            .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update preference: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        state.store.notifications().update_preference(auth.user_id,clovalink_entity::repositories::PreferencePatch{event_type:pref.event_type,email_enabled:pref.email_enabled,in_app_enabled:pref.in_app_enabled}).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Return updated preferences
@@ -439,47 +275,17 @@ pub async fn get_tenant_notification_settings(
     ];
 
     // Get all settings for this tenant (global + role-specific)
-    let all_settings: Vec<TenantNotificationSetting> = sqlx::query_as(
-        "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 ORDER BY role NULLS FIRST, event_type"
-    )
-    .bind(tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenant notification settings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let mut settings=state.store.notifications().tenant_settings(tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // If no global settings exist, create defaults
-    let has_global = all_settings.iter().any(|s| s.role.is_none());
+    let has_global = settings.iter().any(|s| s.role.is_none());
     if !has_global {
-        for event_type in &event_types {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO tenant_notification_settings 
-                    (tenant_id, event_type, enabled, email_enforced, in_app_enforced, default_email, default_in_app, role)
-                VALUES ($1, $2, true, false, false, true, true, NULL)
-                ON CONFLICT (tenant_id, event_type, role) DO NOTHING
-                "#
-            )
-            .bind(tenant_id)
-            .bind(*event_type)
-            .execute(&state.pool)
-            .await;
-        }
+        state.store.notifications().ensure_global_settings(tenant_id,&event_types).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Re-fetch all settings
-    let all_settings: Vec<TenantNotificationSetting> = sqlx::query_as(
-        "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 ORDER BY role NULLS FIRST, event_type"
-    )
-    .bind(tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenant notification settings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    settings=state.store.notifications().tenant_settings(tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let all_settings:Vec<TenantNotificationSetting>=settings.into_iter().map(tenant_setting).collect();
 
     // Group settings by role
     let global_settings: Vec<&TenantNotificationSetting> =
@@ -574,68 +380,7 @@ pub async fn update_tenant_notification_settings(
     let target_role = input.role.clone();
 
     for setting in input.settings {
-        // Use different query based on whether role is NULL or not
-        if target_role.is_some() {
-            sqlx::query(
-                r#"
-                INSERT INTO tenant_notification_settings 
-                    (tenant_id, event_type, enabled, email_enforced, in_app_enforced, default_email, default_in_app, role)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT (tenant_id, event_type, role) 
-                DO UPDATE SET 
-                    enabled = COALESCE($3, tenant_notification_settings.enabled),
-                    email_enforced = COALESCE($4, tenant_notification_settings.email_enforced),
-                    in_app_enforced = COALESCE($5, tenant_notification_settings.in_app_enforced),
-                    default_email = COALESCE($6, tenant_notification_settings.default_email),
-                    default_in_app = COALESCE($7, tenant_notification_settings.default_in_app),
-                    updated_at = NOW()
-                "#
-            )
-            .bind(tenant_id)
-            .bind(&setting.event_type)
-            .bind(setting.enabled.unwrap_or(true))
-            .bind(setting.email_enforced.unwrap_or(false))
-            .bind(setting.in_app_enforced.unwrap_or(false))
-            .bind(setting.default_email.unwrap_or(true))
-            .bind(setting.default_in_app.unwrap_or(true))
-            .bind(&target_role)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update tenant notification setting: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        } else {
-            // For NULL role, we need special handling for the unique constraint
-            sqlx::query(
-                r#"
-                INSERT INTO tenant_notification_settings 
-                    (tenant_id, event_type, enabled, email_enforced, in_app_enforced, default_email, default_in_app, role)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
-                ON CONFLICT (tenant_id, event_type, role) WHERE role IS NULL
-                DO UPDATE SET 
-                    enabled = COALESCE($3, tenant_notification_settings.enabled),
-                    email_enforced = COALESCE($4, tenant_notification_settings.email_enforced),
-                    in_app_enforced = COALESCE($5, tenant_notification_settings.in_app_enforced),
-                    default_email = COALESCE($6, tenant_notification_settings.default_email),
-                    default_in_app = COALESCE($7, tenant_notification_settings.default_in_app),
-                    updated_at = NOW()
-                "#
-            )
-            .bind(tenant_id)
-            .bind(&setting.event_type)
-            .bind(setting.enabled.unwrap_or(true))
-            .bind(setting.email_enforced.unwrap_or(false))
-            .bind(setting.in_app_enforced.unwrap_or(false))
-            .bind(setting.default_email.unwrap_or(true))
-            .bind(setting.default_in_app.unwrap_or(true))
-            .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update tenant notification setting: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        }
+        state.store.notifications().update_tenant_setting(tenant_id,target_role.clone(),clovalink_entity::repositories::TenantNotificationPatch{event_type:setting.event_type,enabled:setting.enabled,email_enforced:setting.email_enforced,in_app_enforced:setting.in_app_enforced,default_email:setting.default_email,default_in_app:setting.default_in_app}).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Return updated settings for the same role
@@ -652,16 +397,7 @@ pub async fn get_preferences_with_company_settings(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // Get user preferences
-    let user_prefs: Vec<NotificationPreference> = sqlx::query_as(
-        "SELECT * FROM notification_preferences WHERE user_id = $1 ORDER BY event_type",
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch user preferences: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let user_prefs:Vec<NotificationPreference>=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?.into_iter().map(preference).collect();
 
     // SuperAdmins are exempt from company-level notification controls
     if auth.role == "SuperAdmin" {
@@ -673,13 +409,7 @@ pub async fn get_preferences_with_company_settings(
     }
 
     // Get all company settings (global + role-specific)
-    let all_settings: Vec<TenantNotificationSetting> = sqlx::query_as(
-        "SELECT * FROM tenant_notification_settings WHERE tenant_id = $1 ORDER BY role NULLS FIRST, event_type"
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let all_settings:Vec<TenantNotificationSetting>=state.store.notifications().tenant_settings(auth.tenant_id).await.unwrap_or_default().into_iter().map(tenant_setting).collect();
 
     // Get role-specific settings first, then fall back to global
     let event_types = vec![

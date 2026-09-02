@@ -545,7 +545,7 @@ pub async fn approve_file(
             "SELECT fm.name, u.email, u.role FROM files_metadata fm JOIN users u ON u.id = $2 WHERE fm.id = $1"
         ).bind(file_id).bind(requested_by).fetch_optional(&state.pool).await {
             let _ = notification_service::create_notification(
-                &state.pool,
+                &state.store,
                 &tenant,
                 requested_by,
                 &role,
@@ -627,7 +627,7 @@ pub async fn reject_file(
             "SELECT fm.name, u.email, u.role FROM files_metadata fm JOIN users u ON u.id = $2 WHERE fm.id = $1"
         ).bind(file_id).bind(requested_by).fetch_optional(&state.pool).await {
             let _ = notification_service::create_notification(
-                &state.pool,
+                &state.store,
                 &tenant,
                 requested_by,
                 &role,
@@ -728,7 +728,7 @@ pub async fn send_for_approval(
                 .await
         {
             let _ = notification_service::notify_all_admins(
-                &state.pool,
+                &state.store,
                 &tenant,
                 notification_service::NotificationType::ApprovalRequired,
                 "File Sent for Approval",

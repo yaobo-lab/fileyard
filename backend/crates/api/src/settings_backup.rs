@@ -336,6 +336,7 @@ fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; KEY_SIZE], StatusCod
 /// Verify password re-confirmation from X-Confirm-Password header
 /// Rate-limited: 5 failures per user per 15 minutes
 pub(crate) async fn verify_password_confirmation(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     user_id: Uuid,
     headers: &HeaderMap,
@@ -380,7 +381,7 @@ pub(crate) async fn verify_password_confirmation(
     {
         // Record failed attempt as security alert for rate limiting
         let _ = security_service::create_alert(
-            pool,
+            store,
             None,
             Some(user_id),
             AlertType::PasswordConfirmFailed,
@@ -418,6 +419,7 @@ fn get_passphrase(headers: &HeaderMap) -> Result<String, StatusCode> {
 
 /// Check brute-force attempts for backup decrypt
 async fn check_and_record_decrypt_failure(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     tenant_id: Uuid,
     user_id: Uuid,
@@ -441,7 +443,7 @@ async fn check_and_record_decrypt_failure(
 
     // Record the failed attempt
     let _ = security_service::create_alert(
-        pool,
+        store,
         Some(tenant_id),
         Some(user_id),
         AlertType::BackupDecryptFailed,
@@ -461,7 +463,7 @@ async fn check_and_record_decrypt_failure(
     // If 5+ failures, trigger brute-force alert
     if count.0 + 1 >= 5 {
         let _ = security_service::create_alert(
-            pool,
+            store,
             Some(tenant_id),
             Some(user_id),
             AlertType::BackupBruteForce,
@@ -1171,7 +1173,7 @@ pub async fn export_tenant_backup(
     }
 
     // Verify password
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
 
     // Get passphrase
     let passphrase = get_passphrase(&headers)?;
@@ -1342,7 +1344,7 @@ pub async fn export_tenant_backup(
     // Security alert if secrets were included
     if include_secrets {
         let _ = security_service::create_alert(
-            &state.pool,
+            &state.store,
             Some(auth.tenant_id),
             Some(auth.user_id),
             AlertType::BackupExportSecrets,
@@ -1399,7 +1401,7 @@ pub async fn export_global(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1504,7 +1506,7 @@ pub async fn preview_import(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1524,6 +1526,7 @@ pub async fn preview_import(
         Ok(data) => data,
         Err(_) => {
             let locked = check_and_record_decrypt_failure(
+                &state.store,
                 &state.pool,
                 auth.tenant_id,
                 auth.user_id,
@@ -1736,7 +1739,7 @@ pub async fn import_tenant_backup(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1753,6 +1756,7 @@ pub async fn import_tenant_backup(
         Ok(data) => data,
         Err(_) => {
             let locked = check_and_record_decrypt_failure(
+                &state.store,
                 &state.pool,
                 auth.tenant_id,
                 auth.user_id,
@@ -1908,7 +1912,7 @@ pub async fn apply_settings_profile(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
 
     let profile = &body.profile;
     let dry_run = body.dry_run.unwrap_or(false);
@@ -2104,7 +2108,7 @@ pub async fn apply_global_settings_profile(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
 
     let profile = &body.profile;
     let dry_run = body.dry_run.unwrap_or(false);
@@ -2251,7 +2255,7 @@ pub async fn toggle_global_backup(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
 
     sqlx::query(
         r#"
@@ -2340,7 +2344,7 @@ pub async fn preview_global_import(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -2413,7 +2417,7 @@ pub async fn import_global(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -3341,7 +3345,7 @@ pub async fn save_backup_to_storage(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -4491,7 +4495,7 @@ pub async fn save_global_backup_to_storage(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -4632,7 +4636,7 @@ pub async fn set_global_backup_schedule(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    verify_password_confirmation(&state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
 
     if let Some(enabled) = body.enabled {
         if enabled && !is_master_key_configured() {

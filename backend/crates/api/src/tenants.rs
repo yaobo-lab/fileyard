@@ -685,7 +685,7 @@ pub async fn edit_my_company(
         || input.auto_backup_cron.is_some()
         || input.auto_backup_retention_count.is_some();
     if auth.role == "SuperAdmin" && has_backup_changes {
-        crate::settings_backup::verify_password_confirmation(&state.pool, auth.user_id, &headers)
+        crate::settings_backup::verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers)
             .await?;
     }
     if auth.role == "SuperAdmin" {

@@ -12,7 +12,6 @@ use crate::models::Tenant;
 use crate::notification_service;
 use chrono::{Duration, Utc};
 use serde_json::json;
-use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 /// Alert severity levels
@@ -100,7 +99,7 @@ impl AlertType {
 /// Create a new security alert
 /// Sends email notifications to admins for Critical and High severity alerts
 pub async fn create_alert(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Option<Uuid>,
     user_id: Option<Uuid>,
     alert_type: AlertType,
@@ -108,26 +107,13 @@ pub async fn create_alert(
     description: &str,
     metadata: serde_json::Value,
     ip_address: Option<&str>,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     let severity = alert_type.default_severity();
 
-    let result: (Uuid,) = sqlx::query_as(
-        r#"
-        INSERT INTO security_alerts (tenant_id, user_id, alert_type, severity, title, description, metadata, ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::inet)
-        RETURNING id
-        "#
-    )
-    .bind(tenant_id)
-    .bind(user_id)
-    .bind(alert_type.as_str())
-    .bind(severity.as_str())
-    .bind(title)
-    .bind(description)
-    .bind(&metadata)
-    .bind(ip_address)
-    .fetch_one(pool)
-    .await?;
+    let result = store.security().create_alert(clovalink_entity::repositories::NewSecurityAlert {
+        tenant_id, user_id, alert_type: alert_type.as_str(), severity: severity.as_str(), title,
+        description, metadata: metadata.clone(), ip_address,
+    }).await?;
 
     tracing::info!(
         "Security alert created: type={}, severity={}, tenant={:?}, user={:?}",
@@ -141,12 +127,16 @@ pub async fn create_alert(
     if matches!(severity, AlertSeverity::Critical | AlertSeverity::High) {
         if let Some(tid) = tenant_id {
             // Get tenant info for email notification
-            let tenant: Option<Tenant> = sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
-                .bind(tid)
-                .fetch_optional(pool)
-                .await
-                .ok()
-                .flatten();
+            let tenant = store.security().tenant(tid).await.ok().flatten().map(|m| Tenant {
+                id:m.id,name:m.name,domain:m.domain,plan:m.plan,status:m.status,compliance_mode:m.compliance_mode,
+                encryption_standard:m.encryption_standard,retention_policy_days:m.retention_policy_days,
+                storage_quota_bytes:m.storage_quota_bytes,storage_used_bytes:m.storage_used_bytes.unwrap_or(0),smtp_host:m.smtp_host,
+                smtp_port:m.smtp_port,smtp_username:m.smtp_username,smtp_password:m.smtp_password,smtp_from:m.smtp_from,smtp_secure:m.smtp_secure,
+                enable_totp:m.enable_totp,enable_passkeys:m.enable_passkeys,mfa_required:m.mfa_required,session_timeout_minutes:m.session_timeout_minutes,
+                public_sharing_enabled:m.public_sharing_enabled,data_export_enabled:m.data_export_enabled,max_upload_size_bytes:m.max_upload_size_bytes,
+                auth_methods:Some(m.auth_methods),approval_workflow_enabled:m.approval_workflow_enabled,backup_enabled:m.backup_enabled,
+                auto_backup_enabled:m.auto_backup_enabled,auto_backup_cron:m.auto_backup_cron,auto_backup_retention_count:m.auto_backup_retention_count,
+                created_at:m.created_at.into(),updated_at:m.updated_at.into() });
 
             if let Some(tenant) = tenant {
                 // Get affected user email from metadata if available
@@ -156,7 +146,7 @@ pub async fn create_alert(
                     .map(|s| s.to_string());
 
                 // Spawn email notification in background to not block the alert creation
-                let pool_clone = pool.clone();
+                let store_clone = store.clone();
                 let tenant_clone = tenant.clone();
                 let alert_type_str = alert_type.as_str().to_string();
                 let severity_str = severity.as_str().to_string();
@@ -166,7 +156,7 @@ pub async fn create_alert(
 
                 tokio::spawn(async move {
                     if let Err(e) = notification_service::notify_security_alert(
-                        &pool_clone,
+                        &store_clone,
                         &tenant_clone,
                         &alert_type_str,
                         &severity_str,
@@ -184,66 +174,32 @@ pub async fn create_alert(
         }
     }
 
-    Ok(result.0)
+    Ok(result)
 }
 
 /// Record a failed login attempt and check for spike
 /// Returns true if a spike was detected and alert was created
 pub async fn record_failed_login(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     email: &str,
     ip_address: Option<&str>,
     reason: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, clovalink_entity::DataError> {
     // Record the failed attempt
-    sqlx::query(
-        r#"
-        INSERT INTO failed_login_attempts (email, ip_address, reason)
-        VALUES ($1, $2::inet, $3)
-        "#,
-    )
-    .bind(email)
-    .bind(ip_address)
-    .bind(reason)
-    .execute(pool)
-    .await?;
+    store.security().record_failed_login(email, ip_address, reason).await?;
 
     // Check for spike (5+ failures in last 5 minutes)
     let five_minutes_ago = Utc::now() - Duration::minutes(5);
-    let count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM failed_login_attempts
-        WHERE email = $1 AND attempted_at > $2
-        "#,
-    )
-    .bind(email)
-    .bind(five_minutes_ago)
-    .fetch_one(pool)
-    .await?;
+    let count = store.security().failed_login_count(email, five_minutes_ago).await?;
 
-    if count.0 >= 5 {
+    if count >= 5 {
         // Check if we already created an alert for this recently (within 30 minutes)
         let thirty_minutes_ago = Utc::now() - Duration::minutes(30);
-        let existing: (i64,) = sqlx::query_as(
-            r#"
-            SELECT COUNT(*) FROM security_alerts
-            WHERE alert_type = 'failed_login_spike'
-            AND metadata->>'email' = $1
-            AND created_at > $2
-            "#,
-        )
-        .bind(email)
-        .bind(thirty_minutes_ago)
-        .fetch_one(pool)
-        .await?;
+        let existing = store.security().recent_alert_count("failed_login_spike", None, Some(email), thirty_minutes_ago).await?;
 
-        if existing.0 == 0 {
+        if existing == 0 {
             // Try to find tenant_id from user's email
-            let user_info: Option<(Uuid, Uuid)> =
-                sqlx::query_as("SELECT id, tenant_id FROM users WHERE email = $1")
-                    .bind(email)
-                    .fetch_optional(pool)
-                    .await?;
+            let user_info = store.security().user_identity_by_email(email).await?;
 
             let (user_id, tenant_id) = match user_info {
                 Some((uid, tid)) => (Some(uid), Some(tid)),
@@ -251,18 +207,18 @@ pub async fn record_failed_login(
             };
 
             create_alert(
-                pool,
+                store,
                 tenant_id,
                 user_id,
                 AlertType::FailedLoginSpike,
                 &format!("Multiple failed login attempts for {}", email),
                 &format!(
                     "{} failed login attempts detected in the last 5 minutes",
-                    count.0
+                    count
                 ),
                 json!({
                     "email": email,
-                    "attempt_count": count.0,
+                    "attempt_count": count,
                     "last_ip": ip_address,
                     "reason": reason
                 }),
@@ -280,51 +236,30 @@ pub async fn record_failed_login(
 /// Check if this is a new IP for the user and record the login
 /// Returns true if this is a new IP and alert was created
 pub async fn check_and_record_login_ip(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     user_id: Uuid,
     tenant_id: Uuid,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
     user_email: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, clovalink_entity::DataError> {
     let ip = match ip_address {
         Some(ip) if !ip.is_empty() => ip,
         _ => return Ok(false), // No IP to track
     };
 
     // Try to insert or update login history
-    let result = sqlx::query(
-        r#"
-        INSERT INTO user_login_history (user_id, ip_address, user_agent, login_count)
-        VALUES ($1, $2::inet, $3, 1)
-        ON CONFLICT (user_id, ip_address) DO UPDATE SET
-            last_seen_at = NOW(),
-            login_count = user_login_history.login_count + 1,
-            user_agent = COALESCE($3, user_login_history.user_agent)
-        RETURNING (xmax = 0) as is_new
-        "#,
-    )
-    .bind(user_id)
-    .bind(ip)
-    .bind(user_agent)
-    .fetch_one(pool)
-    .await?;
-
-    let is_new: bool = result.get("is_new");
+    let is_new = store.security().record_login_ip(user_id, ip, user_agent).await?;
 
     if is_new {
         // Check if user has logged in from at least one other IP before
         // (don't alert on very first login)
-        let history_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM user_login_history WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_one(pool)
-                .await?;
+        let history_count = store.security().login_ip_count(user_id).await?;
 
-        if history_count.0 > 1 {
+        if history_count > 1 {
             // This is a new IP and not the first login
             create_alert(
-                pool,
+                store,
                 Some(tenant_id),
                 Some(user_id),
                 AlertType::NewIpLogin,
@@ -348,7 +283,7 @@ pub async fn check_and_record_login_ip(
 
 /// Create alert for permission escalation (role change to Admin or higher)
 pub async fn alert_permission_escalation(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     changed_by_id: Uuid,
@@ -356,9 +291,9 @@ pub async fn alert_permission_escalation(
     old_role: &str,
     new_role: &str,
     ip_address: Option<&str>,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     create_alert(
-        pool,
+        store,
         Some(tenant_id),
         Some(user_id),
         AlertType::PermissionEscalation,
@@ -380,35 +315,24 @@ pub async fn alert_permission_escalation(
 
 /// Create alert for suspended user attempting access
 pub async fn alert_suspended_access_attempt(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     attempted_action: &str,
     ip_address: Option<&str>,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     // Check if we already alerted for this user recently (within 1 hour)
     let one_hour_ago = Utc::now() - Duration::hours(1);
-    let existing: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM security_alerts
-        WHERE alert_type = 'suspended_access_attempt'
-        AND user_id = $1
-        AND created_at > $2
-        "#,
-    )
-    .bind(user_id)
-    .bind(one_hour_ago)
-    .fetch_one(pool)
-    .await?;
+    let existing = store.security().recent_alert_count("suspended_access_attempt", Some(user_id), None, one_hour_ago).await?;
 
-    if existing.0 > 0 {
+    if existing > 0 {
         // Already alerted recently, just return a dummy UUID
         return Ok(Uuid::nil());
     }
 
     create_alert(
-        pool,
+        store,
         Some(tenant_id),
         Some(user_id),
         AlertType::SuspendedAccessAttempt,
@@ -426,59 +350,35 @@ pub async fn alert_suspended_access_attempt(
 /// Check for bulk download pattern and create alert if detected
 /// Returns true if alert was created
 pub async fn check_bulk_download(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     ip_address: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, clovalink_entity::DataError> {
     // Count downloads in last 10 minutes
     let ten_minutes_ago = Utc::now() - Duration::minutes(10);
-    let count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM audit_logs
-        WHERE tenant_id = $1 
-        AND user_id = $2 
-        AND action IN ('file_download', 'folder_download')
-        AND created_at > $3
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(user_id)
-    .bind(ten_minutes_ago)
-    .fetch_one(pool)
-    .await?;
+    let count = store.security().recent_download_count(tenant_id, user_id, ten_minutes_ago).await?;
 
-    if count.0 >= 20 {
+    if count >= 20 {
         // Check if we already alerted recently (within 1 hour)
         let one_hour_ago = Utc::now() - Duration::hours(1);
-        let existing: (i64,) = sqlx::query_as(
-            r#"
-            SELECT COUNT(*) FROM security_alerts
-            WHERE alert_type = 'bulk_download'
-            AND user_id = $1
-            AND created_at > $2
-            "#,
-        )
-        .bind(user_id)
-        .bind(one_hour_ago)
-        .fetch_one(pool)
-        .await?;
+        let existing = store.security().recent_alert_count("bulk_download", Some(user_id), None, one_hour_ago).await?;
 
-        if existing.0 == 0 {
+        if existing == 0 {
             create_alert(
-                pool,
+                store,
                 Some(tenant_id),
                 Some(user_id),
                 AlertType::BulkDownload,
                 &format!("Bulk download detected for {}", user_email),
                 &format!(
                     "{} files downloaded in 10 minutes - potential data exfiltration",
-                    count.0
+                    count
                 ),
                 json!({
                     "email": user_email,
-                    "download_count": count.0,
+                    "download_count": count,
                     "time_window_minutes": 10
                 }),
                 ip_address,
@@ -494,7 +394,7 @@ pub async fn check_bulk_download(
 
 /// Create alert for blocked file extension upload attempt
 pub async fn alert_blocked_extension(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Option<Uuid>,
     user_email: Option<&str>,
@@ -502,7 +402,7 @@ pub async fn alert_blocked_extension(
     extension: &str,
     ip_address: Option<&str>,
     is_public_upload: bool,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     let title = if is_public_upload {
         format!("Blocked extension upload via file request: .{}", extension)
     } else {
@@ -515,7 +415,7 @@ pub async fn alert_blocked_extension(
     );
 
     create_alert(
-        pool,
+        store,
         Some(tenant_id),
         user_id,
         AlertType::BlockedExtensionAttempt,
@@ -535,55 +435,32 @@ pub async fn alert_blocked_extension(
 /// Check for excessive sharing pattern and create alert if detected
 /// Returns true if alert was created
 pub async fn check_excessive_sharing(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     ip_address: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, clovalink_entity::DataError> {
     // Count shares created in last hour
     let one_hour_ago = Utc::now() - Duration::hours(1);
-    let count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM shares
-        WHERE tenant_id = $1 
-        AND created_by = $2 
-        AND created_at > $3
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(user_id)
-    .bind(one_hour_ago)
-    .fetch_one(pool)
-    .await?;
+    let count = store.security().recent_share_count(tenant_id, user_id, one_hour_ago).await?;
 
-    if count.0 >= 10 {
+    if count >= 10 {
         // Check if we already alerted recently (within 2 hours)
         let two_hours_ago = Utc::now() - Duration::hours(2);
-        let existing: (i64,) = sqlx::query_as(
-            r#"
-            SELECT COUNT(*) FROM security_alerts
-            WHERE alert_type = 'excessive_sharing'
-            AND user_id = $1
-            AND created_at > $2
-            "#,
-        )
-        .bind(user_id)
-        .bind(two_hours_ago)
-        .fetch_one(pool)
-        .await?;
+        let existing = store.security().recent_alert_count("excessive_sharing", Some(user_id), None, two_hours_ago).await?;
 
-        if existing.0 == 0 {
+        if existing == 0 {
             create_alert(
-                pool,
+                store,
                 Some(tenant_id),
                 Some(user_id),
                 AlertType::ExcessiveSharing,
                 &format!("Excessive sharing by {}", user_email),
-                &format!("{} share links created in 1 hour", count.0),
+                &format!("{} share links created in 1 hour", count),
                 json!({
                     "email": user_email,
-                    "share_count": count.0,
+                    "share_count": count,
                     "time_window_hours": 1
                 }),
                 ip_address,
@@ -599,15 +476,15 @@ pub async fn check_excessive_sharing(
 
 /// Create alert for account lockout
 pub async fn alert_account_lockout(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Option<Uuid>,
     user_id: Option<Uuid>,
     email: &str,
     failed_attempts: i32,
     ip_address: Option<&str>,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     create_alert(
-        pool,
+        store,
         tenant_id,
         user_id,
         AlertType::AccountLockout,
@@ -626,19 +503,14 @@ pub async fn alert_account_lockout(
 }
 
 /// Clean up old failed login attempts (older than 24 hours)
-pub async fn cleanup_old_failed_attempts(pool: &PgPool) -> Result<u64, sqlx::Error> {
+pub async fn cleanup_old_failed_attempts(store: &clovalink_entity::DataStore) -> Result<u64, clovalink_entity::DataError> {
     let one_day_ago = Utc::now() - Duration::hours(24);
-    let result = sqlx::query("DELETE FROM failed_login_attempts WHERE attempted_at < $1")
-        .bind(one_day_ago)
-        .execute(pool)
-        .await?;
-
-    Ok(result.rows_affected())
+    store.security().cleanup_failed_logins(one_day_ago).await
 }
 
 /// Create alert for malware detection in uploaded file
 pub async fn alert_malware_detected(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Option<Uuid>,
     file_id: Uuid,
@@ -646,9 +518,9 @@ pub async fn alert_malware_detected(
     threat_name: &str,
     action_taken: &str,
     user_email: Option<&str>,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     create_alert(
-        pool,
+        store,
         Some(tenant_id),
         user_id,
         AlertType::MalwareDetected,
@@ -671,26 +543,20 @@ pub async fn alert_malware_detected(
 
 /// Create alert for user auto-suspended due to malware uploads
 pub async fn alert_user_suspended_malware(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     offense_count: i32,
     file_id: Uuid,
     file_name: &str,
     threat_name: &str,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<Uuid, clovalink_entity::DataError> {
     // Get user email for the alert
-    let user_email: Option<(String,)> = sqlx::query_as("SELECT email FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-
-    let email = user_email
-        .map(|(e,)| e)
+    let email = store.security().user_email(user_id).await?
         .unwrap_or_else(|| "Unknown".to_string());
 
     create_alert(
-        pool,
+        store,
         Some(tenant_id),
         Some(user_id),
         AlertType::UserSuspendedMalware,

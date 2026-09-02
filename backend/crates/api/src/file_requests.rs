@@ -579,7 +579,7 @@ pub async fn public_upload(
                     );
                     // Create security alert for blocked extension attempt
                     let _ = security_service::alert_blocked_extension(
-                        &state.pool,
+                        &state.store,
                         file_request.tenant_id,
                         None, // No authenticated user
                         None, // No user email
@@ -747,13 +747,13 @@ pub async fn public_upload(
 
         // Enqueue virus scan job if enabled (non-blocking)
         if state.virus_scan_config.enabled {
-            let scan_pool = state.pool.clone();
+            let scan_store = state.store.clone();
             let file_id = file_metadata.id;
             let tenant_id = file_request.tenant_id;
             let max_queue_size = state.virus_scan_config.max_queue_size;
             tokio::spawn(async move {
                 if let Err(e) = clovalink_core::virus_scan::enqueue_scan_with_backpressure(
-                    &scan_pool,
+                    &scan_store,
                     file_id,
                     tenant_id,
                     0, // Normal priority
@@ -830,7 +830,7 @@ pub async fn public_upload(
 
                 if let Some(file_id) = first_file.file_metadata_id {
                     let _ = notification_service::notify_file_upload(
-                        &state.pool,
+                        &state.store,
                         &tenant,
                         file_request.created_by,
                         &owner_email,

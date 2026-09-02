@@ -1,0 +1,53 @@
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement};
+use uuid::Uuid;
+
+use crate::{entities::{files_metadata, quarantined_files, user_malware_counts, users, virus_scan_jobs, virus_scan_results, virus_scan_settings}, DataResult};
+
+pub struct NewVirusScanResult<'a>{pub file_id:Uuid,pub tenant_id:Uuid,pub job_id:Option<Uuid>,pub infected:bool,pub threat:Option<&'a str>,pub size:i64,pub duration:i32,pub scanner:Option<&'a str>,pub signature:Option<&'a str>,pub action:Option<&'a str>}
+pub struct VirusMetricsData{pub pending:i64,pub scanning:i64,pub failed:i64,pub scans:i64,pub infections:i64,pub average:Option<f64>,pub bytes:i64}
+pub struct QuarantinedFileRow{pub model:quarantined_files::Model,pub owner_name:Option<String>,pub owner_email:Option<String>}
+
+#[derive(Default)]
+pub struct VirusScanSettingsPatch {
+    pub enabled: Option<bool>, pub file_types: Option<Vec<String>>, pub max_file_size_mb: Option<i32>,
+    pub action_on_detect: Option<String>, pub notify_admin: Option<bool>, pub notify_uploader: Option<bool>,
+    pub auto_suspend_uploader: Option<bool>, pub suspend_threshold: Option<i32>,
+}
+
+pub struct VirusScanRepository<'a> { db: &'a DatabaseConnection }
+impl<'a> VirusScanRepository<'a> {
+    pub(crate) fn new(db: &'a DatabaseConnection) -> Self { Self { db } }
+    fn stmt(&self,sql:&str,values:Vec<sea_orm::Value>)->Statement{Statement::from_sql_and_values(self.db.get_database_backend(),sql,values)}
+    pub async fn settings(&self, tenant_id: Uuid) -> DataResult<virus_scan_settings::Model> {
+        if let Some(model)=virus_scan_settings::Entity::find().filter(virus_scan_settings::Column::TenantId.eq(tenant_id)).one(self.db).await? { return Ok(model); }
+        match (virus_scan_settings::ActiveModel { tenant_id:Set(tenant_id), ..Default::default() }).insert(self.db).await {
+            Ok(model)=>Ok(model),
+            Err(_) => Ok(virus_scan_settings::Entity::find().filter(virus_scan_settings::Column::TenantId.eq(tenant_id)).one(self.db).await?.ok_or(crate::DataError::NotFound)?),
+        }
+    }
+    pub async fn update_settings(&self,tenant_id:Uuid,patch:VirusScanSettingsPatch)->DataResult<virus_scan_settings::Model>{
+        let model=self.settings(tenant_id).await?; let mut active:virus_scan_settings::ActiveModel=model.into();
+        if let Some(v)=patch.enabled{active.enabled=Set(v)} if let Some(v)=patch.file_types{active.file_types=Set(Some(v))}
+        if let Some(v)=patch.max_file_size_mb{active.max_file_size_mb=Set(Some(v))} if let Some(v)=patch.action_on_detect{active.action_on_detect=Set(v)}
+        if let Some(v)=patch.notify_admin{active.notify_admin=Set(v)} if let Some(v)=patch.notify_uploader{active.notify_uploader=Set(v)}
+        if let Some(v)=patch.auto_suspend_uploader{active.auto_suspend_uploader=Set(v)} if let Some(v)=patch.suspend_threshold{active.suspend_threshold=Set(v)}
+        active.updated_at=Set(chrono::Utc::now().into()); Ok(active.update(self.db).await?)
+    }
+    pub async fn queue_size(&self)->DataResult<i64>{let r=self.db.query_one(self.stmt("SELECT COUNT(*) AS count FROM virus_scan_jobs WHERE status IN ('pending','scanning')",vec![])).await?.unwrap();Ok(r.try_get("","count")?)}
+    pub async fn enqueue(&self,file_id:Uuid,tenant_id:Uuid,priority:i32)->DataResult<Uuid>{let id=Uuid::new_v4();let r=self.db.query_one(self.stmt("INSERT INTO virus_scan_jobs (id,file_id,tenant_id,priority) VALUES ($1,$2,$3,$4) ON CONFLICT (file_id) WHERE status IN ('pending','scanning') DO UPDATE SET priority=GREATEST(virus_scan_jobs.priority,EXCLUDED.priority) RETURNING id",vec![id.into(),file_id.into(),tenant_id.into(),priority.into()])).await?.unwrap();Ok(r.try_get("","id")?)}
+    pub async fn fetch_next(&self)->DataResult<Option<virus_scan_jobs::Model>>{Ok(virus_scan_jobs::Model::find_by_statement(self.stmt("UPDATE virus_scan_jobs SET status='scanning',last_attempt_at=NOW(),updated_at=NOW() WHERE id=(SELECT id FROM virus_scan_jobs WHERE status='pending' AND (next_retry_at IS NULL OR next_retry_at<=NOW()) ORDER BY priority DESC,created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *",vec![])).one(self.db).await?)}
+    pub async fn set_job_status(&self,id:Uuid,status:&str,error:Option<&str>)->DataResult<()> {self.db.execute(self.stmt("UPDATE virus_scan_jobs SET status=$2,error_message=$3,updated_at=NOW() WHERE id=$1",vec![id.into(),status.into(),error.into()])).await?;Ok(())}
+    pub async fn fail_job(&self,id:Uuid,error:&str,backoff:i64)->DataResult<()> {self.db.execute(self.stmt("UPDATE virus_scan_jobs SET retry_count=retry_count+1,error_message=$2,status=CASE WHEN retry_count+1>=3 THEN 'failed' ELSE 'pending' END,next_retry_at=CASE WHEN retry_count+1<3 THEN NOW()+($3||' seconds')::interval ELSE NULL END,updated_at=NOW() WHERE id=$1",vec![id.into(),error.into(),backoff.to_string().into()])).await?;Ok(())}
+    pub async fn job(&self,id:Uuid)->DataResult<Option<virus_scan_jobs::Model>>{Ok(virus_scan_jobs::Entity::find_by_id(id).one(self.db).await?)}
+    pub async fn record_result(&self,v:NewVirusScanResult<'_>)->DataResult<Uuid>{let m=virus_scan_results::ActiveModel{file_id:Set(v.file_id),tenant_id:Set(v.tenant_id),scan_job_id:Set(v.job_id),is_infected:Set(v.infected),threat_name:Set(v.threat.map(str::to_owned)),file_size_bytes:Set(v.size),scan_duration_ms:Set(v.duration),scanner_version:Set(v.scanner.map(str::to_owned)),signature_version:Set(v.signature.map(str::to_owned)),action_taken:Set(v.action.map(str::to_owned)),..Default::default()}.insert(self.db).await?;Ok(m.id)}
+    pub async fn set_file_scan_status(&self,id:Uuid,status:&str)->DataResult<()> {if let Some(m)=files_metadata::Entity::find_by_id(id).one(self.db).await?{let mut a:files_metadata::ActiveModel=m.into();a.scan_status=Set(Some(status.into()));a.update(self.db).await?;}Ok(())}
+    pub async fn file(&self,id:Uuid)->DataResult<Option<files_metadata::Model>>{Ok(files_metadata::Entity::find_by_id(id).one(self.db).await?)}
+    pub async fn mark_file_deleted(&self,id:Uuid)->DataResult<()> {if let Some(m)=files_metadata::Entity::find_by_id(id).one(self.db).await?{let mut a:files_metadata::ActiveModel=m.into();a.is_deleted=Set(true);a.deleted_at=Set(Some(chrono::Utc::now().into()));a.update(self.db).await?;}Ok(())}
+    pub async fn quarantine(&self,id:Uuid,threat:&str)->DataResult<()> {if let Some(f)=self.file(id).await?{quarantined_files::ActiveModel{original_file_id:Set(id),tenant_id:Set(f.tenant_id),original_filename:Set(f.name),original_path:Set(f.parent_path.unwrap_or_default()),storage_path:Set(f.storage_path),threat_name:Set(threat.into()),file_size_bytes:Set(Some(f.size_bytes)),owner_id:Set(f.owner_id),..Default::default()}.insert(self.db).await?;}self.mark_file_deleted(id).await}
+    pub async fn notification_file(&self,id:Uuid)->DataResult<Option<(String,Option<Uuid>,Option<String>,Option<String>)>>{let Some(f)=self.file(id).await? else{return Ok(None)};let user=match f.owner_id{Some(uid)=>users::Entity::find_by_id(uid).one(self.db).await?,None=>None};Ok(Some((f.name,f.owner_id,user.as_ref().map(|u|u.email.clone()),user.map(|u|u.role))))}
+    pub async fn record_offense(&self,user_id:Uuid,tenant_id:Uuid)->DataResult<i32>{if let Some(m)=user_malware_counts::Entity::find().filter(user_malware_counts::Column::UserId.eq(user_id)).filter(user_malware_counts::Column::TenantId.eq(tenant_id)).one(self.db).await?{let mut a:user_malware_counts::ActiveModel=m.into();a.count=Set(a.count.take().unwrap_or(0)+1);a.last_offense_at=Set(Some(chrono::Utc::now().into()));return Ok(a.update(self.db).await?.count)}Ok(user_malware_counts::ActiveModel{user_id:Set(user_id),tenant_id:Set(tenant_id),count:Set(1),last_offense_at:Set(Some(chrono::Utc::now().into())),..Default::default()}.insert(self.db).await?.count)}
+    pub async fn suspend_user(&self,id:Uuid,reason:String)->DataResult<()> {if let Some(m)=users::Entity::find_by_id(id).one(self.db).await?{if m.suspended_at.is_none(){let mut a:users::ActiveModel=m.into();a.suspension_reason=Set(Some(reason));a.suspended_at=Set(Some(chrono::Utc::now().into()));a.update(self.db).await?;}}Ok(())}
+    pub async fn metrics(&self)->DataResult<VirusMetricsData>{let j=self.db.query_one(self.stmt("SELECT COUNT(*) FILTER(WHERE status='pending') AS pending,COUNT(*) FILTER(WHERE status='scanning') AS scanning,COUNT(*) FILTER(WHERE status='failed') AS failed FROM virus_scan_jobs",vec![])).await?.unwrap();let s=self.db.query_one(self.stmt("SELECT COUNT(*) AS scans,COUNT(*) FILTER(WHERE is_infected=true) AS infections,AVG(scan_duration_ms)::FLOAT8 AS average,SUM(file_size_bytes)::BIGINT AS bytes FROM virus_scan_results WHERE scanned_at>NOW()-INTERVAL '1 hour'",vec![])).await?.unwrap();Ok(VirusMetricsData{pending:j.try_get("","pending")?,scanning:j.try_get("","scanning")?,failed:j.try_get("","failed")?,scans:s.try_get("","scans")?,infections:s.try_get("","infections")?,average:s.try_get("","average")?,bytes:s.try_get::<Option<i64>>("","bytes")?.unwrap_or(0)})}
+    pub async fn history(&self,tenant_id:Uuid,limit:u64,offset:u64,infected_only:bool)->DataResult<(Vec<serde_json::Value>,i64)>{let mut q=virus_scan_results::Entity::find().filter(virus_scan_results::Column::TenantId.eq(tenant_id));if infected_only{q=q.filter(virus_scan_results::Column::IsInfected.eq(true));}let total=q.clone().count(self.db).await? as i64;let rows=q.order_by_desc(virus_scan_results::Column::ScannedAt).limit(limit).offset(offset).all(self.db).await?;let mut items=Vec::new();for r in rows{let name=files_metadata::Entity::find_by_id(r.file_id).one(self.db).await?.map(|f|f.name);items.push(serde_json::json!({"id":r.id,"file_id":r.file_id,"file_name":name,"scan_status":if r.is_infected{"infected"}else{"clean"},"threat_name":r.threat_name,"file_size_bytes":r.file_size_bytes,"scan_duration_ms":r.scan_duration_ms,"action_taken":r.action_taken,"scanned_at":r.scanned_at}));}Ok((items,total))}
+    pub async fn quarantined(&self,tenant_id:Uuid,limit:u64,offset:u64)->DataResult<(Vec<QuarantinedFileRow>,i64)>{let q=quarantined_files::Entity::find().filter(quarantined_files::Column::TenantId.eq(tenant_id)).filter(quarantined_files::Column::PermanentlyDeletedAt.is_null());let total=q.clone().count(self.db).await? as i64;let rows=q.order_by_desc(quarantined_files::Column::QuarantinedAt).limit(limit).offset(offset).all(self.db).await?;let mut out=Vec::new();for model in rows{let owner=match model.owner_id{Some(id)=>users::Entity::find_by_id(id).one(self.db).await?,None=>None};out.push(QuarantinedFileRow{model,owner_name:owner.as_ref().map(|u|u.name.clone()),owner_email:owner.map(|u|u.email)});}Ok((out,total))}
+}

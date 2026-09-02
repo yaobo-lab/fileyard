@@ -12,7 +12,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -21,6 +20,18 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+fn tenant_from_entity(m: clovalink_entity::entities::tenants::Model) -> Tenant {
+    Tenant { id:m.id,name:m.name,domain:m.domain,plan:m.plan,status:m.status,compliance_mode:m.compliance_mode,
+        encryption_standard:m.encryption_standard,retention_policy_days:m.retention_policy_days,
+        storage_quota_bytes:m.storage_quota_bytes,storage_used_bytes:m.storage_used_bytes.unwrap_or(0),smtp_host:m.smtp_host,
+        smtp_port:m.smtp_port,smtp_username:m.smtp_username,smtp_password:m.smtp_password,smtp_from:m.smtp_from,smtp_secure:m.smtp_secure,
+        enable_totp:m.enable_totp,enable_passkeys:m.enable_passkeys,mfa_required:m.mfa_required,session_timeout_minutes:m.session_timeout_minutes,
+        public_sharing_enabled:m.public_sharing_enabled,data_export_enabled:m.data_export_enabled,max_upload_size_bytes:m.max_upload_size_bytes,
+        auth_methods:Some(m.auth_methods),approval_workflow_enabled:m.approval_workflow_enabled,backup_enabled:m.backup_enabled,
+        auto_backup_enabled:m.auto_backup_enabled,auto_backup_cron:m.auto_backup_cron,auto_backup_retention_count:m.auto_backup_retention_count,
+        created_at:m.created_at.into(),updated_at:m.updated_at.into() }
+}
 
 use crate::circuit_breaker::CircuitBreaker;
 use crate::models::Tenant;
@@ -38,7 +49,7 @@ pub enum VirusScanError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    DataError(#[from] clovalink_entity::DataError),
     #[error("ClamAV connection error: {0}")]
     ConnectionError(String),
     #[error("ClamAV connection timeout")]
@@ -144,7 +155,7 @@ impl VirusScanConfig {
 // =============================================================================
 
 /// Per-tenant virus scan settings
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenantScanSettings {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -181,66 +192,19 @@ impl Default for TenantScanSettings {
 
 /// Get tenant scan settings, creating defaults if none exist
 pub async fn get_tenant_settings(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
 ) -> Result<TenantScanSettings, VirusScanError> {
-    let settings = sqlx::query_as::<_, TenantScanSettings>(
-        r#"
-        SELECT id, tenant_id, enabled, file_types, max_file_size_mb,
-               action_on_detect, notify_admin, notify_uploader,
-               auto_suspend_uploader, suspend_threshold, created_at, updated_at
-        FROM virus_scan_settings
-        WHERE tenant_id = $1
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await?;
-
-    match settings {
-        Some(s) => Ok(s),
-        None => {
-            // Create default settings for this tenant
-            let new_settings = sqlx::query_as::<_, TenantScanSettings>(
-                r#"
-                INSERT INTO virus_scan_settings (tenant_id)
-                VALUES ($1)
-                ON CONFLICT (tenant_id) DO NOTHING
-                RETURNING id, tenant_id, enabled, file_types, max_file_size_mb,
-                          action_on_detect, notify_admin, notify_uploader,
-                          auto_suspend_uploader, suspend_threshold, created_at, updated_at
-                "#,
-            )
-            .bind(tenant_id)
-            .fetch_optional(pool)
-            .await?;
-
-            match new_settings {
-                Some(s) => Ok(s),
-                None => {
-                    // Race condition - fetch again
-                    sqlx::query_as::<_, TenantScanSettings>(
-                        r#"
-                        SELECT id, tenant_id, enabled, file_types, max_file_size_mb,
-                               action_on_detect, notify_admin, notify_uploader,
-                               auto_suspend_uploader, suspend_threshold, created_at, updated_at
-                        FROM virus_scan_settings
-                        WHERE tenant_id = $1
-                        "#,
-                    )
-                    .bind(tenant_id)
-                    .fetch_one(pool)
-                    .await
-                    .map_err(VirusScanError::from)
-                }
-            }
-        }
-    }
+    let m=store.virus_scan().settings(tenant_id).await?;
+    Ok(TenantScanSettings{id:m.id,tenant_id:m.tenant_id,enabled:m.enabled,file_types:m.file_types.unwrap_or_default(),
+        max_file_size_mb:m.max_file_size_mb.unwrap_or(100),action_on_detect:m.action_on_detect,notify_admin:m.notify_admin,
+        notify_uploader:m.notify_uploader,auto_suspend_uploader:m.auto_suspend_uploader,suspend_threshold:m.suspend_threshold,
+        created_at:m.created_at.into(),updated_at:m.updated_at.into()})
 }
 
 /// Update tenant scan settings
 pub async fn update_tenant_settings(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     enabled: Option<bool>,
     file_types: Option<Vec<String>>,
@@ -251,41 +215,12 @@ pub async fn update_tenant_settings(
     auto_suspend_uploader: Option<bool>,
     suspend_threshold: Option<i32>,
 ) -> Result<TenantScanSettings, VirusScanError> {
-    // Ensure settings exist first
-    get_tenant_settings(pool, tenant_id).await?;
-
-    let settings = sqlx::query_as::<_, TenantScanSettings>(
-        r#"
-        UPDATE virus_scan_settings
-        SET 
-            enabled = COALESCE($2, enabled),
-            file_types = COALESCE($3, file_types),
-            max_file_size_mb = COALESCE($4, max_file_size_mb),
-            action_on_detect = COALESCE($5, action_on_detect),
-            notify_admin = COALESCE($6, notify_admin),
-            notify_uploader = COALESCE($7, notify_uploader),
-            auto_suspend_uploader = COALESCE($8, auto_suspend_uploader),
-            suspend_threshold = COALESCE($9, suspend_threshold),
-            updated_at = NOW()
-        WHERE tenant_id = $1
-        RETURNING id, tenant_id, enabled, file_types, max_file_size_mb,
-                  action_on_detect, notify_admin, notify_uploader,
-                  auto_suspend_uploader, suspend_threshold, created_at, updated_at
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(enabled)
-    .bind(file_types)
-    .bind(max_file_size_mb)
-    .bind(action_on_detect)
-    .bind(notify_admin)
-    .bind(notify_uploader)
-    .bind(auto_suspend_uploader)
-    .bind(suspend_threshold)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(settings)
+    let m=store.virus_scan().update_settings(tenant_id,clovalink_entity::repositories::VirusScanSettingsPatch{
+        enabled,file_types,max_file_size_mb,action_on_detect,notify_admin,notify_uploader,auto_suspend_uploader,suspend_threshold}).await?;
+    Ok(TenantScanSettings{id:m.id,tenant_id:m.tenant_id,enabled:m.enabled,file_types:m.file_types.unwrap_or_default(),
+        max_file_size_mb:m.max_file_size_mb.unwrap_or(100),action_on_detect:m.action_on_detect,notify_admin:m.notify_admin,
+        notify_uploader:m.notify_uploader,auto_suspend_uploader:m.auto_suspend_uploader,suspend_threshold:m.suspend_threshold,
+        created_at:m.created_at.into(),updated_at:m.updated_at.into()})
 }
 
 // =============================================================================
@@ -456,7 +391,7 @@ impl ClamAvClient {
 // =============================================================================
 
 /// Virus scan job record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanJob {
     pub id: Uuid,
     pub file_id: Uuid,
@@ -476,12 +411,12 @@ pub struct ScanJob {
 /// If `max_queue_size` is provided and > 0, will reject with QueueFull error
 /// if the pending queue exceeds that limit.
 pub async fn enqueue_scan(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     priority: i32,
 ) -> Result<Uuid, VirusScanError> {
-    enqueue_scan_with_backpressure(pool, file_id, tenant_id, priority, 0).await
+    enqueue_scan_with_backpressure(store, file_id, tenant_id, priority, 0).await
 }
 
 /// Enqueue a virus scan job with backpressure control
@@ -489,7 +424,7 @@ pub async fn enqueue_scan(
 /// If `max_queue_size` > 0, will reject with QueueFull error if the pending
 /// queue exceeds that limit. Set to 0 to disable backpressure.
 pub async fn enqueue_scan_with_backpressure(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     priority: i32,
@@ -497,11 +432,7 @@ pub async fn enqueue_scan_with_backpressure(
 ) -> Result<Uuid, VirusScanError> {
     // Check queue size if backpressure is enabled
     if max_queue_size > 0 {
-        let queue_size: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM virus_scan_jobs WHERE status IN ('pending', 'scanning')",
-        )
-        .fetch_one(pool)
-        .await?;
+        let queue_size=store.virus_scan().queue_size().await?;
 
         if queue_size >= max_queue_size {
             warn!(
@@ -515,23 +446,7 @@ pub async fn enqueue_scan_with_backpressure(
         }
     }
 
-    let job_id = Uuid::new_v4();
-
-    let result = sqlx::query_scalar::<_, Uuid>(
-        r#"
-        INSERT INTO virus_scan_jobs (id, file_id, tenant_id, priority)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (file_id) WHERE status IN ('pending', 'scanning')
-        DO UPDATE SET priority = GREATEST(virus_scan_jobs.priority, EXCLUDED.priority)
-        RETURNING id
-        "#,
-    )
-    .bind(job_id)
-    .bind(file_id)
-    .bind(tenant_id)
-    .bind(priority)
-    .fetch_one(pool)
-    .await?;
+    let result=store.virus_scan().enqueue(file_id,tenant_id,priority).await?;
 
     debug!(
         target: "virus_scan",
@@ -545,59 +460,19 @@ pub async fn enqueue_scan_with_backpressure(
 }
 
 /// Fetch the next pending scan job
-pub async fn fetch_next_job(pool: &PgPool) -> Result<Option<ScanJob>, VirusScanError> {
-    let job = sqlx::query_as::<_, ScanJob>(
-        r#"
-        UPDATE virus_scan_jobs
-        SET status = 'scanning', last_attempt_at = NOW(), updated_at = NOW()
-        WHERE id = (
-            SELECT id FROM virus_scan_jobs
-            WHERE status = 'pending'
-              AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-            ORDER BY priority DESC, created_at ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        )
-        RETURNING id, file_id, tenant_id, status, priority, retry_count,
-                  last_attempt_at, next_retry_at, error_message, created_at, updated_at
-        "#,
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(job)
+pub async fn fetch_next_job(store: &clovalink_entity::DataStore) -> Result<Option<ScanJob>, VirusScanError> {
+    Ok(store.virus_scan().fetch_next().await?.map(|m|ScanJob{id:m.id,file_id:m.file_id,tenant_id:m.tenant_id,status:m.status,priority:m.priority,retry_count:m.retry_count,last_attempt_at:m.last_attempt_at.map(Into::into),next_retry_at:m.next_retry_at.map(Into::into),error_message:m.error_message,created_at:m.created_at.into(),updated_at:m.updated_at.into()}))
 }
 
 /// Mark a scan job as completed
-pub async fn complete_job(pool: &PgPool, job_id: Uuid) -> Result<(), VirusScanError> {
-    sqlx::query(
-        r#"
-        UPDATE virus_scan_jobs
-        SET status = 'completed', error_message = NULL, updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(job_id)
-    .execute(pool)
-    .await?;
-
+pub async fn complete_job(store: &clovalink_entity::DataStore, job_id: Uuid) -> Result<(), VirusScanError> {
+    store.virus_scan().set_job_status(job_id,"completed",None).await?;
     Ok(())
 }
 
 /// Mark a scan job as skipped (file too large, wrong type, etc.)
-pub async fn skip_job(pool: &PgPool, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
-    sqlx::query(
-        r#"
-        UPDATE virus_scan_jobs
-        SET status = 'skipped', error_message = $2, updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(job_id)
-    .bind(reason)
-    .execute(pool)
-    .await?;
-
+pub async fn skip_job(store: &clovalink_entity::DataStore, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
+    store.virus_scan().set_job_status(job_id,"skipped",Some(reason)).await?;
     Ok(())
 }
 
@@ -612,40 +487,14 @@ fn calculate_backoff_delay(retry_count: i32) -> i64 {
 }
 
 /// Mark a scan job as failed with exponential backoff retry
-pub async fn fail_job(pool: &PgPool, job_id: Uuid, error: &str) -> Result<(), VirusScanError> {
+pub async fn fail_job(store: &clovalink_entity::DataStore, job_id: Uuid, error: &str) -> Result<(), VirusScanError> {
     // Get current retry count to calculate backoff
-    let retry_count: Option<i32> =
-        sqlx::query_scalar("SELECT retry_count FROM virus_scan_jobs WHERE id = $1")
-            .bind(job_id)
-            .fetch_optional(pool)
-            .await?;
+    let retry_count=store.virus_scan().job(job_id).await?.map(|j|j.retry_count);
 
     let current_retry = retry_count.unwrap_or(0);
     let backoff_secs = calculate_backoff_delay(current_retry);
 
-    sqlx::query(
-        r#"
-        UPDATE virus_scan_jobs
-        SET 
-            retry_count = retry_count + 1,
-            error_message = $2,
-            status = CASE 
-                WHEN retry_count + 1 >= 3 THEN 'failed'
-                ELSE 'pending'
-            END,
-            next_retry_at = CASE 
-                WHEN retry_count + 1 < 3 THEN NOW() + ($3 || ' seconds')::interval
-                ELSE NULL
-            END,
-            updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(job_id)
-    .bind(error)
-    .bind(backoff_secs.to_string())
-    .execute(pool)
-    .await?;
+    store.virus_scan().fail_job(job_id,error,backoff_secs).await?;
 
     info!(
         target: "virus_scan",
@@ -659,21 +508,8 @@ pub async fn fail_job(pool: &PgPool, job_id: Uuid, error: &str) -> Result<(), Vi
 }
 
 /// Requeue a job for later processing (circuit breaker open, no retry count increment)
-pub async fn requeue_job(pool: &PgPool, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
-    sqlx::query(
-        r#"
-        UPDATE virus_scan_jobs
-        SET 
-            status = 'pending',
-            error_message = $2,
-            updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(job_id)
-    .bind(reason)
-    .execute(pool)
-    .await?;
+pub async fn requeue_job(store: &clovalink_entity::DataStore, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
+    store.virus_scan().set_job_status(job_id,"pending",Some(reason)).await?;
 
     debug!(
         target: "virus_scan",
@@ -691,7 +527,7 @@ pub async fn requeue_job(pool: &PgPool, job_id: Uuid, reason: &str) -> Result<()
 
 /// Record a scan result
 pub async fn record_scan_result(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     job_id: Option<Uuid>,
@@ -703,56 +539,22 @@ pub async fn record_scan_result(
     signature_version: Option<&str>,
     action_taken: Option<&str>,
 ) -> Result<Uuid, VirusScanError> {
-    let result_id = Uuid::new_v4();
-
-    sqlx::query(
-        r#"
-        INSERT INTO virus_scan_results (
-            id, file_id, tenant_id, scan_job_id, is_infected, threat_name,
-            file_size_bytes, scan_duration_ms, scanner_version, signature_version, action_taken
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        "#,
-    )
-    .bind(result_id)
-    .bind(file_id)
-    .bind(tenant_id)
-    .bind(job_id)
-    .bind(is_infected)
-    .bind(threat_name)
-    .bind(file_size_bytes)
-    .bind(scan_duration_ms)
-    .bind(scanner_version)
-    .bind(signature_version)
-    .bind(action_taken)
-    .execute(pool)
-    .await?;
-
-    Ok(result_id)
+    Ok(store.virus_scan().record_result(clovalink_entity::repositories::NewVirusScanResult{file_id,tenant_id,job_id,infected:is_infected,threat:threat_name,size:file_size_bytes,duration:scan_duration_ms,scanner:scanner_version,signature:signature_version,action:action_taken}).await?)
 }
 
 /// Update file scan status
 pub async fn update_file_scan_status(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     file_id: Uuid,
     status: &str,
 ) -> Result<(), VirusScanError> {
-    sqlx::query(
-        r#"
-        UPDATE files_metadata SET scan_status = $2 WHERE id = $1
-        "#,
-    )
-    .bind(file_id)
-    .bind(status)
-    .execute(pool)
-    .await?;
-
+    store.virus_scan().set_file_scan_status(file_id,status).await?;
     Ok(())
 }
 
 /// Check user's malware count and suspend if threshold reached
 pub async fn check_and_suspend_uploader(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     user_id: Uuid,
     tenant_id: Uuid,
     threshold: i32,
@@ -760,25 +562,7 @@ pub async fn check_and_suspend_uploader(
     file_name: &str,
     threat_name: &str,
 ) -> Result<bool, VirusScanError> {
-    // Increment malware count (upsert)
-    let count_result: (i32,) = sqlx::query_as(
-        r#"
-        INSERT INTO user_malware_counts (user_id, tenant_id, count, last_offense_at)
-        VALUES ($1, $2, 1, NOW())
-        ON CONFLICT (user_id, tenant_id)
-        DO UPDATE SET 
-            count = user_malware_counts.count + 1,
-            last_offense_at = NOW(),
-            updated_at = NOW()
-        RETURNING count
-        "#,
-    )
-    .bind(user_id)
-    .bind(tenant_id)
-    .fetch_one(pool)
-    .await?;
-
-    let offense_count = count_result.0;
+    let offense_count=store.virus_scan().record_offense(user_id,tenant_id).await?;
     info!(
         target: "virus_scan",
         user_id = %user_id,
@@ -790,26 +574,14 @@ pub async fn check_and_suspend_uploader(
     // Check if threshold is reached
     if offense_count >= threshold {
         // Suspend the user
-        sqlx::query(
-            r#"
-            UPDATE users 
-            SET is_suspended = true, 
-                suspension_reason = $2,
-                suspended_at = NOW()
-            WHERE id = $1 AND is_suspended = false
-            "#,
-        )
-        .bind(user_id)
-        .bind(format!(
+        store.virus_scan().suspend_user(user_id,format!(
             "Auto-suspended: Uploaded {} infected file(s). Last: {} infected with {}",
             offense_count, file_name, threat_name
-        ))
-        .execute(pool)
-        .await?;
+        )).await?;
 
         // Create security alert for suspension
         if let Err(e) = security_service::alert_user_suspended_malware(
-            pool,
+            store,
             tenant_id,
             user_id,
             offense_count,
@@ -857,7 +629,6 @@ pub trait FileStorageReader: Send + Sync {
 
 /// Virus scan worker that processes jobs in the background
 pub struct VirusScanWorker {
-    pool: PgPool,
     store: clovalink_entity::DataStore,
     config: VirusScanConfig,
     client: ClamAvClient,
@@ -869,7 +640,6 @@ pub struct VirusScanWorker {
 impl VirusScanWorker {
     /// Create a new virus scan worker
     pub fn new(
-        pool: PgPool,
         store: clovalink_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
@@ -878,7 +648,6 @@ impl VirusScanWorker {
     ) -> Self {
         let client = ClamAvClient::new(config.clone());
         Self {
-            pool,
             store,
             config,
             client,
@@ -891,7 +660,6 @@ impl VirusScanWorker {
     /// Create a new virus scan worker with default circuit breaker
     /// (5 failures to open, 30s recovery, 3 successes to close)
     pub fn with_default_circuit_breaker(
-        pool: PgPool,
         store: clovalink_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
@@ -903,7 +671,7 @@ impl VirusScanWorker {
             30, // recovery timeout seconds
             3,  // success threshold to close
         ));
-        Self::new(pool, store, config, storage, worker_id, circuit_breaker)
+        Self::new(store, config, storage, worker_id, circuit_breaker)
     }
 
     /// Run the worker loop
@@ -971,7 +739,7 @@ impl VirusScanWorker {
 
     /// Process the next available job
     async fn process_next_job(&self) -> Result<bool, VirusScanError> {
-        let job = match fetch_next_job(&self.pool).await? {
+        let job = match fetch_next_job(&self.store).await? {
             Some(job) => job,
             None => return Ok(false),
         };
@@ -985,30 +753,23 @@ impl VirusScanWorker {
         );
 
         // Get tenant settings
-        let settings = get_tenant_settings(&self.pool, job.tenant_id).await?;
+        let settings = get_tenant_settings(&self.store, job.tenant_id).await?;
 
         // Check if scanning is enabled for this tenant
         if !settings.enabled {
-            skip_job(&self.pool, job.id, "Scanning disabled for tenant").await?;
-            update_file_scan_status(&self.pool, job.file_id, "skipped").await?;
+            skip_job(&self.store, job.id, "Scanning disabled for tenant").await?;
+            update_file_scan_status(&self.store, job.file_id, "skipped").await?;
             return Ok(true);
         }
 
         // Get file info
-        let file_info: Option<(String, i64, Option<String>)> = sqlx::query_as(
-            r#"
-            SELECT storage_path, size_bytes, content_type
-            FROM files_metadata WHERE id = $1
-            "#,
-        )
-        .bind(job.file_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let file_info = self.store.virus_scan().file(job.file_id).await?
+            .map(|f|(f.storage_path,f.size_bytes,f.content_type));
 
         let (storage_path, file_size, _content_type) = match file_info {
             Some(info) => info,
             None => {
-                skip_job(&self.pool, job.id, "File not found").await?;
+                skip_job(&self.store, job.id, "File not found").await?;
                 return Ok(true);
             }
         };
@@ -1017,7 +778,7 @@ impl VirusScanWorker {
         let max_size_bytes = (settings.max_file_size_mb as i64) * 1024 * 1024;
         if file_size > max_size_bytes {
             skip_job(
-                &self.pool,
+                &self.store,
                 job.id,
                 &format!(
                     "File size {} exceeds limit {} MB",
@@ -1025,7 +786,7 @@ impl VirusScanWorker {
                 ),
             )
             .await?;
-            update_file_scan_status(&self.pool, job.file_id, "skipped").await?;
+            update_file_scan_status(&self.store, job.file_id, "skipped").await?;
             return Ok(true);
         }
 
@@ -1034,12 +795,12 @@ impl VirusScanWorker {
             let ext = storage_path.rsplit('.').next().unwrap_or("").to_lowercase();
             if !settings.file_types.iter().any(|t| t.to_lowercase() == ext) {
                 skip_job(
-                    &self.pool,
+                    &self.store,
                     job.id,
                     &format!("File type '{}' not in scan list", ext),
                 )
                 .await?;
-                update_file_scan_status(&self.pool, job.file_id, "skipped").await?;
+                update_file_scan_status(&self.store, job.file_id, "skipped").await?;
                 return Ok(true);
             }
         }
@@ -1053,7 +814,7 @@ impl VirusScanWorker {
                 "Circuit breaker is open, requeuing job"
             );
             requeue_job(
-                &self.pool,
+                &self.store,
                 job.id,
                 "Circuit breaker open - ClamAV unavailable",
             )
@@ -1067,7 +828,7 @@ impl VirusScanWorker {
         let file_data = match self.storage.download(&storage_path).await {
             Ok(data) => data,
             Err(e) => {
-                fail_job(&self.pool, job.id, &format!("Download failed: {}", e)).await?;
+                fail_job(&self.store, job.id, &format!("Download failed: {}", e)).await?;
                 return Ok(true);
             }
         };
@@ -1080,8 +841,8 @@ impl VirusScanWorker {
             }
             Err(e) => {
                 self.circuit_breaker.record_failure();
-                fail_job(&self.pool, job.id, &format!("Scan failed: {}", e)).await?;
-                update_file_scan_status(&self.pool, job.file_id, "error").await?;
+                fail_job(&self.store, job.id, &format!("Scan failed: {}", e)).await?;
+                update_file_scan_status(&self.store, job.file_id, "error").await?;
                 return Ok(true);
             }
         };
@@ -1108,33 +869,12 @@ impl VirusScanWorker {
                         );
                     }
                     // Mark file as deleted in database
-                    sqlx::query("UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE id = $1")
-                        .bind(job.file_id)
-                        .execute(&self.pool)
-                        .await?;
+                    self.store.virus_scan().mark_file_deleted(job.file_id).await?;
                     Some("deleted")
                 }
                 DetectionAction::Quarantine => {
                     // Record in quarantine table with file size and owner
-                    sqlx::query(
-                        r#"
-                        INSERT INTO quarantined_files (
-                            original_file_id, tenant_id, original_filename, original_path,
-                            storage_path, threat_name, file_size_bytes, owner_id
-                        )
-                        SELECT $1, tenant_id, name, COALESCE(parent_path, ''), storage_path, $2, size_bytes, owner_id
-                        FROM files_metadata WHERE id = $1
-                        "#,
-                    )
-                    .bind(job.file_id)
-                    .bind(&scan_result.threat_name)
-                    .execute(&self.pool)
-                    .await?;
-                    // Mark file as quarantined
-                    sqlx::query("UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE id = $1")
-                        .bind(job.file_id)
-                        .execute(&self.pool)
-                        .await?;
+                    self.store.virus_scan().quarantine(job.file_id,scan_result.threat_name.as_deref().unwrap_or("Unknown")).await?;
                     Some("quarantined")
                 }
                 DetectionAction::Flag => {
@@ -1148,7 +888,7 @@ impl VirusScanWorker {
 
         // Record scan result
         record_scan_result(
-            &self.pool,
+            &self.store,
             job.file_id,
             job.tenant_id,
             Some(job.id),
@@ -1168,10 +908,10 @@ impl VirusScanWorker {
         } else {
             "clean"
         };
-        update_file_scan_status(&self.pool, job.file_id, status).await?;
+        update_file_scan_status(&self.store, job.file_id, status).await?;
 
         // Complete the job
-        complete_job(&self.pool, job.id).await?;
+        complete_job(&self.store, job.id).await?;
 
         if scan_result.is_infected {
             warn!(
@@ -1190,29 +930,12 @@ impl VirusScanWorker {
             let action_str = action_taken.unwrap_or("flagged");
 
             // Get file info for notifications
-            let file_info: Option<(String, Option<Uuid>, Option<String>, Option<String>)> =
-                sqlx::query_as(
-                    r#"
-                SELECT 
-                    fm.name,
-                    fm.owner_id,
-                    u.email,
-                    u.role
-                FROM files_metadata fm
-                LEFT JOIN users u ON u.id = fm.owner_id
-                WHERE fm.id = $1
-                "#,
-                )
-                .bind(job.file_id)
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
+            let file_info=self.store.virus_scan().notification_file(job.file_id).await.ok().flatten();
 
             if let Some((file_name, uploader_id, uploader_email, uploader_role)) = file_info {
                 // Create security alert
                 if let Err(e) = security_service::alert_malware_detected(
-                    &self.pool,
+                    &self.store,
                     job.tenant_id,
                     uploader_id,
                     job.file_id,
@@ -1234,13 +957,7 @@ impl VirusScanWorker {
                 // Send notifications if configured
                 if settings.notify_admin || settings.notify_uploader {
                     // Get tenant for notifications
-                    let tenant: Option<Tenant> =
-                        sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
-                            .bind(job.tenant_id)
-                            .fetch_optional(&self.pool)
-                            .await
-                            .ok()
-                            .flatten();
+                    let tenant=self.store.security().tenant(job.tenant_id).await.ok().flatten().map(tenant_from_entity);
 
                     if let Some(tenant) = tenant {
                         if let Err(e) = notification_service::notify_malware_detection(
@@ -1279,7 +996,7 @@ impl VirusScanWorker {
                         if !is_admin {
                             // Increment malware count and check threshold
                             if let Err(e) = check_and_suspend_uploader(
-                                &self.pool,
+                                &self.store,
                                 user_id,
                                 job.tenant_id,
                                 settings.suspend_threshold,
@@ -1349,7 +1066,7 @@ pub struct ScanMetrics {
 
 /// Get virus scan metrics for admin dashboard
 pub async fn get_metrics(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     config: &VirusScanConfig,
     circuit_breaker: Option<&CircuitBreaker>,
 ) -> Result<ScanMetrics, VirusScanError> {
@@ -1361,33 +1078,7 @@ pub async fn get_metrics(
         None
     };
 
-    // Get job counts
-    let job_stats: (Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
-        r#"
-        SELECT
-            COUNT(*) FILTER (WHERE status = 'pending'),
-            COUNT(*) FILTER (WHERE status = 'scanning'),
-            COUNT(*) FILTER (WHERE status = 'failed')
-        FROM virus_scan_jobs
-        "#,
-    )
-    .fetch_one(pool)
-    .await?;
-
-    // Get scan metrics from last hour
-    let scan_stats: (Option<i64>, Option<i64>, Option<f64>, Option<i64>) = sqlx::query_as(
-        r#"
-        SELECT
-            COUNT(*),
-            COUNT(*) FILTER (WHERE is_infected = true),
-            AVG(scan_duration_ms)::FLOAT8,
-            SUM(file_size_bytes)::BIGINT
-        FROM virus_scan_results
-        WHERE scanned_at > NOW() - INTERVAL '1 hour'
-        "#,
-    )
-    .fetch_one(pool)
-    .await?;
+    let stats=store.virus_scan().metrics().await?;
 
     // Get circuit breaker state
     let (cb_state, cb_failures) = if let Some(cb) = circuit_breaker {
@@ -1402,8 +1093,8 @@ pub async fn get_metrics(
         ("unknown".to_string(), 0)
     };
 
-    let pending = job_stats.0.unwrap_or(0);
-    let scanning = job_stats.1.unwrap_or(0);
+    let pending = stats.pending;
+    let scanning = stats.scanning;
 
     Ok(ScanMetrics {
         enabled: config.enabled,
@@ -1411,11 +1102,11 @@ pub async fn get_metrics(
         clamd_version,
         pending_jobs: pending,
         scanning_jobs: scanning,
-        failed_jobs: job_stats.2.unwrap_or(0),
-        scans_last_hour: scan_stats.0.unwrap_or(0),
-        infections_last_hour: scan_stats.1.unwrap_or(0),
-        avg_scan_duration_ms: scan_stats.2,
-        total_bytes_scanned_last_hour: scan_stats.3.unwrap_or(0),
+        failed_jobs: stats.failed,
+        scans_last_hour: stats.scans,
+        infections_last_hour: stats.infections,
+        avg_scan_duration_ms: stats.average,
+        total_bytes_scanned_last_hour: stats.bytes,
         queue_size: pending + scanning,
         max_queue_size: config.max_queue_size,
         circuit_breaker_state: cb_state,
@@ -1434,84 +1125,17 @@ pub struct ScanHistoryResponse {
 
 /// Get scan history for a tenant with pagination
 pub async fn get_scan_history(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     limit: i64,
     offset: i64,
     infected_only: bool,
 ) -> Result<ScanHistoryResponse, VirusScanError> {
-    // Get total count
-    let total: (i64,) = if infected_only {
-        sqlx::query_as(
-            "SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1 AND is_infected = true",
-        )
-        .bind(tenant_id)
-        .fetch_one(pool)
-        .await?
-    } else {
-        sqlx::query_as("SELECT COUNT(*) FROM virus_scan_results WHERE tenant_id = $1")
-            .bind(tenant_id)
-            .fetch_one(pool)
-            .await?
-    };
-
-    let items = if infected_only {
-        sqlx::query_scalar::<_, serde_json::Value>(
-            r#"
-            SELECT json_build_object(
-                'id', r.id,
-                'file_id', r.file_id,
-                'file_name', f.name,
-                'scan_status', CASE WHEN r.is_infected THEN 'infected' ELSE 'clean' END,
-                'threat_name', r.threat_name,
-                'file_size_bytes', r.file_size_bytes,
-                'scan_duration_ms', r.scan_duration_ms,
-                'action_taken', r.action_taken,
-                'scanned_at', r.scanned_at
-            )
-            FROM virus_scan_results r
-            LEFT JOIN files_metadata f ON f.id = r.file_id
-            WHERE r.tenant_id = $1 AND r.is_infected = true
-            ORDER BY r.scanned_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_scalar::<_, serde_json::Value>(
-            r#"
-            SELECT json_build_object(
-                'id', r.id,
-                'file_id', r.file_id,
-                'file_name', f.name,
-                'scan_status', CASE WHEN r.is_infected THEN 'infected' ELSE 'clean' END,
-                'threat_name', r.threat_name,
-                'file_size_bytes', r.file_size_bytes,
-                'scan_duration_ms', r.scan_duration_ms,
-                'action_taken', r.action_taken,
-                'scanned_at', r.scanned_at
-            )
-            FROM virus_scan_results r
-            LEFT JOIN files_metadata f ON f.id = r.file_id
-            WHERE r.tenant_id = $1
-            ORDER BY r.scanned_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    };
+    let (items,total)=store.virus_scan().history(tenant_id,limit.max(0) as u64,offset.max(0) as u64,infected_only).await?;
 
     Ok(ScanHistoryResponse {
         items,
-        total: total.0,
+        total,
         limit,
         offset,
     })
@@ -1543,86 +1167,22 @@ pub struct QuarantineListResponse {
 
 /// Get quarantined files for a tenant with uploader info and pagination
 pub async fn get_quarantined_files(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     limit: i64,
     offset: i64,
 ) -> Result<QuarantineListResponse, VirusScanError> {
-    // Get total count
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM quarantined_files WHERE tenant_id = $1 AND permanently_deleted_at IS NULL"
-    )
-    .bind(tenant_id)
-    .fetch_one(pool)
-    .await?;
-
-    // Get quarantined files with uploader info
-    let results = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            Uuid,
-            String,
-            String,
-            String,
-            Option<i64>,
-            DateTime<Utc>,
-            Option<Uuid>,
-            Option<String>,
-            Option<String>,
-        ),
-    >(
-        r#"
-        SELECT 
-            qf.id,
-            qf.original_file_id,
-            qf.original_filename,
-            qf.original_path,
-            qf.threat_name,
-            qf.file_size_bytes,
-            qf.quarantined_at,
-            qf.owner_id,
-            u.name,
-            u.email
-        FROM quarantined_files qf
-        LEFT JOIN users u ON u.id = qf.owner_id
-        WHERE qf.tenant_id = $1 AND qf.permanently_deleted_at IS NULL
-        ORDER BY qf.quarantined_at DESC
-        LIMIT $2 OFFSET $3
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
+    let (results,total)=store.virus_scan().quarantined(tenant_id,limit.max(0) as u64,offset.max(0) as u64).await?;
 
     let items: Vec<QuarantinedFileResponse> = results
         .into_iter()
         .map(
-            |(
-                id,
-                file_id,
-                file_name,
-                original_path,
-                threat_name,
-                size,
-                quarantined_at,
-                owner_id,
-                owner_name,
-                owner_email,
-            )| {
+            |row| {
                 QuarantinedFileResponse {
-                    id,
-                    file_id,
-                    file_name,
-                    original_path,
-                    threat_name,
-                    original_size: size.unwrap_or(0),
-                    quarantined_at,
-                    uploader_id: owner_id,
-                    uploader_name: owner_name,
-                    uploader_email: owner_email,
+                    id:row.model.id,file_id:row.model.original_file_id,file_name:row.model.original_filename,
+                    original_path:row.model.original_path,threat_name:row.model.threat_name,
+                    original_size:row.model.file_size_bytes.unwrap_or(0),quarantined_at:row.model.quarantined_at.into(),
+                    uploader_id:row.model.owner_id,uploader_name:row.owner_name,uploader_email:row.owner_email,
                 }
             },
         )
@@ -1630,7 +1190,7 @@ pub async fn get_quarantined_files(
 
     Ok(QuarantineListResponse {
         items,
-        total: total.0,
+        total,
         limit,
         offset,
     })
