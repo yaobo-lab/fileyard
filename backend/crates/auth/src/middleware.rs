@@ -5,10 +5,8 @@ use axum::{
     response::Response,
 };
 use sha2::{Sha256, Digest};
-use sqlx::PgPool;
 use uuid::Uuid;
 use crate::jwt::verify_token;
-use clovalink_core::security_service;
 
 /// Authenticated user context that gets inserted into request extensions
 #[derive(Debug, Clone)]
@@ -18,6 +16,11 @@ pub struct AuthUser {
     pub role: String,
     pub email: String,
     pub ip_address: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct AuthDatabaseState {
+    pub store: clovalink_entity::DataStore,
 }
 
 /// Generate session fingerprint from request headers
@@ -173,7 +176,7 @@ fn ip_matches_any(ip: &str, list: &[String]) -> bool {
 /// - Checks database to ensure user is not suspended
 /// - Suspended users are immediately denied access even with valid JWT
 pub async fn auth_middleware_with_db(
-    State(pool): State<PgPool>,
+    State(state): State<AuthDatabaseState>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -210,11 +213,7 @@ pub async fn auth_middleware_with_db(
 
     // SECURITY: Check if user is suspended or inactive in database
     // This ensures suspended users are kicked out immediately, not just on next login
-    let user_status: Option<(String, Option<chrono::DateTime<chrono::Utc>>, String)> = sqlx::query_as(
-        "SELECT status, suspended_at, email FROM users WHERE id = $1"
-    )
-    .bind(user_id)
-    .fetch_optional(&pool)
+    let user_status = state.store.auth().user_status(user_id)
     .await
     .map_err(|e| {
         tracing::error!("Database error checking user status: {:?}", e);
@@ -222,23 +221,18 @@ pub async fn auth_middleware_with_db(
     })?;
 
     match user_status {
-        Some((status, suspended_at, email)) => {
+        Some(user) => {
             // Check if user is active
-            if status != "active" {
+            if user.status != "active" {
                 tracing::warn!("Rejected request from inactive user: {}", user_id);
                 return Err(StatusCode::UNAUTHORIZED);
             }
             // Check if user is suspended
-            if suspended_at.is_some() {
+            if user.suspended {
                 tracing::warn!("Rejected request from suspended user: {}", user_id);
                 // Create security alert for suspended user access attempt
-                let _ = security_service::alert_suspended_access_attempt(
-                    &pool,
-                    tenant_id,
-                    user_id,
-                    &email,
-                    req.uri().path(),
-                    ip_address.as_deref(),
+                let _ = state.store.auth().record_suspended_access_attempt(
+                    tenant_id, user_id, &user.email, req.uri().path(), ip_address.as_deref()
                 ).await;
                 return Err(StatusCode::UNAUTHORIZED);
             }
@@ -259,12 +253,7 @@ pub async fn auth_middleware_with_db(
         hex::encode(hasher.finalize())
     };
 
-    let session_status: Option<(bool,)> = sqlx::query_as(
-        "SELECT is_revoked FROM user_sessions WHERE token_hash = $1 AND user_id = $2 AND expires_at > NOW()"
-    )
-    .bind(&token_hash)
-    .bind(user_id)
-    .fetch_optional(&pool)
+    let session_status = state.store.auth().session_is_revoked(&token_hash, user_id)
     .await
     .map_err(|e| {
         tracing::error!("Database error checking session status: {:?}", e);
@@ -272,7 +261,7 @@ pub async fn auth_middleware_with_db(
     })?;
 
     match session_status {
-        Some((true,)) => {
+        Some(true) => {
             // Session has been revoked
             tracing::warn!("Rejected request from revoked session for user: {}", user_id);
             return Err(StatusCode::UNAUTHORIZED);
@@ -282,7 +271,7 @@ pub async fn auth_middleware_with_db(
             // before session tracking was implemented, so we allow it
             tracing::debug!("Session not found in database for user: {}", user_id);
         }
-        Some((false,)) => {
+        Some(_) => {
             // Session is valid, continue
         }
     }
@@ -315,18 +304,17 @@ pub async fn auth_middleware_with_db(
 
     // SECURITY: Check IP restrictions for tenant
     if let Some(ref client_ip) = ip_address {
-        let ip_restrictions: Option<(String, Vec<String>, Vec<String>)> = sqlx::query_as(
-            "SELECT ip_restriction_mode, ip_allowlist, ip_blocklist FROM tenants WHERE id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_optional(&pool)
+        let ip_restrictions = state.store.auth().tenant_ip_restrictions(tenant_id)
         .await
         .map_err(|e| {
             tracing::error!("Database error checking IP restrictions: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        if let Some((mode, allowlist, blocklist)) = ip_restrictions {
+        if let Some(tenant) = ip_restrictions {
+            let mode = tenant.mode;
+            let allowlist = tenant.allowlist;
+            let blocklist = tenant.blocklist;
             let is_blocked = match mode.as_str() {
                 "allowlist_only" => {
                     // Only allow IPs in the allowlist

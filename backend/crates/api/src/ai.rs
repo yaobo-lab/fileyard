@@ -80,7 +80,7 @@ pub async fn get_ai_status(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<AiStatusResponse>, (StatusCode, Json<AiErrorResponse>)> {
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
 
     let settings = service
         .get_settings(auth.tenant_id)
@@ -132,7 +132,7 @@ pub async fn get_ai_settings(
         auth.tenant_id
     };
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let settings = service
         .get_settings(target_tenant_id)
         .await
@@ -165,7 +165,7 @@ pub async fn update_ai_settings(
         auth.tenant_id
     };
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let settings = service
         .update_settings(target_tenant_id, input)
         .await
@@ -204,7 +204,7 @@ pub async fn test_ai_connection(
         auth.tenant_id
     };
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let success = service
         .test_connection(target_tenant_id)
         .await
@@ -246,7 +246,7 @@ pub async fn get_ai_usage(
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(10).clamp(1, 100);
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let stats = service
         .get_usage_stats(target_tenant_id, page, per_page)
         .await
@@ -331,7 +331,7 @@ pub async fn summarize_file(
     }
 
     // No valid cache - check maintenance mode before making new API call
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let (is_maintenance, maintenance_msg) = service
         .is_maintenance_mode(auth.tenant_id)
         .await
@@ -441,7 +441,7 @@ pub async fn answer_question(
     .await
     .map_err(ai_error_response)?;
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
     let response = service
         .answer(
             auth.tenant_id,
@@ -489,7 +489,7 @@ pub async fn semantic_search(
     // 2. Search file_embeddings table using vector similarity
     // 3. Return matching files
 
-    let service = AiService::new(state.pool.clone());
+    let service = AiService::new(state.store.clone());
 
     // Check if user has access first
     let settings = service

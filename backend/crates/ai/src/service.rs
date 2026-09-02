@@ -9,7 +9,7 @@
 //! - PII redaction
 //! - Audit logging
 
-use sqlx::PgPool;
+use clovalink_entity::{DataStore, entities::tenant_ai_settings, repositories::{AiSettingsPatch, NewAiUsage}};
 use uuid::Uuid;
 use crate::error::AiError;
 use crate::models::*;
@@ -18,45 +18,41 @@ use crate::redact::RedactionService;
 
 /// AI Service - main entry point for AI operations
 pub struct AiService {
-    pool: PgPool,
+    store: DataStore,
 }
 
 impl AiService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(store: DataStore) -> Self {
+        Self { store }
+    }
+
+    fn settings_from_entity(model: tenant_ai_settings::Model) -> TenantAiSettings {
+        TenantAiSettings {
+            tenant_id: model.tenant_id,
+            enabled: model.enabled,
+            provider: model.provider,
+            api_key_encrypted: model.api_key_encrypted,
+            allowed_roles: model.allowed_roles,
+            hipaa_approved_only: model.hipaa_approved_only,
+            sox_read_only: model.sox_read_only,
+            monthly_token_limit: model.monthly_token_limit,
+            daily_request_limit: model.daily_request_limit,
+            tokens_used_this_month: model.tokens_used_this_month,
+            requests_today: model.requests_today,
+            last_usage_reset: model.last_usage_reset,
+            maintenance_mode: model.maintenance_mode,
+            maintenance_message: model.maintenance_message,
+            custom_endpoint: model.custom_endpoint,
+            custom_model: model.custom_model,
+            created_at: model.created_at.with_timezone(&chrono::Utc),
+            updated_at: model.updated_at.with_timezone(&chrono::Utc),
+        }
     }
     
     /// Get or create tenant AI settings
     pub async fn get_settings(&self, tenant_id: Uuid) -> Result<TenantAiSettings, AiError> {
-        let settings = sqlx::query_as::<_, TenantAiSettings>(
-            "SELECT * FROM tenant_ai_settings WHERE tenant_id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
-        
-        match settings {
-            Some(s) => Ok(s),
-            None => {
-                // Create default settings (disabled)
-                sqlx::query(
-                    "INSERT INTO tenant_ai_settings (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING"
-                )
-                .bind(tenant_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| AiError::DatabaseError(e.to_string()))?;
-                
-                sqlx::query_as::<_, TenantAiSettings>(
-                    "SELECT * FROM tenant_ai_settings WHERE tenant_id = $1"
-                )
-                .bind(tenant_id)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| AiError::DatabaseError(e.to_string()))
-            }
-        }
+        self.store.ai().get_or_create_settings(tenant_id).await
+            .map(Self::settings_from_entity).map_err(|e| AiError::DatabaseError(e.to_string()))
     }
     
     /// Update tenant AI settings (SuperAdmin only - checked at handler level)
@@ -65,118 +61,14 @@ impl AiService {
         tenant_id: Uuid,
         input: UpdateAiSettingsInput,
     ) -> Result<TenantAiSettings, AiError> {
-        // Ensure settings row exists
-        let _ = self.get_settings(tenant_id).await?;
-        
-        // Build dynamic update
-        let mut updates = Vec::new();
-        let mut param_idx = 2;
-        
-        if input.enabled.is_some() {
-            updates.push(format!("enabled = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.provider.is_some() {
-            updates.push(format!("provider = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.api_key.is_some() {
-            updates.push(format!("api_key_encrypted = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.allowed_roles.is_some() {
-            updates.push(format!("allowed_roles = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.hipaa_approved_only.is_some() {
-            updates.push(format!("hipaa_approved_only = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.sox_read_only.is_some() {
-            updates.push(format!("sox_read_only = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.monthly_token_limit.is_some() {
-            updates.push(format!("monthly_token_limit = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.daily_request_limit.is_some() {
-            updates.push(format!("daily_request_limit = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.maintenance_mode.is_some() {
-            updates.push(format!("maintenance_mode = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.maintenance_message.is_some() {
-            updates.push(format!("maintenance_message = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.custom_endpoint.is_some() {
-            updates.push(format!("custom_endpoint = ${}", param_idx));
-            param_idx += 1;
-        }
-        if input.custom_model.is_some() {
-            updates.push(format!("custom_model = ${}", param_idx));
-            let _ = param_idx; // Suppress unused warning
-        }
-        
-        if updates.is_empty() {
-            return self.get_settings(tenant_id).await;
-        }
-        
-        updates.push("updated_at = NOW()".to_string());
-        
-        let query = format!(
-            "UPDATE tenant_ai_settings SET {} WHERE tenant_id = $1 RETURNING *",
-            updates.join(", ")
-        );
-        
-        let mut db_query = sqlx::query_as::<_, TenantAiSettings>(&query)
-            .bind(tenant_id);
-        
-        if let Some(v) = input.enabled {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.provider {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.api_key {
-            // In production, encrypt this before storing
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.allowed_roles {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.hipaa_approved_only {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.sox_read_only {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.monthly_token_limit {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.daily_request_limit {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.maintenance_mode {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.maintenance_message {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.custom_endpoint {
-            db_query = db_query.bind(v);
-        }
-        if let Some(v) = input.custom_model {
-            db_query = db_query.bind(v);
-        }
-        
-        db_query
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| AiError::DatabaseError(e.to_string()))
+        let patch = AiSettingsPatch { enabled: input.enabled, provider: input.provider, api_key: input.api_key,
+            allowed_roles: input.allowed_roles, hipaa_approved_only: input.hipaa_approved_only,
+            sox_read_only: input.sox_read_only, monthly_token_limit: input.monthly_token_limit,
+            daily_request_limit: input.daily_request_limit, maintenance_mode: input.maintenance_mode,
+            maintenance_message: input.maintenance_message, custom_endpoint: input.custom_endpoint,
+            custom_model: input.custom_model };
+        self.store.ai().update_settings(tenant_id, patch).await
+            .map(Self::settings_from_entity).map_err(|e| AiError::DatabaseError(e.to_string()))
     }
     
     /// Run all pre-flight checks before an AI operation
@@ -248,14 +140,8 @@ impl AiService {
     async fn maybe_reset_daily_counter(&self, tenant_id: Uuid, settings: &TenantAiSettings) -> Result<(), AiError> {
         let today = chrono::Utc::now().date_naive();
         if settings.last_usage_reset.map(|d| d < today).unwrap_or(true) {
-            sqlx::query(
-                "UPDATE tenant_ai_settings SET requests_today = 0, last_usage_reset = $2 WHERE tenant_id = $1"
-            )
-            .bind(tenant_id)
-            .bind(today)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AiError::DatabaseError(e.to_string()))?;
+            self.store.ai().reset_daily(tenant_id, today).await
+                .map_err(|e| AiError::DatabaseError(e.to_string()))?;
         }
         Ok(())
     }
@@ -274,46 +160,17 @@ impl AiService {
         status: &str,
         error_message: Option<&str>,
     ) -> Result<(), AiError> {
-        sqlx::query(
-            r#"
-            INSERT INTO ai_usage_logs 
-            (tenant_id, user_id, file_id, file_name, action, provider, model, tokens_used, status, error_message)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(file_id)
-        .bind(file_name)
-        .bind(action)
-        .bind(provider)
-        .bind(model)
-        .bind(tokens_used)
-        .bind(status)
-        .bind(error_message)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
+        self.store.ai().log_usage(NewAiUsage { tenant_id, user_id, file_id, file_name, action,
+            provider, model, tokens_used, status, error_message }).await
+            .map_err(|e| AiError::DatabaseError(e.to_string()))?;
         
         Ok(())
     }
     
     /// Update usage counters
     async fn update_usage_counters(&self, tenant_id: Uuid, tokens: i32) -> Result<(), AiError> {
-        sqlx::query(
-            r#"
-            UPDATE tenant_ai_settings 
-            SET tokens_used_this_month = tokens_used_this_month + $2,
-                requests_today = requests_today + 1,
-                updated_at = NOW()
-            WHERE tenant_id = $1
-            "#
-        )
-        .bind(tenant_id)
-        .bind(tokens)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
+        self.store.ai().increment_usage(tenant_id, tokens).await
+            .map_err(|e| AiError::DatabaseError(e.to_string()))?;
         
         Ok(())
     }
@@ -432,50 +289,23 @@ impl AiService {
     pub async fn get_usage_stats(&self, tenant_id: Uuid, page: i32, per_page: i32) -> Result<UsageStats, AiError> {
         let settings = self.get_settings(tenant_id).await?;
         
-        // Get today's token usage
-        let today_usage: Option<(i64,)> = sqlx::query_as(
-            "SELECT COALESCE(SUM(tokens_used), 0) FROM ai_usage_logs WHERE tenant_id = $1 AND created_at >= CURRENT_DATE"
-        )
-        .bind(tenant_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
-        
-        // Get total count for pagination
-        let total_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM ai_usage_logs WHERE tenant_id = $1"
-        )
-        .bind(tenant_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
-        
         let offset = (page - 1) * per_page;
-        let total_pages = ((total_count.0 as f64) / (per_page as f64)).ceil() as i32;
-        
-        // Get paginated actions with user names
-        let recent: Vec<AiUsageLogWithUser> = sqlx::query_as(
-            r#"
-            SELECT 
-                l.id, l.tenant_id, l.user_id, l.file_id, l.action, l.provider, 
-                l.model, l.tokens_used, l.status, l.error_message, l.file_name, l.created_at,
-                u.name as user_name
-            FROM ai_usage_logs l
-            LEFT JOIN users u ON l.user_id = u.id
-            WHERE l.tenant_id = $1 
-            ORDER BY l.created_at DESC 
-            LIMIT $2 OFFSET $3
-            "#
-        )
-        .bind(tenant_id)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AiError::DatabaseError(e.to_string()))?;
+        let usage = self.store.ai().usage_page(tenant_id, offset.max(0) as u64, per_page.max(1) as u64).await
+            .map_err(|e| AiError::DatabaseError(e.to_string()))?;
+        let total_pages = ((usage.total as f64) / (per_page as f64)).ceil() as i32;
+        let mut recent = Vec::with_capacity(usage.rows.len());
+        for (row, user_name) in usage.rows {
+            recent.push(AiUsageLogWithUser {
+                id: row.id, tenant_id: row.tenant_id, user_id: row.user_id,
+                file_id: row.file_id, action: row.action, provider: row.provider,
+                model: row.model, tokens_used: row.tokens_used, status: row.status,
+                error_message: row.error_message, file_name: row.file_name,
+                created_at: row.created_at.with_timezone(&chrono::Utc), user_name,
+            });
+        }
         
         Ok(UsageStats {
-            tokens_used_today: today_usage.map(|t| t.0 as i32).unwrap_or(0),
+            tokens_used_today: usage.tokens_today,
             tokens_used_this_month: settings.tokens_used_this_month,
             requests_today: settings.requests_today,
             monthly_token_limit: settings.monthly_token_limit,
@@ -488,7 +318,7 @@ impl AiService {
                 user_name: log.user_name,
                 file_name: log.file_name,
             }).collect(),
-            total_count: total_count.0,
+            total_count: usage.total as i64,
             page,
             per_page,
             total_pages,

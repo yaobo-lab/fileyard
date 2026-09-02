@@ -4,7 +4,6 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use ed25519_dalek::{SigningKey, Signer, VerifyingKey, Verifier, Signature};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use crate::models::Extension;
@@ -175,7 +174,7 @@ pub struct AutomationEventPayload {
 
 /// Dispatch a webhook to an extension
 pub async fn dispatch_webhook<T: Serialize>(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     extension: &Extension,
     event_type: &str,
     payload: &T,
@@ -234,27 +233,14 @@ pub async fn dispatch_webhook<T: Serialize>(
     };
 
     // Log the webhook call
-    let _ = sqlx::query!(
-        r#"
-        INSERT INTO extension_webhook_logs 
-        (extension_id, tenant_id, event_type, payload, request_headers, response_status, response_body, duration_ms, error_message)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        "#,
-        extension.id,
-        extension.tenant_id,
-        event_type,
-        serde_json::to_value(payload).ok(),
-        serde_json::json!({
+    let _ = store.extension_runtime().log_webhook(clovalink_entity::repositories::NewWebhookLog {
+        extension_id: extension.id, tenant_id: extension.tenant_id, event_type: event_type.to_owned(),
+        payload: serde_json::to_value(payload).ok(), request_headers: Some(serde_json::json!({
             "X-ClovaLink-Signature": signature,
             "X-ClovaLink-Event": event_type,
-        }),
-        status,
-        body.clone(),
-        duration_ms,
-        error.clone()
-    )
-    .execute(pool)
-    .await;
+        })), response_status: status, response_body: body.clone(), duration_ms: Some(duration_ms),
+        error_message: error.clone(),
+    }).await;
 
     if let Some(err) = error {
         return Err(WebhookError::RequestFailed(err));

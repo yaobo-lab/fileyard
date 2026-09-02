@@ -27,6 +27,7 @@ use crate::webhook::{generate_hmac_secret, generate_ed25519_keypair};
 /// Shared state for extension routes
 #[derive(Clone)]
 pub struct ExtensionState {
+    pub store: clovalink_entity::DataStore,
     pub pool: PgPool,
     pub redis_url: String,
     pub webhook_timeout_ms: u64,
@@ -233,7 +234,7 @@ pub async fn install_extension(
     })?;
 
     // Grant requested permissions
-    grant_permissions(&state.pool, installation.id, &input.permissions)
+    grant_permissions(&state.store, installation.id, &input.permissions)
         .await
         .map_err(|e| {
             tracing::error!("Failed to grant permissions: {:?}", e);
@@ -246,7 +247,7 @@ pub async fn install_extension(
             if let Some(automation) = manifest.get("automation") {
                 if let Some(default_cron) = automation.get("default_cron").and_then(|v| v.as_str()) {
                     let _ = create_automation_job(
-                        &state.pool,
+                        &state.store,
                         extension_id,
                         auth.tenant_id,
                         &format!("{} - Default Job", extension.name),
@@ -353,7 +354,7 @@ pub async fn list_installed_extensions(
 
     let mut result = Vec::new();
     for inst in installations {
-        let permissions = get_installation_permissions(&state.pool, inst.installation_id)
+        let permissions = get_installation_permissions(&state.store, inst.installation_id)
             .await
             .unwrap_or_default();
 
@@ -602,7 +603,7 @@ pub async fn uninstall_extension(
     .ok_or(StatusCode::NOT_FOUND)?;
 
     // Revoke all permissions
-    let _ = revoke_all_permissions(&state.pool, installation.id).await;
+    let _ = revoke_all_permissions(&state.store, installation.id).await;
 
     // Delete automation jobs
     sqlx::query!(
@@ -651,7 +652,7 @@ pub async fn trigger_automation(
 
     // Create scheduler and trigger job
     let scheduler = crate::scheduler::Scheduler::new(
-        state.pool.clone(),
+        state.store.clone(),
         &state.redis_url,
         state.webhook_timeout_ms,
     )
@@ -703,7 +704,7 @@ pub async fn create_job(
 
     // Create job
     let job = create_automation_job(
-        &state.pool,
+        &state.store,
         extension_id,
         auth.tenant_id,
         &input.name,
@@ -729,7 +730,7 @@ pub async fn list_jobs(
     AxumExtension(auth): AxumExtension<AuthUser>,
     Path(extension_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let jobs = get_automation_jobs(&state.pool, extension_id, auth.tenant_id)
+    let jobs = get_automation_jobs(&state.store, extension_id, auth.tenant_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

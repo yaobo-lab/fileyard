@@ -7,6 +7,7 @@ use axum::{
 use clovalink_core::cache::Cache;
 use clovalink_extensions::routes::ExtensionState;
 use clovalink_storage::{EncryptedLocalStorage, LocalStorage, S3Storage, Storage};
+use sea_orm_migration::MigratorTrait;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -56,6 +57,9 @@ impl clovalink_core::virus_scan::FileStorageReader for VirusScanStorageAdapter {
 // Application state shared across all handlers
 #[derive(Clone)]
 pub struct AppState {
+    /// The only PostgreSQL capability exposed to application code.
+    pub store: clovalink_entity::DataStore,
+    /// Legacy SQLx pool retained only while individual modules are migrated.
     pub pool: PgPool,
     pub storage: Arc<dyn Storage>,
     pub redis_url: String,
@@ -161,6 +165,25 @@ pub async fn run() {
         min_connections
     );
 
+    let db = clovalink_entity::connect(clovalink_entity::DatabaseConfig {
+        url: database_url,
+        max_connections,
+        min_connections,
+        acquire_timeout: Duration::from_secs(acquire_timeout_secs),
+        idle_timeout: Duration::from_secs(idle_timeout_secs),
+        max_lifetime: Duration::from_secs(max_lifetime_secs),
+        sqlx_logging: false,
+    })
+    .await
+    .expect("Failed to connect to database through SeaORM");
+
+    // Run the immutable SQL baseline and all subsequent migrations through SeaORM.
+    clovalink_migration::Migrator::up(&db, None)
+        .await
+        .expect("Failed to run SeaORM migrations");
+
+    // Compatibility pool for modules not migrated yet. Remove after the final
+    // SQLx call site has moved to `db`.
     let pool = PgPoolOptions::new()
         .max_connections(max_connections)
         .min_connections(min_connections)
@@ -172,12 +195,7 @@ pub async fn run() {
         .expect("Failed to connect to database");
 
     log::info!("Database connected successfully with optimized pool settings");
-
-    // Run migrations if needed
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
+    let store = clovalink_entity::DataStore::new(db.clone());
 
     // CDN / Presigned URL configuration (optional, disabled by default for backwards compatibility)
     let use_presigned_urls = config.cdn.use_presigned_urls;
@@ -315,6 +333,7 @@ pub async fn run() {
     };
 
     let app_state = Arc::new(AppState {
+        store,
         pool: pool.clone(),
         storage: storage.clone(),
         redis_url: redis_url.clone(),
@@ -337,17 +356,18 @@ pub async fn run() {
 
     // Extension state for extension routes
     let extension_state = Arc::new(ExtensionState {
+        store: app_state.store.clone(),
         pool: pool.clone(),
         redis_url: redis_url.clone(),
         webhook_timeout_ms: extension_webhook_timeout_ms,
     });
 
     // Start automation scheduler in background
-    let scheduler_pool = pool.clone();
+    let scheduler_store = app_state.store.clone();
     let scheduler_redis_url = redis_url.clone();
     tokio::spawn(async move {
         match clovalink_extensions::scheduler::Scheduler::new(
-            scheduler_pool,
+            scheduler_store,
             &scheduler_redis_url,
             extension_webhook_timeout_ms,
         )
@@ -1204,7 +1224,9 @@ pub async fn run() {
         )
         // SECURITY: Use auth_middleware_with_db to check user suspension status on every request
         .layer(axum::middleware::from_fn_with_state(
-            app_state.pool.clone(),
+            clovalink_auth::middleware::AuthDatabaseState {
+                store: app_state.store.clone(),
+            },
             clovalink_auth::middleware::auth_middleware_with_db,
         ));
 
@@ -1261,7 +1283,9 @@ pub async fn run() {
         )
         // SECURITY: Use auth_middleware_with_db to check user suspension status
         .layer(axum::middleware::from_fn_with_state(
-            app_state.pool.clone(),
+            clovalink_auth::middleware::AuthDatabaseState {
+                store: app_state.store.clone(),
+            },
             clovalink_auth::middleware::auth_middleware_with_db,
         ))
         .with_state(extension_state);

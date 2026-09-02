@@ -47,6 +47,7 @@ tracing = { workspace = true }
 # Shared crates
 clovalink_core = { workspace = true }
 clovalink_auth = { workspace = true }
+clovalink-entity = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

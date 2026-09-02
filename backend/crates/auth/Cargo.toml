@@ -11,7 +11,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true }
-sqlx = { workspace = true }
+clovalink-entity = { workspace = true }
 tracing = { workspace = true }
 clovalink_core = { workspace = true }
 types = { workspace = true }

@@ -1,0 +1,17 @@
+[package]
+name = "clovalink-migration"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "clovalink_migration"
+path = "src/lib.rs"
+
+[[bin]]
+name = "migration"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+tokio.workspace = true
+sea-orm-migration.workspace = true

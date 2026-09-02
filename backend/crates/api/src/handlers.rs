@@ -843,14 +843,14 @@ pub async fn upload_file(
         }
 
         // Dispatch file upload event to extensions (non-blocking)
-        let pool = state.pool.clone();
+        let store = state.store.clone();
         let redis_url = state.redis_url.clone();
         let webhook_timeout = state.extension_webhook_timeout_ms;
         let file_name_clone = final_file_name.clone();
         let content_type_clone = _content_type.clone();
         tokio::spawn(async move {
             dispatch_file_upload(
-                &pool,
+                &store,
                 &redis_url,
                 tenant_id,
                 auth.user_id,

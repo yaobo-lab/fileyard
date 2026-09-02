@@ -1,8 +1,8 @@
 //! Extension data models
 
 use serde::{Deserialize, Serialize};
-use sqlx::types::chrono::{DateTime, Utc};
-use sqlx::types::Uuid;
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Extension type enum
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl SignatureAlgorithmType {
 }
 
 /// Extension record from database
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Extension {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -76,6 +76,16 @@ pub struct Extension {
     pub allowed_tenant_ids: Option<Vec<Uuid>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl From<clovalink_entity::entities::extensions::Model> for Extension {
+    fn from(value: clovalink_entity::entities::extensions::Model) -> Self {
+        Self { id: value.id, tenant_id: value.tenant_id, name: value.name, slug: value.slug,
+            description: value.description, extension_type: value.extension_type, manifest_url: value.manifest_url,
+            webhook_url: value.webhook_url, public_key: value.public_key, signature_algorithm: value.signature_algorithm,
+            status: value.status, allowed_tenant_ids: value.allowed_tenant_ids,
+            created_at: value.created_at.with_timezone(&Utc), updated_at: value.updated_at.with_timezone(&Utc) }
+    }
 }
 
 /// Extension version record
@@ -123,7 +133,7 @@ pub struct ExtensionEventTrigger {
 }
 
 /// Automation job record
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationJob {
     pub id: Uuid,
     pub extension_id: Uuid,
@@ -138,6 +148,16 @@ pub struct AutomationJob {
     pub config: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl From<clovalink_entity::entities::automation_jobs::Model> for AutomationJob {
+    fn from(value: clovalink_entity::entities::automation_jobs::Model) -> Self {
+        Self { id:value.id, extension_id:value.extension_id, tenant_id:value.tenant_id, name:value.name,
+            cron_expression:value.cron_expression, next_run_at:value.next_run_at.with_timezone(&Utc),
+            last_run_at:value.last_run_at.map(|v|v.with_timezone(&Utc)), last_status:value.last_status,
+            last_error:value.last_error, enabled:value.enabled, config:value.config,
+            created_at:value.created_at.with_timezone(&Utc), updated_at:value.updated_at.with_timezone(&Utc) }
+    }
 }
 
 /// Webhook log record

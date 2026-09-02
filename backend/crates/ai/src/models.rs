@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Tenant AI settings from database
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenantAiSettings {
     pub tenant_id: Uuid,
     pub enabled: bool,
@@ -98,7 +98,7 @@ pub struct UpdateAiSettingsInput {
 }
 
 /// AI usage log entry
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AiUsageLog {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -115,7 +115,7 @@ pub struct AiUsageLog {
 }
 
 /// Extended log with user name for display
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct AiUsageLogWithUser {
     pub id: Uuid,
     pub tenant_id: Uuid,

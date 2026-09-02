@@ -1,7 +1,6 @@
 //! Extension event dispatching for file upload triggers
 
 use chrono::Utc;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::models::Extension;
@@ -22,13 +21,13 @@ pub struct FileEvent {
 
 /// Dispatch a file upload event to all relevant file processor extensions
 pub async fn dispatch_file_event(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     redis_url: &str,
     event: FileEvent,
     webhook_timeout_ms: u64,
 ) {
     // Get all installed file processor extensions for this tenant
-    let extensions = match get_file_processor_extensions(pool, event.company_id).await {
+    let extensions = match get_file_processor_extensions(store, event.company_id).await {
         Ok(exts) => exts,
         Err(e) => {
             tracing::error!("Failed to get file processor extensions: {:?}", e);
@@ -52,7 +51,7 @@ pub async fn dispatch_file_event(
     for extension in extensions {
         // Check if extension has the required permission
         let has_permission = check_extension_permission(
-            pool,
+            store,
             extension.id,
             event.company_id,
             Permission::FileProcessorRun,
@@ -97,11 +96,11 @@ pub async fn dispatch_file_event(
         };
 
         // Dispatch webhook (non-blocking)
-        let pool_clone = pool.clone();
+        let store_clone = store.clone();
         let extension_clone = extension.clone();
         tokio::spawn(async move {
             match dispatch_webhook(
-                &pool_clone,
+                &store_clone,
                 &extension_clone,
                 "file_uploaded",
                 &payload,
@@ -130,26 +129,11 @@ pub async fn dispatch_file_event(
 
 /// Get all active file processor extensions installed for a tenant
 async fn get_file_processor_extensions(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
-) -> Result<Vec<Extension>, sqlx::Error> {
-    sqlx::query_as!(
-        Extension,
-        r#"
-        SELECT e.id, e.tenant_id, e.name, e.slug, e.description, e.extension_type,
-               e.manifest_url, e.webhook_url, e.public_key, e.signature_algorithm,
-               e.status, e.allowed_tenant_ids, e.created_at, e.updated_at
-        FROM extensions e
-        JOIN extension_installations ei ON e.id = ei.extension_id
-        WHERE ei.tenant_id = $1
-          AND ei.enabled = true
-          AND e.status = 'active'
-          AND e.extension_type = 'file_processor'
-        "#,
-        tenant_id
-    )
-    .fetch_all(pool)
-    .await
+) -> Result<Vec<Extension>, clovalink_entity::DataError> {
+    Ok(store.extension_runtime().active_file_processors(tenant_id).await?
+        .into_iter().map(Into::into).collect())
 }
 
 /// Check if a file should be processed based on extension's filter config
@@ -194,7 +178,7 @@ async fn check_rate_limit(
 
 /// Dispatch event for file deletion
 pub async fn dispatch_file_deleted_event(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     _redis_url: &str,
     company_id: Uuid,
     user_id: Uuid,
@@ -213,7 +197,7 @@ pub async fn dispatch_file_deleted_event(
     };
 
     // Similar to file upload, but with "file_deleted" event type
-    let extensions = match get_file_processor_extensions(pool, company_id).await {
+    let extensions = match get_file_processor_extensions(store, company_id).await {
         Ok(exts) => exts,
         Err(e) => {
             tracing::error!("Failed to get file processor extensions: {:?}", e);
@@ -223,7 +207,7 @@ pub async fn dispatch_file_deleted_event(
 
     for extension in extensions {
         let has_permission = check_extension_permission(
-            pool,
+            store,
             extension.id,
             company_id,
             Permission::FileProcessorRun,
@@ -247,11 +231,11 @@ pub async fn dispatch_file_deleted_event(
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let pool_clone = pool.clone();
+        let store_clone = store.clone();
         let extension_clone = extension.clone();
         tokio::spawn(async move {
             let _ = dispatch_webhook(
-                &pool_clone,
+                &store_clone,
                 &extension_clone,
                 "file_deleted",
                 &payload,

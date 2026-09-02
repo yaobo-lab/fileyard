@@ -15,6 +15,9 @@ log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+sea-orm-migration = { workspace = true }
+clovalink-entity = { workspace = true }
+clovalink-migration = { workspace = true }
 jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
 nanoid = { workspace = true }

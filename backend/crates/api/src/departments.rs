@@ -6,7 +6,7 @@ use axum::{
     Extension,
 };
 use clovalink_auth::{require_admin, AuthUser};
-use clovalink_core::models::{CreateDepartmentInput, Department, UpdateDepartmentInput};
+use clovalink_core::models::{CreateDepartmentInput, UpdateDepartmentInput};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -28,11 +28,7 @@ pub async fn list_departments(
         auth.tenant_id
     };
 
-    let departments = sqlx::query_as::<_, Department>(
-        "SELECT * FROM departments WHERE tenant_id = $1 ORDER BY name ASC",
-    )
-    .bind(tenant_id)
-    .fetch_all(&state.pool)
+    let departments = state.store.departments().list(tenant_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to list departments: {:?}", e);
@@ -62,17 +58,7 @@ pub async fn create_department(
         auth.tenant_id
     };
 
-    let department = sqlx::query_as::<_, Department>(
-        r#"
-        INSERT INTO departments (tenant_id, name, description)
-        VALUES ($1, $2, $3)
-        RETURNING *
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&input.name)
-    .bind(&input.description)
-    .fetch_one(&state.pool)
+    let department = state.store.departments().create(tenant_id, input.name, input.description)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create department: {:?}", e);
@@ -96,43 +82,12 @@ pub async fn update_department(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    let mut updates = Vec::new();
-    let mut param_count = 3; // $1 is id, $2 is tenant_id
-
-    if let Some(_name) = &input.name {
-        updates.push(format!("name = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_description) = &input.description {
-        updates.push(format!("description = ${}", param_count));
-    }
-
-    if updates.is_empty() {
+    if input.name.is_none() && input.description.is_none() {
         return Err(StatusCode::BAD_REQUEST);
     }
-
-    updates.push("updated_at = NOW()".to_string());
-    let query = format!(
-        "UPDATE departments SET {} WHERE id = $1 AND tenant_id = $2 RETURNING *",
-        updates.join(", ")
-    );
-
-    let mut db_query = sqlx::query_as::<_, Department>(&query)
-        .bind(id)
-        .bind(auth.tenant_id);
-
-    if let Some(name) = input.name {
-        db_query = db_query.bind(name);
-    }
-    if let Some(description) = input.description {
-        db_query = db_query.bind(description);
-    }
-
-    let department = db_query
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let department = state.store.departments().update(id, auth.tenant_id, input.name, input.description).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let department = department.ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(json!(department)))
 }
@@ -149,16 +104,11 @@ pub async fn delete_department(
     // Check if there are users or files assigned?
     // The DB constraint might handle it (ON DELETE SET NULL was used in migration).
 
-    let result = sqlx::query!(
-        "DELETE FROM departments WHERE id = $1 AND tenant_id = $2",
-        id,
-        auth.tenant_id
-    )
-    .execute(&state.pool)
+    let deleted = state.store.departments().delete(id, auth.tenant_id)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(StatusCode::NOT_FOUND);
     }
 

@@ -3,12 +3,11 @@
 //! This module provides helper functions for dispatching extension events
 //! from within the main API handlers.
 
-use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Dispatch file upload event to extensions
 pub async fn dispatch_file_upload(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     redis_url: &str,
     company_id: Uuid,
     user_id: Uuid,
@@ -28,5 +27,5 @@ pub async fn dispatch_file_upload(
         metadata: serde_json::json!({}),
     };
 
-    clovalink_extensions::dispatch_file_event(pool, redis_url, event, webhook_timeout_ms).await;
+    clovalink_extensions::dispatch_file_event(store, redis_url, event, webhook_timeout_ms).await;
 }

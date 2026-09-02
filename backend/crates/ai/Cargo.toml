@@ -16,5 +16,5 @@ hex = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-sqlx = { workspace = true }
+clovalink-entity = { workspace = true }
 dotenvy = { workspace = true }

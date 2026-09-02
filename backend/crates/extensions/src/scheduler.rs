@@ -3,7 +3,6 @@
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use redis::AsyncCommands;
-use sqlx::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,7 +51,7 @@ pub fn validate_cron(cron_expr: &str) -> Result<(), SchedulerError> {
 
 /// Scheduler state
 pub struct Scheduler {
-    pool: PgPool,
+    store: clovalink_entity::DataStore,
     redis: redis::aio::ConnectionManager,
     running: Arc<RwLock<bool>>,
     webhook_timeout_ms: u64,
@@ -60,7 +59,7 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub async fn new(
-        pool: PgPool,
+        store: clovalink_entity::DataStore,
         redis_url: &str,
         webhook_timeout_ms: u64,
     ) -> Result<Self, SchedulerError> {
@@ -72,7 +71,7 @@ impl Scheduler {
             .map_err(|e| SchedulerError::RedisError(e.to_string()))?;
 
         Ok(Self {
-            pool,
+            store,
             redis,
             running: Arc::new(RwLock::new(false)),
             webhook_timeout_ms,
@@ -121,22 +120,10 @@ impl Scheduler {
         let now = Utc::now();
 
         // Find jobs that are due
-        let due_jobs = sqlx::query_as!(
-            AutomationJob,
-            r#"
-            SELECT id, extension_id, tenant_id, name, cron_expression, 
-                   next_run_at, last_run_at, last_status, last_error, 
-                   enabled, config, created_at, updated_at
-            FROM automation_jobs
-            WHERE enabled = true AND next_run_at <= $1
-            ORDER BY next_run_at ASC
-            LIMIT 10
-            "#,
-            now
-        )
-        .fetch_all(&self.pool)
+        let due_jobs = self.store.extension_runtime().due_jobs(now.fixed_offset(), 10)
         .await
-        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+        .into_iter().map(Into::into).collect::<Vec<AutomationJob>>();
 
         for job in due_jobs {
             // Try to acquire lock for this job
@@ -191,7 +178,7 @@ impl Scheduler {
     async fn execute_job(&self, job: &AutomationJob) -> Result<(), SchedulerError> {
         // Check permission
         require_permission(
-            &self.pool,
+            &self.store,
             job.extension_id,
             job.tenant_id,
             Permission::AutomationRun,
@@ -200,20 +187,10 @@ impl Scheduler {
         .map_err(|e| SchedulerError::ExecutionFailed(e.to_string()))?;
 
         // Get extension details
-        let extension = sqlx::query_as!(
-            crate::models::Extension,
-            r#"
-            SELECT id, tenant_id, name, slug, description, extension_type,
-                   manifest_url, webhook_url, public_key, signature_algorithm,
-                   status, allowed_tenant_ids, created_at, updated_at
-            FROM extensions
-            WHERE id = $1 AND status = 'active'
-            "#,
-            job.extension_id
-        )
-        .fetch_optional(&self.pool)
+        let extension = self.store.extension_runtime().active_extension(job.extension_id)
         .await
         .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+        .map(Into::into)
         .ok_or(SchedulerError::ExecutionFailed("Extension not found or inactive".to_string()))?;
 
         // Build payload
@@ -228,7 +205,7 @@ impl Scheduler {
 
         // Dispatch webhook
         dispatch_webhook(
-            &self.pool,
+            &self.store,
             &extension,
             "automation_trigger",
             &payload,
@@ -251,20 +228,7 @@ impl Scheduler {
         status: &str,
         error: Option<&str>,
     ) -> Result<(), SchedulerError> {
-        sqlx::query!(
-            r#"
-            UPDATE automation_jobs
-            SET last_run_at = NOW(),
-                last_status = $2,
-                last_error = $3
-            WHERE id = $1
-            "#,
-            job_id,
-            status,
-            error
-        )
-        .execute(&self.pool)
-        .await
+        self.store.extension_runtime().update_job_result(*job_id, status.to_owned(), error.map(str::to_owned)).await
         .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
         Ok(())
@@ -275,17 +239,7 @@ impl Scheduler {
         if let Some(cron_expr) = &job.cron_expression {
             let next_run = next_run_from_cron(cron_expr)?;
 
-            sqlx::query!(
-                r#"
-                UPDATE automation_jobs
-                SET next_run_at = $2
-                WHERE id = $1
-                "#,
-                job.id,
-                next_run
-            )
-            .execute(&self.pool)
-            .await
+            self.store.extension_runtime().schedule_job(job.id, next_run.fixed_offset()).await
             .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
         }
 
@@ -294,20 +248,10 @@ impl Scheduler {
 
     /// Manually trigger a job
     pub async fn trigger_job(&self, job_id: Uuid) -> Result<(), SchedulerError> {
-        let job = sqlx::query_as!(
-            AutomationJob,
-            r#"
-            SELECT id, extension_id, tenant_id, name, cron_expression, 
-                   next_run_at, last_run_at, last_status, last_error, 
-                   enabled, config, created_at, updated_at
-            FROM automation_jobs
-            WHERE id = $1
-            "#,
-            job_id
-        )
-        .fetch_optional(&self.pool)
+        let job = self.store.extension_runtime().job(job_id)
         .await
         .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?
+        .map(Into::into)
         .ok_or(SchedulerError::JobNotFound)?;
 
         self.execute_job(&job).await
@@ -316,7 +260,7 @@ impl Scheduler {
 
 /// Create a new automation job
 pub async fn create_automation_job(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
     name: &str,
@@ -328,71 +272,31 @@ pub async fn create_automation_job(
 
     let next_run = next_run_from_cron(cron_expression)?;
 
-    let job: AutomationJob = sqlx::query_as(
-        r#"
-        INSERT INTO automation_jobs (extension_id, tenant_id, name, cron_expression, next_run_at, config)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, extension_id, tenant_id, name, cron_expression, 
-                  next_run_at, last_run_at, last_status, last_error, 
-                  enabled, config, created_at, updated_at
-        "#
-    )
-    .bind(extension_id)
-    .bind(tenant_id)
-    .bind(name)
-    .bind(cron_expression)
-    .bind(next_run)
-    .bind(config)
-    .fetch_one(pool)
-    .await
-    .map_err(|e: sqlx::Error| SchedulerError::DatabaseError(e.to_string()))?;
+    let job = store.extension_runtime().create_job(extension_id, tenant_id, name.to_owned(), cron_expression.to_owned(), next_run.fixed_offset(), config)
+        .await.map_err(|e| SchedulerError::DatabaseError(e.to_string()))?.into();
 
     Ok(job)
 }
 
 /// Get automation jobs for an extension
 pub async fn get_automation_jobs(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
 ) -> Result<Vec<AutomationJob>, SchedulerError> {
-    let jobs = sqlx::query_as!(
-        AutomationJob,
-        r#"
-        SELECT id, extension_id, tenant_id, name, cron_expression, 
-               next_run_at, last_run_at, last_status, last_error, 
-               enabled, config, created_at, updated_at
-        FROM automation_jobs
-        WHERE extension_id = $1 AND tenant_id = $2
-        ORDER BY created_at DESC
-        "#,
-        extension_id,
-        tenant_id
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
+    let jobs = store.extension_runtime().jobs(extension_id, tenant_id).await
+        .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?.into_iter().map(Into::into).collect();
 
     Ok(jobs)
 }
 
 /// Enable or disable an automation job
 pub async fn set_job_enabled(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     job_id: Uuid,
     enabled: bool,
 ) -> Result<(), SchedulerError> {
-    sqlx::query!(
-        r#"
-        UPDATE automation_jobs
-        SET enabled = $2
-        WHERE id = $1
-        "#,
-        job_id,
-        enabled
-    )
-    .execute(pool)
-    .await
+    store.extension_runtime().set_job_enabled(job_id, enabled).await
     .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
     Ok(())
@@ -400,18 +304,10 @@ pub async fn set_job_enabled(
 
 /// Delete an automation job
 pub async fn delete_automation_job(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     job_id: Uuid,
 ) -> Result<(), SchedulerError> {
-    sqlx::query!(
-        r#"
-        DELETE FROM automation_jobs
-        WHERE id = $1
-        "#,
-        job_id
-    )
-    .execute(pool)
-    .await
+    store.extension_runtime().delete_job(job_id).await
     .map_err(|e| SchedulerError::DatabaseError(e.to_string()))?;
 
     Ok(())

@@ -1,6 +1,6 @@
 //! Extension permission enforcement
 
-use sqlx::PgPool;
+use clovalink_entity::DataStore;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -86,72 +86,34 @@ pub enum PermissionError {
 
 /// Check if an extension installation has a specific permission
 pub async fn check_permission(
-    pool: &PgPool,
+    store: &DataStore,
     installation_id: Uuid,
     permission: Permission,
 ) -> Result<bool, PermissionError> {
-    let result = sqlx::query!(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM extension_permissions
-            WHERE installation_id = $1 AND permission = $2
-        ) as "exists!"
-        "#,
-        installation_id,
-        permission.as_str()
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
-
-    Ok(result.exists)
+    store.extension_permissions().has(installation_id, permission.as_str()).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
 /// Check if an extension has permission for a specific tenant
 pub async fn check_extension_permission(
-    pool: &PgPool,
+    store: &DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
     permission: Permission,
 ) -> Result<bool, PermissionError> {
-    let result = sqlx::query!(
-        r#"
-        SELECT ep.permission
-        FROM extension_permissions ep
-        JOIN extension_installations ei ON ep.installation_id = ei.id
-        WHERE ei.extension_id = $1 
-          AND ei.tenant_id = $2 
-          AND ei.enabled = true
-          AND ep.permission = $3
-        "#,
-        extension_id,
-        tenant_id,
-        permission.as_str()
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
-
-    Ok(result.is_some())
+    store.extension_permissions().has_for_tenant(extension_id, tenant_id, permission.as_str()).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
 /// Require a permission, returning an error if not granted
 pub async fn require_permission(
-    pool: &PgPool,
+    store: &DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
     permission: Permission,
 ) -> Result<(), PermissionError> {
     // First check if extension is installed and enabled
-    let installation = sqlx::query!(
-        r#"
-        SELECT id, enabled FROM extension_installations
-        WHERE extension_id = $1 AND tenant_id = $2
-        "#,
-        extension_id,
-        tenant_id
-    )
-    .fetch_optional(pool)
+    let installation = store.extension_permissions().installation(extension_id, tenant_id)
     .await
     .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
 
@@ -162,7 +124,7 @@ pub async fn require_permission(
     }
 
     // Check the specific permission
-    let has_perm = check_permission(pool, installation.id, permission).await?;
+    let has_perm = check_permission(store, installation.installation_id, permission).await?;
 
     if !has_perm {
         return Err(PermissionError::Denied(format!(
@@ -176,26 +138,16 @@ pub async fn require_permission(
 
 /// Get all permissions for an installation
 pub async fn get_installation_permissions(
-    pool: &PgPool,
+    store: &DataStore,
     installation_id: Uuid,
 ) -> Result<Vec<String>, PermissionError> {
-    let permissions = sqlx::query!(
-        r#"
-        SELECT permission FROM extension_permissions
-        WHERE installation_id = $1
-        "#,
-        installation_id
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
-
-    Ok(permissions.into_iter().map(|p| p.permission).collect())
+    store.extension_permissions().list(installation_id).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
 /// Grant permissions to an installation
 pub async fn grant_permissions(
-    pool: &PgPool,
+    store: &DataStore,
     installation_id: Uuid,
     permissions: &[String],
 ) -> Result<(), PermissionError> {
@@ -208,60 +160,27 @@ pub async fn grant_permissions(
             )));
         }
 
-        sqlx::query!(
-            r#"
-            INSERT INTO extension_permissions (installation_id, permission)
-            VALUES ($1, $2)
-            ON CONFLICT (installation_id, permission) DO NOTHING
-            "#,
-            installation_id,
-            perm
-        )
-        .execute(pool)
-        .await
-        .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
     }
-
-    Ok(())
+    store.extension_permissions().grant(installation_id, permissions).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
 /// Revoke a permission from an installation
 pub async fn revoke_permission(
-    pool: &PgPool,
+    store: &DataStore,
     installation_id: Uuid,
     permission: Permission,
 ) -> Result<(), PermissionError> {
-    sqlx::query!(
-        r#"
-        DELETE FROM extension_permissions
-        WHERE installation_id = $1 AND permission = $2
-        "#,
-        installation_id,
-        permission.as_str()
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
-
-    Ok(())
+    store.extension_permissions().revoke(installation_id, permission.as_str()).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
 /// Revoke all permissions from an installation
 pub async fn revoke_all_permissions(
-    pool: &PgPool,
+    store: &DataStore,
     installation_id: Uuid,
 ) -> Result<(), PermissionError> {
-    sqlx::query!(
-        r#"
-        DELETE FROM extension_permissions
-        WHERE installation_id = $1
-        "#,
-        installation_id
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| PermissionError::DatabaseError(e.to_string()))?;
-
-    Ok(())
+    store.extension_permissions().revoke_all(installation_id).await
+        .map_err(|e| PermissionError::DatabaseError(e.to_string()))
 }
 
