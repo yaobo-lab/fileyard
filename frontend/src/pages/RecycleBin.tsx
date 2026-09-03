@@ -6,6 +6,9 @@ import clsx from 'clsx';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
 
 interface TrashItem {
     id: string;
@@ -171,19 +174,18 @@ export default function RecycleBin() {
         <div className="h-full flex flex-col space-y-4">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-                <div className="flex items-center space-x-3 md:space-x-4">
-                    <Link 
-                        to="/files" 
-                        className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </Link>
+                <div className="flex items-center space-x-2 md:space-x-3">
+                    <Button variant="ghost" size="icon" asChild className="h-9 w-9">
+                        <Link to="/files">
+                            <ArrowLeft className="w-4 h-4" />
+                        </Link>
+                    </Button>
                     <div>
-                        <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-                            <Trash2 className="w-5 h-5 md:w-6 md:h-6 mr-2 md:mr-3 text-red-500 dark:text-red-400" />
+                        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground flex items-center">
+                            <Trash2 className="w-5 h-5 mr-2 text-destructive" />
                             Recycle Bin
                         </h1>
-                        <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1 hidden sm:block">
+                        <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
                             Items will be permanently deleted after {currentCompany?.retention_policy_days || 30} days.
                         </p>
                     </div>
@@ -193,11 +195,11 @@ export default function RecycleBin() {
                     {/* Department filter for admins */}
                     {isAdmin && departments.length > 0 && (
                         <div className="flex items-center gap-1.5 sm:gap-2 flex-1 sm:flex-none">
-                            <Building2 className="w-4 h-4 text-gray-400 hidden sm:block" />
+                            <Building2 className="w-4 h-4 text-muted-foreground hidden sm:block" />
                             <select
                                 value={selectedDepartment}
                                 onChange={(e) => setSelectedDepartment(e.target.value)}
-                                className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-2 sm:px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-full sm:w-auto"
+                                className="text-sm border border-input rounded-md px-2.5 py-1.5 bg-background text-foreground focus:ring-1 focus:ring-ring w-full sm:w-auto h-9"
                             >
                                 <option value="all">All Departments</option>
                                 {departments.map(d => (
@@ -207,27 +209,29 @@ export default function RecycleBin() {
                         </div>
                     )}
                     
-                    <button
+                    <Button
+                        variant="outline"
+                        size="icon"
                         onClick={fetchTrash}
                         disabled={isLoading}
-                        className="p-2 sm:p-3 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-all disabled:opacity-50"
+                        className="h-9 w-9 shrink-0"
                         title="Refresh"
                     >
-                        <RefreshCw className={clsx("w-5 h-5", isLoading && "animate-spin")} />
-                    </button>
+                        <RefreshCw className={clsx("w-4 h-4", isLoading && "animate-spin")} />
+                    </Button>
                 </div>
             </div>
 
             {/* Error Alert */}
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start space-x-3">
-                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 flex items-start space-x-3 text-destructive">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                        <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                        <p className="text-sm font-medium">{error}</p>
                     </div>
                     <button
                         onClick={() => setError(null)}
-                        className="text-red-500 hover:text-red-700 dark:hover:text-red-300"
+                        className="hover:opacity-80 text-lg leading-none"
                     >
                         ×
                     </button>
@@ -237,29 +241,31 @@ export default function RecycleBin() {
             {/* Content */}
             {isLoading ? (
                 <div className="text-center py-20">
-                    <Loader2 className="w-12 h-12 text-primary-500 mx-auto animate-spin" />
-                    <p className="mt-4 text-gray-500 dark:text-gray-400">Loading recycle bin...</p>
+                    <Loader2 className="w-10 h-10 text-primary mx-auto animate-spin" />
+                    <p className="mt-3 text-sm text-muted-foreground">Loading recycle bin...</p>
                 </div>
             ) : items.length === 0 ? (
-                <div className="text-center py-20 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                    <Trash2 className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                    <p className="text-gray-500 dark:text-gray-400 text-lg">
+                <Card className="text-center py-16 shadow-xs">
+                    <Trash2 className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+                    <p className="text-muted-foreground text-sm font-medium">
                         {selectedDepartment !== 'all' ? 'No deleted files for this department' : 'Recycle bin is empty'}
                     </p>
                     {selectedDepartment !== 'all' && (
-                        <button
+                        <Button
+                            variant="link"
+                            size="sm"
                             onClick={() => setSelectedDepartment('all')}
-                            className="mt-4 text-primary-600 hover:text-primary-700 dark:text-primary-400 text-sm font-medium"
+                            className="mt-2 text-primary"
                         >
                             Show all departments
-                        </button>
+                        </Button>
                     )}
-                </div>
+                </Card>
             ) : (
-                <div className="bg-white dark:bg-gray-800 shadow-sm overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700">
+                <div className="bg-card shadow-xs overflow-hidden rounded-xl border border-border">
                     {/* Table Header for Admins - Hidden on mobile */}
                     {isAdmin && (
-                        <div className="hidden md:grid px-6 py-3 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700 grid-cols-12 gap-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <div className="hidden md:grid px-6 py-3 bg-muted/40 border-b border-border grid-cols-12 gap-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             <div className="col-span-5">File</div>
                             <div className="col-span-2">Owner</div>
                             <div className="col-span-2">Deleted</div>
@@ -267,28 +273,28 @@ export default function RecycleBin() {
                         </div>
                     )}
                     
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <div className="divide-y divide-border">
                         {items.map((item) => (
                             <div 
                                 key={item.id} 
                                 className={clsx(
-                                    "px-4 md:px-6 py-4 md:py-5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group",
+                                    "px-4 md:px-6 py-3.5 md:py-4 hover:bg-muted/30 transition-colors group",
                                     isAdmin ? "flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-4 md:items-center" : "flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                                 )}
                             >
                                 {/* File Info */}
                                 <div className={clsx("flex items-center min-w-0 w-full", isAdmin ? "md:col-span-5" : "md:flex-1")}>
-                                    <div className="flex-shrink-0 h-10 w-10 md:h-12 md:w-12 rounded-xl bg-red-100 dark:bg-red-500/20 flex items-center justify-center group-hover:bg-red-200 dark:group-hover:bg-red-500/30 transition-colors">
-                                        <Trash2 className="h-5 w-5 md:h-6 md:w-6 text-red-600 dark:text-red-400" />
+                                    <div className="flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-lg bg-destructive/10 flex items-center justify-center">
+                                        <Trash2 className="h-4 w-4 md:h-5 md:w-5 text-destructive" />
                                     </div>
-                                    <div className="ml-3 md:ml-4 min-w-0 flex-1">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate" title={item.name}>
+                                    <div className="ml-3 min-w-0 flex-1">
+                                        <div className="text-sm font-semibold text-foreground truncate" title={item.name}>
                                             {item.name}
                                         </div>
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1 truncate">
+                                        <div className="text-xs text-muted-foreground mt-0.5 truncate">
                                             {item.size || formatFileSize(item.size_bytes)}
                                             {item.original_path && (
-                                                <span className="ml-2 text-gray-400 dark:text-gray-500 hidden sm:inline">
+                                                <span className="ml-2 text-muted-foreground/60 hidden sm:inline">
                                                     from {item.original_path}
                                                 </span>
                                             )}
@@ -298,49 +304,53 @@ export default function RecycleBin() {
                                 
                                 {/* Owner & Date Row - Stacked on mobile, grid columns on desktop */}
                                 {isAdmin ? (
-                                    <div className="flex items-center justify-between md:contents text-sm text-gray-500 dark:text-gray-400 pl-13 md:pl-0">
+                                    <div className="flex items-center justify-between md:contents text-xs md:text-sm text-muted-foreground pl-12 md:pl-0">
                                         {/* Owner */}
                                         <div className="flex items-center md:col-span-2">
-                                            <User className="w-4 h-4 mr-1.5 md:mr-2 text-gray-400" />
+                                            <User className="w-3.5 h-3.5 mr-1.5 text-muted-foreground/60" />
                                             <span className="truncate">{item.owner_name || 'Unknown'}</span>
                                         </div>
                                         {/* Deleted Date */}
-                                        <div className="md:col-span-2 text-xs md:text-sm">
+                                        <div className="md:col-span-2 text-xs">
                                         {safeFormatDate(item.deleted_at || item.modified)}
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 pl-13 md:pl-0 md:mx-4">
+                                    <div className="text-xs text-muted-foreground pl-12 md:pl-0 md:mx-4">
                                         Deleted {safeFormatDate(item.deleted_at || item.modified)}
                                     </div>
                                 )}
                                 
                                 {/* Actions - Full width on mobile */}
                                 <div className={clsx("flex gap-2 w-full md:w-auto", isAdmin ? "md:col-span-3 md:justify-end" : "md:justify-end")}>
-                                    <button
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={() => handleRestore(item)}
                                         disabled={isRestoring === item.id}
-                                        className="flex-1 md:flex-none px-3 md:px-4 py-2 text-sm font-medium rounded-lg text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 hover:bg-emerald-200 dark:hover:bg-emerald-500/30 border border-emerald-200 dark:border-emerald-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                                        className="flex-1 md:flex-none h-8 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10 border-emerald-500/20"
                                     >
                                         {isRestoring === item.id ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                         ) : (
-                                            <RotateCcw className="w-4 h-4" />
+                                            <RotateCcw className="w-3.5 h-3.5" />
                                         )}
-                                        Restore
-                                    </button>
-                                    <button
+                                        <span>Restore</span>
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={() => handleDelete(item)}
                                         disabled={isDeleting === item.id}
-                                        className="flex-1 md:flex-none px-3 md:px-4 py-2 text-sm font-medium rounded-lg text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 border border-red-200 dark:border-red-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                                        className="flex-1 md:flex-none h-8 gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
                                     >
                                         {isDeleting === item.id ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                         ) : (
-                                            <Trash className="w-4 h-4" />
+                                            <Trash className="w-3.5 h-3.5" />
                                         )}
-                                        Delete
-                                    </button>
+                                        <span>Delete</span>
+                                    </Button>
                                 </div>
                             </div>
                         ))}
