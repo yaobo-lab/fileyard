@@ -185,7 +185,13 @@ pub async fn delete_quarantined_file(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    if !state.store.virus_scan().permanently_delete_quarantined(id,auth.tenant_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
+    if !state
+        .store
+        .virus_scan()
+        .permanently_delete_quarantined(id, auth.tenant_id, auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -213,7 +219,13 @@ pub async fn rescan_file(
     }
 
     // Verify file exists and belongs to tenant
-    if !state.store.virus_scan().active_tenant_file_exists(file_id,auth.tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
+    if !state
+        .store
+        .virus_scan()
+        .active_tenant_file_exists(file_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
 

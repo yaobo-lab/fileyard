@@ -306,12 +306,17 @@ async fn enqueue_job(
 }
 
 /// Fetch the next pending job that's ready for processing
-pub async fn fetch_next_job(store: &clovalink_entity::DataStore) -> Result<Option<ReplicationJob>, ReplicationError> {
+pub async fn fetch_next_job(
+    store: &clovalink_entity::DataStore,
+) -> Result<Option<ReplicationJob>, ReplicationError> {
     Ok(store.replication().fetch_next().await?)
 }
 
 /// Mark a job as completed
-pub async fn complete_job(store: &clovalink_entity::DataStore, job_id: Uuid) -> Result<(), ReplicationError> {
+pub async fn complete_job(
+    store: &clovalink_entity::DataStore,
+    job_id: Uuid,
+) -> Result<(), ReplicationError> {
     store.replication().complete(job_id).await?;
     Ok(())
 }
@@ -323,7 +328,10 @@ pub async fn fail_job(
     error: &str,
     retry_seconds: u64,
 ) -> Result<bool, ReplicationError> {
-    Ok(store.replication().fail(job_id, error, retry_seconds).await?)
+    Ok(store
+        .replication()
+        .fail(job_id, error, retry_seconds)
+        .await?)
 }
 
 // =============================================================================
@@ -586,6 +594,8 @@ pub async fn get_pending_jobs(
 }
 
 /// Retry all failed jobs (reset them to pending)
-pub async fn retry_failed_jobs(store: &clovalink_entity::DataStore) -> Result<i64, ReplicationError> {
+pub async fn retry_failed_jobs(
+    store: &clovalink_entity::DataStore,
+) -> Result<i64, ReplicationError> {
     Ok(store.replication().retry_failed().await?)
 }

@@ -60,12 +60,15 @@ pub async fn list_mappings(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mappings = state.store.sso().mappings(auth.tenant_id, &protocol, provider_id)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to list mappings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let mappings = state
+        .store
+        .sso()
+        .mappings(auth.tenant_id, &protocol, provider_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list mappings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(mappings))
 }
@@ -144,14 +147,17 @@ pub async fn update_mapping(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Verify mapping belongs to this tenant
-    let existing = state.store.sso().mapping(auth.tenant_id, mapping_id)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?;
+    let existing = state
+        .store
+        .sso()
+        .mapping(auth.tenant_id, mapping_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?;
 
     let existing = existing.ok_or_else(|| {
         (
@@ -160,7 +166,9 @@ pub async fn update_mapping(
         )
     })?;
 
-    let match_type = input.match_type.unwrap_or_else(|| existing.match_type.clone());
+    let match_type = input
+        .match_type
+        .unwrap_or_else(|| existing.match_type.clone());
     if !["exact", "contains", "regex"].contains(&match_type.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -168,7 +176,9 @@ pub async fn update_mapping(
         ));
     }
 
-    let attr_value = input.attribute_value.unwrap_or_else(|| existing.attribute_value.clone());
+    let attr_value = input
+        .attribute_value
+        .unwrap_or_else(|| existing.attribute_value.clone());
     if match_type == "regex" {
         if let Err(e) = regex::RegexBuilder::new(&attr_value)
             .size_limit(10_000)
@@ -182,21 +192,33 @@ pub async fn update_mapping(
     }
 
     let patch = clovalink_entity::repositories::SsoMappingPatch {
-        attribute_name: input.attribute_name.unwrap_or_else(|| existing.attribute_name.clone()), attribute_value: attr_value,
-        match_type, target_role: input.target_role.unwrap_or_else(|| existing.target_role.clone()),
-        target_custom_role_id: input.target_custom_role_id.or(existing.target_custom_role_id),
+        attribute_name: input
+            .attribute_name
+            .unwrap_or_else(|| existing.attribute_name.clone()),
+        attribute_value: attr_value,
+        match_type,
+        target_role: input
+            .target_role
+            .unwrap_or_else(|| existing.target_role.clone()),
+        target_custom_role_id: input
+            .target_custom_role_id
+            .or(existing.target_custom_role_id),
         target_department_id: input.target_department_id.or(existing.target_department_id),
-        priority: input.priority.unwrap_or(existing.priority), enabled: input.enabled.unwrap_or(existing.enabled),
+        priority: input.priority.unwrap_or(existing.priority),
+        enabled: input.enabled.unwrap_or(existing.enabled),
     };
-    let mapping = state.store.sso().update_mapping(existing, patch)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update mapping: {:?}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update mapping"})),
-        )
-    })?;
+    let mapping = state
+        .store
+        .sso()
+        .update_mapping(existing, patch)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update mapping: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update mapping"})),
+            )
+        })?;
 
     Ok(Json(mapping))
 }
@@ -210,7 +232,10 @@ pub async fn delete_mapping(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
-    let deleted = state.store.sso().delete_mapping(auth.tenant_id, mapping_id)
+    let deleted = state
+        .store
+        .sso()
+        .delete_mapping(auth.tenant_id, mapping_id)
         .await
         .map_err(|_| {
             (

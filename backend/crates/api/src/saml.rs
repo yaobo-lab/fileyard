@@ -27,6 +27,7 @@ use crate::sso_common::{
 use crate::AppState;
 use clovalink_auth::{require_super_admin, AuthUser};
 use clovalink_core::models::User;
+use clovalink_entity::repositories::{NewSamlProvider, SamlProviderPatch};
 
 // ==================== Models ====================
 
@@ -69,6 +70,42 @@ pub struct SamlProvider {
     pub enabled: bool,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
+}
+impl From<clovalink_entity::entities::tenant_saml_providers::Model> for SamlProvider {
+    fn from(v: clovalink_entity::entities::tenant_saml_providers::Model) -> Self {
+        Self {
+            id: v.id,
+            tenant_id: v.tenant_id,
+            name: v.name,
+            slug: v.slug,
+            provider_type: v.provider_type,
+            idp_entity_id: v.idp_entity_id,
+            idp_sso_url: v.idp_sso_url,
+            idp_slo_url: v.idp_slo_url,
+            idp_metadata_url: v.idp_metadata_url,
+            idp_metadata_xml: v.idp_metadata_xml,
+            idp_signing_certificate: v.idp_signing_certificate,
+            sp_entity_id: v.sp_entity_id,
+            nameid_format: v.nameid_format,
+            request_signing: v.request_signing,
+            want_assertions_signed: v.want_assertions_signed,
+            want_response_signed: v.want_response_signed,
+            sp_signing_key_encrypted: v.sp_signing_key_encrypted,
+            sp_signing_cert: v.sp_signing_cert,
+            sso_binding: v.sso_binding,
+            attribute_email: v.attribute_email,
+            attribute_name: v.attribute_name,
+            auto_provision: v.auto_provision,
+            default_role: v.default_role,
+            default_custom_role_id: v.default_custom_role_id,
+            default_department_id: v.default_department_id,
+            email_domains: v.email_domains,
+            trust_idp_mfa: v.trust_idp_mfa,
+            enabled: v.enabled,
+            created_at: v.created_at.with_timezone(&Utc),
+            updated_at: v.updated_at.with_timezone(&Utc),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +169,24 @@ pub struct SamlIdentity {
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
 }
+impl From<clovalink_entity::entities::user_saml_identities::Model> for SamlIdentity {
+    fn from(v: clovalink_entity::entities::user_saml_identities::Model) -> Self {
+        Self {
+            id: v.id,
+            user_id: v.user_id,
+            provider_id: v.provider_id,
+            saml_name_id: v.saml_name_id,
+            saml_name_id_format: v.saml_name_id_format,
+            saml_session_index: v.saml_session_index,
+            saml_email: v.saml_email,
+            saml_name: v.saml_name,
+            last_login_at: v.last_login_at.map(|x| x.with_timezone(&Utc)),
+            login_count: v.login_count,
+            created_at: v.created_at.with_timezone(&Utc),
+            updated_at: v.updated_at.with_timezone(&Utc),
+        }
+    }
+}
 
 /// SAML ACS POST form data
 #[derive(Debug, Deserialize)]
@@ -157,14 +212,14 @@ pub async fn sp_metadata(
     ),
     StatusCode,
 > {
-    let provider = sqlx::query_as::<_, SamlProvider>(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1 AND enabled = true",
-    )
-    .bind(provider_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let provider: Option<SamlProvider> = state
+        .store
+        .saml()
+        .enabled_provider(provider_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(Into::into);
+    let provider = provider.ok_or(StatusCode::NOT_FOUND)?;
 
     let base_url = types::config::get_config().web.base_url.clone();
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
@@ -214,24 +269,24 @@ async fn start_saml_flow(
     ),
     (StatusCode, Json<Value>),
 > {
-    let provider = sqlx::query_as::<_, SamlProvider>(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1 AND enabled = true",
-    )
-    .bind(provider_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Provider not found or disabled"})),
-        )
-    })?;
+    let provider: SamlProvider = state
+        .store
+        .saml()
+        .enabled_provider(provider_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .map(Into::into)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found or disabled"})),
+            )
+        })?;
 
     let base_url = types::config::get_config().web.base_url.clone();
     let acs_url = format!("{}/api/auth/saml/acs", base_url);
@@ -249,20 +304,23 @@ async fn start_saml_flow(
     );
 
     // Store auth state for callback validation
-    sqlx::query(
-        r#"
-        INSERT INTO saml_auth_states (relay_state, authn_request_id, provider_id, tenant_id, user_id)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(&relay_state)
-    .bind(&request_id)
-    .bind(provider.id)
-    .bind(provider.tenant_id)
-    .bind(linking_user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create auth state"}))))?;
+    state
+        .store
+        .saml()
+        .create_state(
+            relay_state.clone(),
+            request_id.clone(),
+            provider.id,
+            provider.tenant_id,
+            linking_user_id,
+        )
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to create auth state"})),
+            )
+        })?;
 
     // Choose binding method
     match provider.sso_binding.as_str() {
@@ -312,49 +370,48 @@ pub async fn saml_acs(
         .relay_state
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing RelayState".to_string()))?;
 
-    let state_record: Option<(String, Uuid, Uuid, Option<Uuid>)> = sqlx::query_as(
-        r#"
-        SELECT authn_request_id, provider_id, tenant_id, user_id
-        FROM saml_auth_states
-        WHERE relay_state = $1 AND expires_at > NOW()
-        "#,
-    )
-    .bind(&relay_state)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Database error".to_string(),
-        )
-    })?;
-
-    let (authn_request_id, provider_id, tenant_id, linking_user_id) =
-        state_record.ok_or_else(|| {
+    let state_record = state
+        .store
+        .saml()
+        .consume_state(&relay_state)
+        .await
+        .map_err(|_| {
             (
-                StatusCode::BAD_REQUEST,
-                "Invalid or expired RelayState".to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
             )
         })?;
 
-    // Delete used state (one-time use)
-    let _ = sqlx::query("DELETE FROM saml_auth_states WHERE relay_state = $1")
-        .bind(&relay_state)
-        .execute(&state.pool)
-        .await;
+    let state_record = state_record.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Invalid or expired RelayState".to_string(),
+        )
+    })?;
+    let (authn_request_id, provider_id, tenant_id, linking_user_id) = (
+        state_record.authn_request_id,
+        state_record.provider_id,
+        state_record.tenant_id,
+        state_record.user_id,
+    );
 
     // Step 2: Load provider
-    let provider =
-        sqlx::query_as::<_, SamlProvider>("SELECT * FROM tenant_saml_providers WHERE id = $1")
-            .bind(provider_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Provider not found".to_string(),
-                )
-            })?;
+    let provider: SamlProvider = state
+        .store
+        .saml()
+        .provider(provider_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Provider not found".to_string(),
+            )
+        })?
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Provider not found".into(),
+        ))?
+        .into();
 
     // Step 3: Parse SAML Response
     let saml_response = saml_xml::parse_saml_response(&form.saml_response).map_err(|e| {
@@ -638,14 +695,21 @@ pub async fn saml_acs(
     .await;
 
     // Load tenant
-    let tenant = state.store.sso().tenant(tenant_id)
+    let tenant = state
+        .store
+        .sso()
+        .tenant(tenant_id)
         .await
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Tenant not found".to_string(),
             )
-        })?.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Tenant not found".to_string()))?;
+        })?
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Tenant not found".to_string(),
+        ))?;
 
     // Create session via shared logic
     match sso_common::create_sso_session(

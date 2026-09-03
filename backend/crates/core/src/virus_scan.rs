@@ -22,15 +22,39 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 fn tenant_from_entity(m: clovalink_entity::entities::tenants::Model) -> Tenant {
-    Tenant { id:m.id,name:m.name,domain:m.domain,plan:m.plan,status:m.status,compliance_mode:m.compliance_mode,
-        encryption_standard:m.encryption_standard,retention_policy_days:m.retention_policy_days,
-        storage_quota_bytes:m.storage_quota_bytes,storage_used_bytes:m.storage_used_bytes.unwrap_or(0),smtp_host:m.smtp_host,
-        smtp_port:m.smtp_port,smtp_username:m.smtp_username,smtp_password:m.smtp_password,smtp_from:m.smtp_from,smtp_secure:m.smtp_secure,
-        enable_totp:m.enable_totp,enable_passkeys:m.enable_passkeys,mfa_required:m.mfa_required,session_timeout_minutes:m.session_timeout_minutes,
-        public_sharing_enabled:m.public_sharing_enabled,data_export_enabled:m.data_export_enabled,max_upload_size_bytes:m.max_upload_size_bytes,
-        auth_methods:Some(m.auth_methods),approval_workflow_enabled:m.approval_workflow_enabled,backup_enabled:m.backup_enabled,
-        auto_backup_enabled:m.auto_backup_enabled,auto_backup_cron:m.auto_backup_cron,auto_backup_retention_count:m.auto_backup_retention_count,
-        created_at:m.created_at.into(),updated_at:m.updated_at.into() }
+    Tenant {
+        id: m.id,
+        name: m.name,
+        domain: m.domain,
+        plan: m.plan,
+        status: m.status,
+        compliance_mode: m.compliance_mode,
+        encryption_standard: m.encryption_standard,
+        retention_policy_days: m.retention_policy_days,
+        storage_quota_bytes: m.storage_quota_bytes,
+        storage_used_bytes: m.storage_used_bytes.unwrap_or(0),
+        smtp_host: m.smtp_host,
+        smtp_port: m.smtp_port,
+        smtp_username: m.smtp_username,
+        smtp_password: m.smtp_password,
+        smtp_from: m.smtp_from,
+        smtp_secure: m.smtp_secure,
+        enable_totp: m.enable_totp,
+        enable_passkeys: m.enable_passkeys,
+        mfa_required: m.mfa_required,
+        session_timeout_minutes: m.session_timeout_minutes,
+        public_sharing_enabled: m.public_sharing_enabled,
+        data_export_enabled: m.data_export_enabled,
+        max_upload_size_bytes: m.max_upload_size_bytes,
+        auth_methods: Some(m.auth_methods),
+        approval_workflow_enabled: m.approval_workflow_enabled,
+        backup_enabled: m.backup_enabled,
+        auto_backup_enabled: m.auto_backup_enabled,
+        auto_backup_cron: m.auto_backup_cron,
+        auto_backup_retention_count: m.auto_backup_retention_count,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    }
 }
 
 use crate::circuit_breaker::CircuitBreaker;
@@ -195,11 +219,21 @@ pub async fn get_tenant_settings(
     store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
 ) -> Result<TenantScanSettings, VirusScanError> {
-    let m=store.virus_scan().settings(tenant_id).await?;
-    Ok(TenantScanSettings{id:m.id,tenant_id:m.tenant_id,enabled:m.enabled,file_types:m.file_types.unwrap_or_default(),
-        max_file_size_mb:m.max_file_size_mb.unwrap_or(100),action_on_detect:m.action_on_detect,notify_admin:m.notify_admin,
-        notify_uploader:m.notify_uploader,auto_suspend_uploader:m.auto_suspend_uploader,suspend_threshold:m.suspend_threshold,
-        created_at:m.created_at.into(),updated_at:m.updated_at.into()})
+    let m = store.virus_scan().settings(tenant_id).await?;
+    Ok(TenantScanSettings {
+        id: m.id,
+        tenant_id: m.tenant_id,
+        enabled: m.enabled,
+        file_types: m.file_types.unwrap_or_default(),
+        max_file_size_mb: m.max_file_size_mb.unwrap_or(100),
+        action_on_detect: m.action_on_detect,
+        notify_admin: m.notify_admin,
+        notify_uploader: m.notify_uploader,
+        auto_suspend_uploader: m.auto_suspend_uploader,
+        suspend_threshold: m.suspend_threshold,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    })
 }
 
 /// Update tenant scan settings
@@ -215,12 +249,36 @@ pub async fn update_tenant_settings(
     auto_suspend_uploader: Option<bool>,
     suspend_threshold: Option<i32>,
 ) -> Result<TenantScanSettings, VirusScanError> {
-    let m=store.virus_scan().update_settings(tenant_id,clovalink_entity::repositories::VirusScanSettingsPatch{
-        enabled,file_types,max_file_size_mb,action_on_detect,notify_admin,notify_uploader,auto_suspend_uploader,suspend_threshold}).await?;
-    Ok(TenantScanSettings{id:m.id,tenant_id:m.tenant_id,enabled:m.enabled,file_types:m.file_types.unwrap_or_default(),
-        max_file_size_mb:m.max_file_size_mb.unwrap_or(100),action_on_detect:m.action_on_detect,notify_admin:m.notify_admin,
-        notify_uploader:m.notify_uploader,auto_suspend_uploader:m.auto_suspend_uploader,suspend_threshold:m.suspend_threshold,
-        created_at:m.created_at.into(),updated_at:m.updated_at.into()})
+    let m = store
+        .virus_scan()
+        .update_settings(
+            tenant_id,
+            clovalink_entity::repositories::VirusScanSettingsPatch {
+                enabled,
+                file_types,
+                max_file_size_mb,
+                action_on_detect,
+                notify_admin,
+                notify_uploader,
+                auto_suspend_uploader,
+                suspend_threshold,
+            },
+        )
+        .await?;
+    Ok(TenantScanSettings {
+        id: m.id,
+        tenant_id: m.tenant_id,
+        enabled: m.enabled,
+        file_types: m.file_types.unwrap_or_default(),
+        max_file_size_mb: m.max_file_size_mb.unwrap_or(100),
+        action_on_detect: m.action_on_detect,
+        notify_admin: m.notify_admin,
+        notify_uploader: m.notify_uploader,
+        auto_suspend_uploader: m.auto_suspend_uploader,
+        suspend_threshold: m.suspend_threshold,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    })
 }
 
 // =============================================================================
@@ -432,7 +490,7 @@ pub async fn enqueue_scan_with_backpressure(
 ) -> Result<Uuid, VirusScanError> {
     // Check queue size if backpressure is enabled
     if max_queue_size > 0 {
-        let queue_size=store.virus_scan().queue_size().await?;
+        let queue_size = store.virus_scan().queue_size().await?;
 
         if queue_size >= max_queue_size {
             warn!(
@@ -446,7 +504,10 @@ pub async fn enqueue_scan_with_backpressure(
         }
     }
 
-    let result=store.virus_scan().enqueue(file_id,tenant_id,priority).await?;
+    let result = store
+        .virus_scan()
+        .enqueue(file_id, tenant_id, priority)
+        .await?;
 
     debug!(
         target: "virus_scan",
@@ -460,19 +521,46 @@ pub async fn enqueue_scan_with_backpressure(
 }
 
 /// Fetch the next pending scan job
-pub async fn fetch_next_job(store: &clovalink_entity::DataStore) -> Result<Option<ScanJob>, VirusScanError> {
-    Ok(store.virus_scan().fetch_next().await?.map(|m|ScanJob{id:m.id,file_id:m.file_id,tenant_id:m.tenant_id,status:m.status,priority:m.priority,retry_count:m.retry_count,last_attempt_at:m.last_attempt_at.map(Into::into),next_retry_at:m.next_retry_at.map(Into::into),error_message:m.error_message,created_at:m.created_at.into(),updated_at:m.updated_at.into()}))
+pub async fn fetch_next_job(
+    store: &clovalink_entity::DataStore,
+) -> Result<Option<ScanJob>, VirusScanError> {
+    Ok(store.virus_scan().fetch_next().await?.map(|m| ScanJob {
+        id: m.id,
+        file_id: m.file_id,
+        tenant_id: m.tenant_id,
+        status: m.status,
+        priority: m.priority,
+        retry_count: m.retry_count,
+        last_attempt_at: m.last_attempt_at.map(Into::into),
+        next_retry_at: m.next_retry_at.map(Into::into),
+        error_message: m.error_message,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    }))
 }
 
 /// Mark a scan job as completed
-pub async fn complete_job(store: &clovalink_entity::DataStore, job_id: Uuid) -> Result<(), VirusScanError> {
-    store.virus_scan().set_job_status(job_id,"completed",None).await?;
+pub async fn complete_job(
+    store: &clovalink_entity::DataStore,
+    job_id: Uuid,
+) -> Result<(), VirusScanError> {
+    store
+        .virus_scan()
+        .set_job_status(job_id, "completed", None)
+        .await?;
     Ok(())
 }
 
 /// Mark a scan job as skipped (file too large, wrong type, etc.)
-pub async fn skip_job(store: &clovalink_entity::DataStore, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
-    store.virus_scan().set_job_status(job_id,"skipped",Some(reason)).await?;
+pub async fn skip_job(
+    store: &clovalink_entity::DataStore,
+    job_id: Uuid,
+    reason: &str,
+) -> Result<(), VirusScanError> {
+    store
+        .virus_scan()
+        .set_job_status(job_id, "skipped", Some(reason))
+        .await?;
     Ok(())
 }
 
@@ -487,14 +575,21 @@ fn calculate_backoff_delay(retry_count: i32) -> i64 {
 }
 
 /// Mark a scan job as failed with exponential backoff retry
-pub async fn fail_job(store: &clovalink_entity::DataStore, job_id: Uuid, error: &str) -> Result<(), VirusScanError> {
+pub async fn fail_job(
+    store: &clovalink_entity::DataStore,
+    job_id: Uuid,
+    error: &str,
+) -> Result<(), VirusScanError> {
     // Get current retry count to calculate backoff
-    let retry_count=store.virus_scan().job(job_id).await?.map(|j|j.retry_count);
+    let retry_count = store.virus_scan().job(job_id).await?.map(|j| j.retry_count);
 
     let current_retry = retry_count.unwrap_or(0);
     let backoff_secs = calculate_backoff_delay(current_retry);
 
-    store.virus_scan().fail_job(job_id,error,backoff_secs).await?;
+    store
+        .virus_scan()
+        .fail_job(job_id, error, backoff_secs)
+        .await?;
 
     info!(
         target: "virus_scan",
@@ -508,8 +603,15 @@ pub async fn fail_job(store: &clovalink_entity::DataStore, job_id: Uuid, error: 
 }
 
 /// Requeue a job for later processing (circuit breaker open, no retry count increment)
-pub async fn requeue_job(store: &clovalink_entity::DataStore, job_id: Uuid, reason: &str) -> Result<(), VirusScanError> {
-    store.virus_scan().set_job_status(job_id,"pending",Some(reason)).await?;
+pub async fn requeue_job(
+    store: &clovalink_entity::DataStore,
+    job_id: Uuid,
+    reason: &str,
+) -> Result<(), VirusScanError> {
+    store
+        .virus_scan()
+        .set_job_status(job_id, "pending", Some(reason))
+        .await?;
 
     debug!(
         target: "virus_scan",
@@ -539,7 +641,21 @@ pub async fn record_scan_result(
     signature_version: Option<&str>,
     action_taken: Option<&str>,
 ) -> Result<Uuid, VirusScanError> {
-    Ok(store.virus_scan().record_result(clovalink_entity::repositories::NewVirusScanResult{file_id,tenant_id,job_id,infected:is_infected,threat:threat_name,size:file_size_bytes,duration:scan_duration_ms,scanner:scanner_version,signature:signature_version,action:action_taken}).await?)
+    Ok(store
+        .virus_scan()
+        .record_result(clovalink_entity::repositories::NewVirusScanResult {
+            file_id,
+            tenant_id,
+            job_id,
+            infected: is_infected,
+            threat: threat_name,
+            size: file_size_bytes,
+            duration: scan_duration_ms,
+            scanner: scanner_version,
+            signature: signature_version,
+            action: action_taken,
+        })
+        .await?)
 }
 
 /// Update file scan status
@@ -548,7 +664,10 @@ pub async fn update_file_scan_status(
     file_id: Uuid,
     status: &str,
 ) -> Result<(), VirusScanError> {
-    store.virus_scan().set_file_scan_status(file_id,status).await?;
+    store
+        .virus_scan()
+        .set_file_scan_status(file_id, status)
+        .await?;
     Ok(())
 }
 
@@ -562,7 +681,10 @@ pub async fn check_and_suspend_uploader(
     file_name: &str,
     threat_name: &str,
 ) -> Result<bool, VirusScanError> {
-    let offense_count=store.virus_scan().record_offense(user_id,tenant_id).await?;
+    let offense_count = store
+        .virus_scan()
+        .record_offense(user_id, tenant_id)
+        .await?;
     info!(
         target: "virus_scan",
         user_id = %user_id,
@@ -574,10 +696,16 @@ pub async fn check_and_suspend_uploader(
     // Check if threshold is reached
     if offense_count >= threshold {
         // Suspend the user
-        store.virus_scan().suspend_user(user_id,format!(
-            "Auto-suspended: Uploaded {} infected file(s). Last: {} infected with {}",
-            offense_count, file_name, threat_name
-        )).await?;
+        store
+            .virus_scan()
+            .suspend_user(
+                user_id,
+                format!(
+                    "Auto-suspended: Uploaded {} infected file(s). Last: {} infected with {}",
+                    offense_count, file_name, threat_name
+                ),
+            )
+            .await?;
 
         // Create security alert for suspension
         if let Err(e) = security_service::alert_user_suspended_malware(
@@ -763,8 +891,12 @@ impl VirusScanWorker {
         }
 
         // Get file info
-        let file_info = self.store.virus_scan().file(job.file_id).await?
-            .map(|f|(f.storage_path,f.size_bytes,f.content_type));
+        let file_info = self
+            .store
+            .virus_scan()
+            .file(job.file_id)
+            .await?
+            .map(|f| (f.storage_path, f.size_bytes, f.content_type));
 
         let (storage_path, file_size, _content_type) = match file_info {
             Some(info) => info,
@@ -869,12 +1001,21 @@ impl VirusScanWorker {
                         );
                     }
                     // Mark file as deleted in database
-                    self.store.virus_scan().mark_file_deleted(job.file_id).await?;
+                    self.store
+                        .virus_scan()
+                        .mark_file_deleted(job.file_id)
+                        .await?;
                     Some("deleted")
                 }
                 DetectionAction::Quarantine => {
                     // Record in quarantine table with file size and owner
-                    self.store.virus_scan().quarantine(job.file_id,scan_result.threat_name.as_deref().unwrap_or("Unknown")).await?;
+                    self.store
+                        .virus_scan()
+                        .quarantine(
+                            job.file_id,
+                            scan_result.threat_name.as_deref().unwrap_or("Unknown"),
+                        )
+                        .await?;
                     Some("quarantined")
                 }
                 DetectionAction::Flag => {
@@ -930,7 +1071,13 @@ impl VirusScanWorker {
             let action_str = action_taken.unwrap_or("flagged");
 
             // Get file info for notifications
-            let file_info=self.store.virus_scan().notification_file(job.file_id).await.ok().flatten();
+            let file_info = self
+                .store
+                .virus_scan()
+                .notification_file(job.file_id)
+                .await
+                .ok()
+                .flatten();
 
             if let Some((file_name, uploader_id, uploader_email, uploader_role)) = file_info {
                 // Create security alert
@@ -957,7 +1104,14 @@ impl VirusScanWorker {
                 // Send notifications if configured
                 if settings.notify_admin || settings.notify_uploader {
                     // Get tenant for notifications
-                    let tenant=self.store.security().tenant(job.tenant_id).await.ok().flatten().map(tenant_from_entity);
+                    let tenant = self
+                        .store
+                        .security()
+                        .tenant(job.tenant_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(tenant_from_entity);
 
                     if let Some(tenant) = tenant {
                         if let Err(e) = notification_service::notify_malware_detection(
@@ -1078,7 +1232,7 @@ pub async fn get_metrics(
         None
     };
 
-    let stats=store.virus_scan().metrics().await?;
+    let stats = store.virus_scan().metrics().await?;
 
     // Get circuit breaker state
     let (cb_state, cb_failures) = if let Some(cb) = circuit_breaker {
@@ -1131,7 +1285,15 @@ pub async fn get_scan_history(
     offset: i64,
     infected_only: bool,
 ) -> Result<ScanHistoryResponse, VirusScanError> {
-    let (items,total)=store.virus_scan().history(tenant_id,limit.max(0) as u64,offset.max(0) as u64,infected_only).await?;
+    let (items, total) = store
+        .virus_scan()
+        .history(
+            tenant_id,
+            limit.max(0) as u64,
+            offset.max(0) as u64,
+            infected_only,
+        )
+        .await?;
 
     Ok(ScanHistoryResponse {
         items,
@@ -1172,20 +1334,25 @@ pub async fn get_quarantined_files(
     limit: i64,
     offset: i64,
 ) -> Result<QuarantineListResponse, VirusScanError> {
-    let (results,total)=store.virus_scan().quarantined(tenant_id,limit.max(0) as u64,offset.max(0) as u64).await?;
+    let (results, total) = store
+        .virus_scan()
+        .quarantined(tenant_id, limit.max(0) as u64, offset.max(0) as u64)
+        .await?;
 
     let items: Vec<QuarantinedFileResponse> = results
         .into_iter()
-        .map(
-            |row| {
-                QuarantinedFileResponse {
-                    id:row.model.id,file_id:row.model.original_file_id,file_name:row.model.original_filename,
-                    original_path:row.model.original_path,threat_name:row.model.threat_name,
-                    original_size:row.model.file_size_bytes.unwrap_or(0),quarantined_at:row.model.quarantined_at.into(),
-                    uploader_id:row.model.owner_id,uploader_name:row.owner_name,uploader_email:row.owner_email,
-                }
-            },
-        )
+        .map(|row| QuarantinedFileResponse {
+            id: row.model.id,
+            file_id: row.model.original_file_id,
+            file_name: row.model.original_filename,
+            original_path: row.model.original_path,
+            threat_name: row.model.threat_name,
+            original_size: row.model.file_size_bytes.unwrap_or(0),
+            quarantined_at: row.model.quarantined_at.into(),
+            uploader_id: row.model.owner_id,
+            uploader_name: row.owner_name,
+            uploader_email: row.owner_email,
+        })
         .collect();
 
     Ok(QuarantineListResponse {

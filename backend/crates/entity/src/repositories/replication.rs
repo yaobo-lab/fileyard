@@ -52,7 +52,9 @@ impl<'a> ReplicationRepository<'a> {
                  ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED)
                RETURNING *"#,
             vec![],
-        )).one(self.db).await?)
+        ))
+        .one(self.db)
+        .await?)
     }
 
     pub async fn complete(&self, id: Uuid) -> DataResult<()> {
@@ -64,15 +66,19 @@ impl<'a> ReplicationRepository<'a> {
     }
 
     pub async fn fail(&self, id: Uuid, error: &str, retry_seconds: u64) -> DataResult<bool> {
-        let row = self.db.query_one(self.statement(
-            r#"UPDATE replication_jobs SET retry_count = retry_count + 1, error_message = $2,
+        let row = self
+            .db
+            .query_one(self.statement(
+                r#"UPDATE replication_jobs SET retry_count = retry_count + 1, error_message = $2,
                status = CASE WHEN retry_count + 1 >= max_retries THEN 'failed' ELSE 'pending' END,
                next_retry_at = CASE WHEN retry_count + 1 >= max_retries THEN NULL
                  ELSE NOW() + (($3 * POWER(2, retry_count)) || ' seconds')::INTERVAL END,
                completed_at = CASE WHEN retry_count + 1 >= max_retries THEN NOW() ELSE NULL END
                WHERE id = $1 RETURNING (status = 'failed') AS permanently_failed"#,
-            vec![id.into(), error.into(), (retry_seconds as i64).into()],
-        )).await?.ok_or(sea_orm::DbErr::RecordNotFound("replication job".into()))?;
+                vec![id.into(), error.into(), (retry_seconds as i64).into()],
+            ))
+            .await?
+            .ok_or(sea_orm::DbErr::RecordNotFound("replication job".into()))?;
         Ok(row.try_get("", "permanently_failed")?)
     }
 
@@ -95,7 +101,12 @@ impl<'a> ReplicationRepository<'a> {
         })
     }
 
-    pub async fn jobs(&self, status: &str, limit: i64, offset: i64) -> DataResult<Vec<replication_jobs::Model>> {
+    pub async fn jobs(
+        &self,
+        status: &str,
+        limit: i64,
+        offset: i64,
+    ) -> DataResult<Vec<replication_jobs::Model>> {
         Ok(replication_jobs::Model::find_by_statement(self.statement(
             "SELECT * FROM replication_jobs WHERE status = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3",
             vec![status.into(), limit.into(), offset.into()],

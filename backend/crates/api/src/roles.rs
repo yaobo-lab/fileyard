@@ -5,7 +5,7 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::{DateTime,Utc};
+use chrono::{DateTime, Utc};
 use clovalink_auth::AuthUser;
 use clovalink_core::models::{
     get_base_permissions, CreateRoleInput, UpdateRoleInput, UpdateRolePermissionsInput,
@@ -61,7 +61,11 @@ pub async fn list_roles(
 ) -> Result<Json<Value>, StatusCode> {
     let include_global = params.include_global.unwrap_or(true);
 
-    let roles=state.store.roles().list(auth.tenant_id,include_global).await;
+    let roles = state
+        .store
+        .roles()
+        .list(auth.tenant_id, include_global)
+        .await;
 
     match roles {
         Ok(roles) => Ok(Json(json!(roles))),
@@ -107,16 +111,39 @@ pub async fn create_role(
     };
 
     // Create role
-    let role = state.store.roles().create(tenant_id,input.name.clone(),input.description.clone(),input.base_role.clone(),input.permissions.clone().unwrap_or_default()).await;
+    let role = state
+        .store
+        .roles()
+        .create(
+            tenant_id,
+            input.name.clone(),
+            input.description.clone(),
+            input.base_role.clone(),
+            input.permissions.clone().unwrap_or_default(),
+        )
+        .await;
     if let Err(e) = &role {
         tracing::error!("Failed to create role: {:?}", e);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    let role=role.unwrap(); let role_id=role.id;
+    let role = role.unwrap();
+    let role_id = role.id;
 
     // Log audit event
-    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_created","role",role_id,json!({"role_name":input.name}),auth.ip_address.as_deref()).await;
+    let _ = state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "role_created",
+            "role",
+            role_id,
+            json!({"role_name":input.name}),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     // Fetch and return the created role
     Ok(Json(json!(role)))
@@ -130,12 +157,15 @@ pub async fn get_role(
     Path(role_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch the role
-    let role=state.store.roles().accessible(role_id,auth.tenant_id)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch role: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let role = state
+        .store
+        .roles()
+        .accessible(role_id, auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch role: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let role = match role {
         Some(r) => r,
@@ -174,7 +204,15 @@ pub async fn update_role(
     }
 
     // Fetch role - SuperAdmin can access any role, others only their tenant's roles
-    let role = if auth.role == "SuperAdmin" {state.store.roles().by_id(role_id).await} else {state.store.roles().tenant_role(role_id,auth.tenant_id).await}
+    let role = if auth.role == "SuperAdmin" {
+        state.store.roles().by_id(role_id).await
+    } else {
+        state
+            .store
+            .roles()
+            .tenant_role(role_id, auth.tenant_id)
+            .await
+    }
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // SuperAdmin can edit system roles, others cannot
@@ -185,16 +223,41 @@ pub async fn update_role(
         None => return Err(StatusCode::NOT_FOUND),
     };
 
-    if input.name.is_none()&&input.description.is_none()&&input.base_role.is_none() {
+    if input.name.is_none() && input.description.is_none() && input.base_role.is_none() {
         return Ok(Json(json!(role)));
     }
-    let updated_role = state.store.roles().update(role_id,clovalink_entity::repositories::RolePatch{name:input.name,description:input.description,base_role:input.base_role}).await.map_err(|e| {
-        tracing::error!("Failed to update role: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?.ok_or(StatusCode::NOT_FOUND)?;
+    let updated_role = state
+        .store
+        .roles()
+        .update(
+            role_id,
+            clovalink_entity::repositories::RolePatch {
+                name: input.name,
+                description: input.description,
+                base_role: input.base_role,
+            },
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update role: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Log audit event
-    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_updated","role",role_id,json!({"role_name":updated_role.name}),auth.ip_address.as_deref()).await;
+    let _ = state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "role_updated",
+            "role",
+            role_id,
+            json!({"role_name":updated_role.name}),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     Ok(Json(json!(updated_role)))
 }
@@ -212,9 +275,12 @@ pub async fn delete_role(
     }
 
     // Check if role exists and is deletable (not system role, belongs to tenant)
-    let role=state.store.roles().tenant_role(role_id,auth.tenant_id)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let role = state
+        .store
+        .roles()
+        .tenant_role(role_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match role {
         Some(r) if r.is_system => return Err(StatusCode::FORBIDDEN),
@@ -223,24 +289,37 @@ pub async fn delete_role(
     }
 
     // Check if any users are using this role
-    let user_count=state.store.roles().user_count(role_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_count = state
+        .store
+        .roles()
+        .user_count(role_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if user_count > 0 {
         return Err(StatusCode::CONFLICT); // Role is in use
     }
 
     // Delete the role (cascade will delete permissions)
-    state.store.roles().delete(role_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete role: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.store.roles().delete(role_id).await.map_err(|e| {
+        tracing::error!("Failed to delete role: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // Log audit event
-    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_deleted","role",role_id,json!({}),auth.ip_address.as_deref()).await;
+    let _ = state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "role_deleted",
+            "role",
+            role_id,
+            json!({}),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -253,9 +332,12 @@ pub async fn get_role_permissions_handler(
     Path(role_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch the role
-    let role=state.store.roles().accessible(role_id,auth.tenant_id)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let role = state
+        .store
+        .roles()
+        .accessible(role_id, auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let role = match role {
         Some(r) => r,
@@ -286,7 +368,15 @@ pub async fn update_role_permissions(
     }
 
     // Fetch role - SuperAdmin can access any role, others only their tenant's roles
-    let role=if auth.role=="SuperAdmin"{state.store.roles().by_id(role_id).await}else{state.store.roles().tenant_role(role_id,auth.tenant_id).await}
+    let role = if auth.role == "SuperAdmin" {
+        state.store.roles().by_id(role_id).await
+    } else {
+        state
+            .store
+            .roles()
+            .tenant_role(role_id, auth.tenant_id)
+            .await
+    }
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // SuperAdmin can edit system roles, others cannot
@@ -305,17 +395,42 @@ pub async fn update_role_permissions(
         }
 
         // Upsert permission
-        state.store.roles().upsert_permissions(role_id,&[(perm.permission.clone(),perm.granted)]).await.map_err(|e|{tracing::error!("Failed to update permission: {:?}",e);StatusCode::INTERNAL_SERVER_ERROR})?;
+        state
+            .store
+            .roles()
+            .upsert_permissions(role_id, &[(perm.permission.clone(), perm.granted)])
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update permission: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     }
 
     // Log audit event
-    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_permissions_updated","role",role_id,json!({"role_name":role.name}),auth.ip_address.as_deref()).await;
+    let _ = state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "role_permissions_updated",
+            "role",
+            role_id,
+            json!({"role_name":role.name}),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     // Invalidate cache for all users with this role
     // This ensures they get fresh permissions on next /api/auth/me call
     if let Some(ref cache) = state.cache {
         // Find all users with this role and invalidate their cache
-        let users_with_role=state.store.roles().user_ids_by_role(&role.name).await.unwrap_or_default();
+        let users_with_role = state
+            .store
+            .roles()
+            .user_ids_by_role(&role.name)
+            .await
+            .unwrap_or_default();
 
         for user_id in users_with_role {
             let cache_key = clovalink_core::cache::keys::user(user_id);
@@ -359,9 +474,7 @@ async fn get_role_permissions(
     let base_perms: Vec<&str> = get_base_permissions(base_role);
 
     // Get custom permissions for this specific role
-    let custom_perms=store.roles().permissions(role_id)
-    .await
-    .map_err(|e| {
+    let custom_perms = store.roles().permissions(role_id).await.map_err(|e| {
         tracing::error!("Failed to fetch role permissions: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -375,8 +488,8 @@ async fn get_role_permissions(
         let custom = custom_perms.iter().find(|p| p.0 == *perm);
 
         let (granted, inherited) = match custom {
-            Some(c) => (c.1, false), // Custom override
-            None => (is_base, is_base),    // Use base permission
+            Some(c) => (c.1, false),    // Custom override
+            None => (is_base, is_base), // Use base permission
         };
 
         permissions.push(PermissionResponse {

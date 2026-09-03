@@ -88,9 +88,11 @@ pub async fn apply_attribute_mapping(
         return None;
     }
 
-    let mappings = store.sso().enabled_mappings(protocol, provider_id)
-    .await
-    .unwrap_or_default();
+    let mappings = store
+        .sso()
+        .enabled_mappings(protocol, provider_id)
+        .await
+        .unwrap_or_default();
 
     for mapping in &mappings {
         if let Some(attr_values) = attributes.get(&mapping.attribute_name) {
@@ -142,13 +144,20 @@ pub async fn resolve_sso_user(
     };
 
     // Step 1: Look up by subject in the appropriate identity table
-    let existing_user_id = store.sso().identity_user_id(&identity.protocol, identity.provider_id, &identity.subject).await.map_err(db_err)?;
+    let existing_user_id = store
+        .sso()
+        .identity_user_id(&identity.protocol, identity.provider_id, &identity.subject)
+        .await
+        .map_err(db_err)?;
 
     if let Some(user_id) = existing_user_id {
         // Known identity — load user
-        let user = store.sso().active_user(user_id).await
-                .map_err(db_err)?
-                .ok_or_else(|| (StatusCode::FORBIDDEN, "Account is deactivated".to_string()))?;
+        let user = store
+            .sso()
+            .active_user(user_id)
+            .await
+            .map_err(db_err)?
+            .ok_or_else(|| (StatusCode::FORBIDDEN, "Account is deactivated".to_string()))?;
 
         return Ok(SsoUserResolution::ExistingUser(user));
     }
@@ -159,9 +168,11 @@ pub async fn resolve_sso_user(
         _ => return Ok(SsoUserResolution::NoEmail),
     };
 
-    let email_match = store.sso().active_user_by_email(identity.tenant_id, email)
-    .await
-    .map_err(db_err)?;
+    let email_match = store
+        .sso()
+        .active_user_by_email(identity.tenant_id, email)
+        .await
+        .map_err(db_err)?;
 
     if let Some(user) = email_match {
         // SECURITY: Log auto-linking events for audit trail
@@ -202,12 +213,25 @@ pub async fn resolve_sso_user(
         .and_then(|m| m.department_id)
         .or(config.default_department_id);
 
-    let new_user = store.sso().create_user(identity.tenant_id,email,&user_name,&base_role,custom_role_id,identity_provider,department_id)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to auto-provision user: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user".to_string())
-    })?;
+    let new_user = store
+        .sso()
+        .create_user(
+            identity.tenant_id,
+            email,
+            &user_name,
+            &base_role,
+            custom_role_id,
+            identity_provider,
+            department_id,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to auto-provision user: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create user".to_string(),
+            )
+        })?;
 
     // Link identity
     link_sso_identity(store, &identity, new_user.id).await;
@@ -225,8 +249,23 @@ pub async fn resolve_sso_user(
 }
 
 /// Create an SSO identity link record in the appropriate table.
-async fn link_sso_identity(store: &clovalink_entity::DataStore, identity: &SsoIdentityParams, user_id: Uuid) {
-    let _ = store.sso().link_identity(&identity.protocol,user_id,identity.provider_id,&identity.subject,&identity.issuer,identity.email.as_deref(),identity.name.as_deref()).await;
+async fn link_sso_identity(
+    store: &clovalink_entity::DataStore,
+    identity: &SsoIdentityParams,
+    user_id: Uuid,
+) {
+    let _ = store
+        .sso()
+        .link_identity(
+            &identity.protocol,
+            user_id,
+            identity.provider_id,
+            &identity.subject,
+            &identity.issuer,
+            identity.email.as_deref(),
+            identity.name.as_deref(),
+        )
+        .await;
 }
 
 // ==================== Session Creation ====================
@@ -335,7 +374,16 @@ pub async fn create_sso_session(
         hex::encode(hasher.finalize())
     };
 
-    let _ = store.sso().upsert_session(user.id,&token_hash,device_info.as_deref(),ip_address.as_deref(),&fingerprint_hash).await;
+    let _ = store
+        .sso()
+        .upsert_session(
+            user.id,
+            &token_hash,
+            device_info.as_deref(),
+            ip_address.as_deref(),
+            &fingerprint_hash,
+        )
+        .await;
 
     // Track login IP for security
     let _ = security_service::check_and_record_login_ip(

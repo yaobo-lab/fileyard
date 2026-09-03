@@ -7,6 +7,17 @@ import { FilterModal } from '../components/FilterModal';
 import { AddCompanyModal, CompanyData } from '../components/AddCompanyModal';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
 import { HelpPanel } from '../components/HelpPanel';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 
 interface Company {
     id: string;
@@ -142,46 +153,52 @@ export function Companies() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
-                    <button
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setIsHelpOpen(true)}
-                        className="px-3 sm:px-4 py-1.5 bg-card border border-border text-foreground rounded-lg text-sm font-medium hover:bg-muted transition-colors flex items-center"
+                        className="h-9 gap-1.5"
                     >
-                        <HelpCircle className="w-4 h-4 sm:mr-1.5" />
+                        <HelpCircle className="w-4 h-4 text-muted-foreground" />
                         <span className="hidden sm:inline">Help & Roles</span>
-                    </button>
+                    </Button>
                     {isSuperAdmin && (
-                        <button
+                        <Button
+                            size="sm"
                             onClick={() => setIsAddModalOpen(true)}
-                            className="px-3 sm:px-4 py-1.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 flex items-center transition-all"
+                            className="h-9 gap-1.5"
                         >
-                            <Plus className="w-4 h-4 sm:mr-1.5" />
+                            <Plus className="w-4 h-4" />
                             <span className="hidden sm:inline">Add Company</span>
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>
 
-            <div className="bg-card border border-border rounded-xl overflow-hidden transition-colors">
+            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-xs">
                 <div className="p-3 sm:p-4 border-b border-border flex items-center justify-between gap-3 bg-muted/20">
                     <div className="relative flex-1 max-w-md">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <Search className="h-4 w-4 text-muted-foreground/60" />
                         </div>
-                        <input
+                        <Input
                             type="text"
-                            className="block w-full pl-9 pr-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
+                            className="pl-9 h-9 text-sm"
                             placeholder="Search companies..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <button
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setIsFilterOpen(true)}
-                        className="px-3 py-1.5 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted flex items-center transition-colors flex-shrink-0">
-                        <Filter className="w-4 h-4 sm:mr-1.5" />
+                        className="h-9 gap-1.5 shrink-0"
+                    >
+                        <Filter className="w-4 h-4 text-muted-foreground" />
                         <span className="hidden sm:inline">Filters</span>
-                        {filters.status && <span className="ml-2 w-2 h-2 bg-foreground rounded-full"></span>}
-                    </button>
+                        {filters.status && <span className="ml-1 w-2 h-2 bg-primary rounded-full"></span>}
+                    </Button>
                 </div>
 
                 <div>
@@ -217,59 +234,60 @@ export function Companies() {
                                             </div>
                                             <ChevronRight className="w-5 h-5 text-muted-foreground/60 flex-shrink-0" />
                                         </div>
-                                        <div className="flex items-center gap-3 mt-3 flex-wrap">
-                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-muted text-foreground">
+                                        <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                            <Badge variant="secondary">
                                                 {company.compliance_mode ? company.compliance_mode.toUpperCase() : 'STANDARD'}
-                                            </span>
+                                            </Badge>
                                             <span className="inline-flex items-center text-xs text-muted-foreground">
                                                 <Users className="w-3.5 h-3.5 mr-1" />
                                                 {company.user_count || 0} users
                                             </span>
-                                            <span className={clsx(
-                                                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                                                company.status === 'active'
-                                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                                    : company.status === 'suspended'
-                                                        ? "bg-destructive/10 text-destructive"
-                                                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                            )}>
-                                                {company.status === 'active' ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                                            <Badge
+                                                variant={company.status === 'active' ? 'outline' : company.status === 'suspended' ? 'destructive' : 'secondary'}
+                                                className={clsx(
+                                                    "gap-1",
+                                                    company.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                )}
+                                            >
+                                                {company.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                                                 {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
-                                            </span>
+                                            </Badge>
                                         </div>
-                                        <button
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setSelectedCompanyForInvite(company);
                                                 setIsInviteModalOpen(true);
                                             }}
-                                            className="mt-3 w-full py-1.5 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+                                            className="mt-3 w-full h-8 text-xs"
                                         >
                                             Add User
-                                        </button>
+                                        </Button>
                                     </div>
                                 ))}
                             </div>
 
                             {/* Desktop: Table view */}
-                            <table className="hidden sm:table min-w-full divide-y divide-border">
-                                <thead className="bg-muted/50">
-                                    <tr>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Company</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Compliance</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Users</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
-                                        <th className="relative px-5 py-3"><span className="sr-only">Actions</span></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border">
+                            <Table className="hidden sm:table">
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Company</TableHead>
+                                        <TableHead>Compliance</TableHead>
+                                        <TableHead>Users</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
                                     {filteredCompanies.map((company) => (
-                                        <tr
+                                        <TableRow
                                             key={company.id}
                                             onClick={() => navigate(`/companies/${encodeURIComponent(company.name)}`)}
-                                            className="hover:bg-muted/30 transition-colors cursor-pointer group"
+                                            className="cursor-pointer group"
                                         >
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                            <TableCell className="font-medium">
                                                 <div className="flex items-center">
                                                     <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center text-foreground">
                                                         <Building2 className="w-4 h-4" />
@@ -281,54 +299,55 @@ export function Companies() {
                                                         <div className="text-xs text-muted-foreground mt-0.5">{company.domain}</div>
                                                     </div>
                                                 </div>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
                                                 {company.compliance_mode ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-muted text-foreground">
+                                                    <Badge variant="secondary">
                                                         {company.compliance_mode.toUpperCase()}
-                                                    </span>
+                                                    </Badge>
                                                 ) : (
-                                                    <span className="text-muted-foreground/60">Standard</span>
+                                                    <span className="text-muted-foreground/60 text-xs">Standard</span>
                                                 )}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
-                                                <div className="flex items-center">
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                <div className="flex items-center text-xs">
                                                     <Users className="w-4 h-4 mr-1.5 text-muted-foreground/60" />
                                                     {company.user_count || 0}
                                                 </div>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
-                                                <span className={clsx(
-                                                    "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold",
-                                                    company.status === 'active'
-                                                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                                        : company.status === 'suspended'
-                                                            ? "bg-destructive/10 text-destructive"
-                                                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                                )}>
-                                                    {company.status === 'active' ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant={company.status === 'active' ? 'outline' : company.status === 'suspended' ? 'destructive' : 'secondary'}
+                                                    className={clsx(
+                                                        "gap-1",
+                                                        company.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                    )}
+                                                >
+                                                    {company.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                                                     {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
-                                                </span>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium">
-                                                <div className="flex items-center justify-end gap-3">
-                                                    <button
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setSelectedCompanyForInvite(company);
                                                             setIsInviteModalOpen(true);
                                                         }}
-                                                        className="text-foreground hover:underline px-3 py-1 rounded-md hover:bg-muted transition-colors text-xs font-semibold"
+                                                        className="h-8 px-2.5 text-xs font-semibold"
                                                     >
                                                         Add User
-                                                    </button>
-                                                    <ChevronRight className="w-5 h-5 text-muted-foreground/60 group-hover:text-foreground transition-colors" />
+                                                    </Button>
+                                                    <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:text-foreground transition-colors" />
                                                 </div>
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                        </TableRow>
                                     ))}
-                                </tbody>
-                            </table>
+                                </TableBody>
+                            </Table>
                         </>
                     )}
                 </div>

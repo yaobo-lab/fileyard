@@ -21,6 +21,17 @@ import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { Navigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { RolePermissionsModal } from '../components/RolePermissionsModal';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 
 interface Role {
     id: string;
@@ -206,14 +217,15 @@ export function RolesPage() {
                     </p>
                 </div>
                 {canManageRoles && (
-                    <button
+                    <Button
+                        size="sm"
                         onClick={() => setShowCreateModal(true)}
-                        className="flex items-center px-3 sm:px-4 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium transition-colors self-start sm:self-auto"
+                        className="h-9 gap-1.5 self-start sm:self-auto"
                         title="Create Custom Role"
                     >
-                        <Plus className="w-4 h-4 sm:mr-1.5" />
+                        <Plus className="w-4 h-4" />
                         <span className="hidden sm:inline">Create Custom Role</span>
-                    </button>
+                    </Button>
                 )}
             </div>
 
@@ -237,7 +249,7 @@ export function RolesPage() {
                             <div
                                 key={role.id}
                                 className={clsx(
-                                    "bg-card border rounded-xl p-5 transition-all",
+                                    "bg-card border rounded-xl p-5 shadow-xs transition-all",
                                     colors.border
                                 )}
                             >
@@ -245,27 +257,29 @@ export function RolesPage() {
                                     <div className={clsx("p-2.5 rounded-lg", colors.bg)}>
                                         <Icon className={clsx("w-5 h-5", colors.text)} />
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <Globe className="w-3.5 h-3.5 text-muted-foreground/60" />
-                                        <span className="text-xs text-muted-foreground">Global</span>
-                                    </div>
+                                    <Badge variant="outline" className="gap-1 text-[11px] font-normal text-muted-foreground">
+                                        <Globe className="w-3 h-3" />
+                                        <span>Global</span>
+                                    </Badge>
                                 </div>
                                 <h3 className={clsx("text-base font-semibold mb-1", colors.text)}>
                                     {role.name}
                                 </h3>
-                                <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                                <p className="text-xs sm:text-sm text-muted-foreground mb-3 line-clamp-2">
                                     {role.description || 'No description'}
                                 </p>
-                                <button
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
                                     onClick={() => {
                                         setSelectedRole(role);
                                         setShowPermissionsModal(true);
                                     }}
-                                    className="text-sm text-foreground hover:underline font-semibold flex items-center"
+                                    className="p-0 h-auto text-xs font-semibold text-foreground hover:underline hover:bg-transparent"
                                 >
                                     {isSuperAdmin ? 'Edit Permissions' : 'View Permissions'}
-                                    <ChevronRight className="w-4 h-4 ml-0.5" />
-                                </button>
+                                    <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                                </Button>
                             </div>
                         );
                     })}
@@ -292,17 +306,18 @@ export function RolesPage() {
                             Create custom roles to define specific permission sets for your team.
                         </p>
                         {canManageRoles && (
-                            <button
+                            <Button
+                                size="sm"
                                 onClick={() => setShowCreateModal(true)}
-                                className="inline-flex items-center px-3 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium"
+                                className="h-9 gap-1.5"
                             >
-                                <Plus className="w-4 h-4 mr-1.5" />
-                                Create Your First Role
-                            </button>
+                                <Plus className="w-4 h-4" />
+                                <span>Create Your First Role</span>
+                            </Button>
                         )}
                     </div>
                 ) : (
-                    <div className="bg-card rounded-xl border border-border overflow-hidden">
+                    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-xs">
                         {/* Mobile: Card view */}
                         <div className="sm:hidden divide-y divide-border">
                             {customRoles.map((role) => {
@@ -324,34 +339,35 @@ export function RolesPage() {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1 flex-shrink-0">
-                                                <button
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
                                                     onClick={() => {
                                                         setSelectedRole(role);
                                                         setShowPermissionsModal(true);
                                                     }}
-                                                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                                                    className="h-8 w-8 text-muted-foreground"
                                                     title="View/Edit Permissions"
                                                 >
                                                     <Settings className="w-4 h-4" />
-                                                </button>
+                                                </Button>
                                                 {canManageRoles && role.tenant_id && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         onClick={() => handleDeleteRole(role.id)}
-                                                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted rounded-lg transition-colors"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                                         title="Delete Role"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
-                                                    </button>
+                                                    </Button>
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-3 mt-3 flex-wrap">
-                                            <span className={clsx(
-                                                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                                                colors.bg, colors.text
-                                            )}>
+                                        <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                            <Badge variant="secondary">
                                                 {role.base_role}
-                                            </span>
+                                            </Badge>
                                             {role.tenant_id ? (
                                                 <span className="inline-flex items-center text-xs text-muted-foreground">
                                                     <Building2 className="w-3 h-3 mr-1" />
@@ -373,34 +389,24 @@ export function RolesPage() {
                         </div>
 
                         {/* Desktop: Table view */}
-                        <table className="hidden sm:table min-w-full divide-y divide-border">
-                            <thead className="bg-muted/50">
-                                <tr>
-                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Role
-                                    </th>
-                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Base Level
-                                    </th>
-                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Scope
-                                    </th>
-                                    <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Created
-                                    </th>
-                                    <th className="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        Actions
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
+                        <Table className="hidden sm:table">
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Role</TableHead>
+                                    <TableHead>Base Level</TableHead>
+                                    <TableHead>Scope</TableHead>
+                                    <TableHead>Created</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
                                 {customRoles.map((role) => {
                                     const Icon = getRoleIcon(role.base_role);
                                     const colors = getRoleColors(role.base_role);
 
                                     return (
-                                        <tr key={role.id} className="hover:bg-muted/30 transition-colors">
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                        <TableRow key={role.id}>
+                                            <TableCell className="font-medium">
                                                 <div className="flex items-center">
                                                     <div className={clsx("p-2 rounded-lg mr-3", colors.bg)}>
                                                         <Icon className={clsx("w-4 h-4", colors.text)} />
@@ -414,59 +420,60 @@ export function RolesPage() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
-                                                <span className={clsx(
-                                                    "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                                                    colors.bg, colors.text
-                                                )}>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="secondary">
                                                     {role.base_role}
-                                                </span>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground text-xs">
                                                 {role.tenant_id ? (
-                                                    <span className="inline-flex items-center text-xs text-muted-foreground">
-                                                        <Building2 className="w-3.5 h-3.5 mr-1" />
-                                                        {tenant?.name || 'This Company'}
-                                                    </span>
+                                                    <div className="flex items-center">
+                                                        <Building2 className="w-3.5 h-3.5 mr-1 text-muted-foreground/60" />
+                                                        <span>{tenant?.name || 'This Company'}</span>
+                                                    </div>
                                                 ) : (
-                                                    <span className="inline-flex items-center text-xs text-muted-foreground">
-                                                        <Globe className="w-3.5 h-3.5 mr-1" />
-                                                        Global
-                                                    </span>
+                                                    <div className="flex items-center">
+                                                        <Globe className="w-3.5 h-3.5 mr-1 text-muted-foreground/60" />
+                                                        <span>Global</span>
+                                                    </div>
                                                 )}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground text-xs">
                                                 {formatDate(role.created_at)}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                                            </TableCell>
+                                            <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-1">
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         onClick={() => {
                                                             setSelectedRole(role);
                                                             setShowPermissionsModal(true);
                                                         }}
-                                                        className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                                                        className="h-8 w-8 text-muted-foreground"
                                                         title="View/Edit Permissions"
                                                     >
                                                         <Settings className="w-4 h-4" />
-                                                    </button>
+                                                    </Button>
                                                     {canManageRoles && role.tenant_id && (
-                                                        <button
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
                                                             onClick={() => handleDeleteRole(role.id)}
-                                                            className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-muted rounded-lg transition-colors"
+                                                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                                             title="Delete Role"
                                                         >
                                                             <Trash2 className="w-4 h-4" />
-                                                        </button>
+                                                        </Button>
                                                     )}
                                                 </div>
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                        </TableRow>
                                     );
                                 })}
-                            </tbody>
-                        </table>
+                            </TableBody>
+                        </Table>
                     </div>
                 )}
             </div>

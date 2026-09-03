@@ -27,11 +27,11 @@ use crate::sso_common::{
 };
 use crate::AppState;
 use clovalink_auth::{require_super_admin, AuthUser};
-use clovalink_core::models::User;
+use clovalink_entity::repositories::{NewOidcProvider, OidcProviderPatch};
 
 // ==================== Models ====================
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct OidcProvider {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -55,6 +55,33 @@ pub struct OidcProvider {
     pub enabled: bool,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
+}
+impl From<clovalink_entity::entities::tenant_oidc_providers::Model> for OidcProvider {
+    fn from(v: clovalink_entity::entities::tenant_oidc_providers::Model) -> Self {
+        Self {
+            id: v.id,
+            tenant_id: v.tenant_id,
+            name: v.name,
+            slug: v.slug,
+            provider_type: v.provider_type,
+            issuer_url: v.issuer_url,
+            client_id: v.client_id,
+            client_secret_encrypted: v.client_secret_encrypted,
+            scopes: v.scopes,
+            authorization_endpoint: v.authorization_endpoint,
+            token_endpoint: v.token_endpoint,
+            userinfo_endpoint: v.userinfo_endpoint,
+            jwks_uri: v.jwks_uri,
+            auto_provision: v.auto_provision,
+            default_role: v.default_role,
+            default_department_id: v.default_department_id,
+            email_domains: v.email_domains,
+            trust_idp_mfa: v.trust_idp_mfa,
+            enabled: v.enabled,
+            created_at: v.created_at.with_timezone(&Utc),
+            updated_at: v.updated_at.with_timezone(&Utc),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +131,7 @@ pub struct OidcCallbackParams {
     pub error_description: Option<String>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct OidcIdentity {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -117,6 +144,23 @@ pub struct OidcIdentity {
     pub login_count: i32,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
+}
+impl From<clovalink_entity::entities::user_oidc_identities::Model> for OidcIdentity {
+    fn from(v: clovalink_entity::entities::user_oidc_identities::Model) -> Self {
+        Self {
+            id: v.id,
+            user_id: v.user_id,
+            provider_id: v.provider_id,
+            oidc_subject: v.oidc_subject,
+            oidc_issuer: v.oidc_issuer,
+            oidc_email: v.oidc_email,
+            oidc_name: v.oidc_name,
+            last_login_at: v.last_login_at.map(|x| x.with_timezone(&Utc)),
+            login_count: v.login_count,
+            created_at: v.created_at.with_timezone(&Utc),
+            updated_at: v.updated_at.with_timezone(&Utc),
+        }
+    }
 }
 
 // ==================== Provider Discovery (Public) ====================
@@ -134,37 +178,20 @@ pub async fn discover_providers(
         return Ok(Json(json!({ "providers": [], "sso_only": false })));
     }
 
-    // Query OIDC providers
-    let oidc_providers: Vec<(Uuid, String, String, String)> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.slug, p.provider_type
-        FROM tenant_oidc_providers p
-        WHERE p.enabled = true AND $1 = ANY(p.email_domains)
-        "#,
-    )
-    .bind(domain)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to discover OIDC providers: {:?}", e);
+    let providers = state.store.oidc().discover(domain).await.map_err(|e| {
+        tracing::error!("Failed to discover providers: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-
-    // Query SAML providers
-    let saml_providers: Vec<(Uuid, String, String, String)> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.name, p.slug, p.provider_type
-        FROM tenant_saml_providers p
-        WHERE p.enabled = true AND $1 = ANY(p.email_domains)
-        "#,
-    )
-    .bind(domain)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to discover SAML providers: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let oidc_providers: Vec<_> = providers
+        .iter()
+        .filter(|p| p.4 == "oidc")
+        .map(|p| (p.0, p.1.clone(), p.2.clone(), p.3.clone()))
+        .collect();
+    let saml_providers: Vec<_> = providers
+        .iter()
+        .filter(|p| p.4 == "saml")
+        .map(|p| (p.0, p.1.clone(), p.2.clone(), p.3.clone()))
+        .collect();
 
     // Check if the tenant is SSO-only (no 'local' in auth_methods)
     let first_provider_id = oidc_providers
@@ -173,26 +200,12 @@ pub async fn discover_providers(
         .or_else(|| saml_providers.first().map(|p| p.0));
     let sso_only = if let Some(pid) = first_provider_id {
         // Try OIDC provider's tenant first, then SAML
-        let tenant_auth: Option<(Option<Vec<String>>,)> = sqlx::query_as(
-            r#"
-            SELECT t.auth_methods FROM tenants t
-            WHERE t.id = (
-                SELECT tenant_id FROM tenant_oidc_providers WHERE id = $1
-                UNION ALL
-                SELECT tenant_id FROM tenant_saml_providers WHERE id = $1
-                LIMIT 1
-            )
-            "#,
-        )
-        .bind(pid)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        tenant_auth
-            .and_then(|t| t.0)
-            .map(|methods| !methods.contains(&"local".to_string()))
-            .unwrap_or(false)
+        state
+            .store
+            .oidc()
+            .tenant_sso_only_for_provider(pid)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         false
     };
@@ -226,24 +239,24 @@ pub async fn start_oidc_auth(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<Uuid>,
 ) -> Result<Redirect, (StatusCode, Json<Value>)> {
-    let provider = sqlx::query_as::<_, OidcProvider>(
-        "SELECT * FROM tenant_oidc_providers WHERE id = $1 AND enabled = true",
-    )
-    .bind(provider_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Provider not found or disabled"})),
-        )
-    })?;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .enabled_provider(provider_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .map(Into::into)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found or disabled"})),
+            )
+        })?;
 
     let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
@@ -296,24 +309,23 @@ pub async fn start_oidc_auth(
     let (auth_url, csrf_state, nonce) = auth_request.url();
 
     // Store state for callback validation
-    sqlx::query(
-        r#"
-        INSERT INTO oidc_oauth_states (state, nonce, provider_id, tenant_id)
-        VALUES ($1, $2, $3, $4)
-        "#,
-    )
-    .bind(csrf_state.secret())
-    .bind(nonce.secret())
-    .bind(provider.id)
-    .bind(provider.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to create OAuth state"})),
+    state
+        .store
+        .oidc()
+        .create_state(
+            csrf_state.secret().clone(),
+            nonce.secret().clone(),
+            provider.id,
+            provider.tenant_id,
+            None,
         )
-    })?;
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to create OAuth state"})),
+            )
+        })?;
 
     Ok(Redirect::temporary(auth_url.as_str()))
 }
@@ -346,48 +358,48 @@ pub async fn oidc_callback(
         .ok_or((StatusCode::BAD_REQUEST, "Missing state".to_string()))?;
 
     // Validate state and get associated data
-    let state_record: Option<(String, Uuid, Uuid, Option<Uuid>)> = sqlx::query_as(
-        r#"
-        SELECT nonce, provider_id, tenant_id, user_id
-        FROM oidc_oauth_states
-        WHERE state = $1 AND expires_at > NOW()
-        "#,
-    )
-    .bind(&state_token)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Database error".to_string(),
-        )
-    })?;
+    let state_record = state
+        .store
+        .oidc()
+        .consume_state(&state_token)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error".to_string(),
+            )
+        })?;
 
-    let (nonce_str, provider_id, tenant_id, linking_user_id) = state_record.ok_or_else(|| {
+    let state_record = state_record.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
             "Invalid or expired state".to_string(),
         )
     })?;
-
-    // Delete used state (one-time use)
-    let _ = sqlx::query("DELETE FROM oidc_oauth_states WHERE state = $1")
-        .bind(&state_token)
-        .execute(&state.pool)
-        .await;
+    let (nonce_str, provider_id, tenant_id, linking_user_id) = (
+        state_record.nonce,
+        state_record.provider_id,
+        state_record.tenant_id,
+        state_record.user_id,
+    );
 
     // Load provider config
-    let provider =
-        sqlx::query_as::<_, OidcProvider>("SELECT * FROM tenant_oidc_providers WHERE id = $1")
-            .bind(provider_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Provider not found".to_string(),
-                )
-            })?;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .provider(provider_id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Provider not found".to_string(),
+            )
+        })?
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Provider not found".to_string(),
+        ))?
+        .into();
 
     let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
@@ -466,52 +478,45 @@ pub async fn oidc_callback(
     // === Account Linking Flow ===
     if let Some(linking_user_id) = linking_user_id {
         // Verify user still exists
-        let user: Option<User> =
-            sqlx::query_as("SELECT * FROM users WHERE id = $1 AND status = 'active'")
-                .bind(linking_user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error".to_string(),
-                    )
-                })?;
+        let user = state
+            .store
+            .sso()
+            .active_user(linking_user_id)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
+            })?;
 
         let user = user.ok_or_else(|| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
 
         // Create identity link
-        sqlx::query(
-            r#"
-            INSERT INTO user_oidc_identities (user_id, provider_id, oidc_subject, oidc_issuer, oidc_email, oidc_name)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (provider_id, oidc_subject) DO UPDATE SET
-                oidc_email = EXCLUDED.oidc_email,
-                oidc_name = EXCLUDED.oidc_name,
-                updated_at = NOW()
-            "#,
-        )
-        .bind(user.id)
-        .bind(provider_id)
-        .bind(&oidc_subject)
-        .bind(&provider.issuer_url)
-        .bind(&oidc_email)
-        .bind(&oidc_name)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to link OIDC identity: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to link identity".to_string())
-        })?;
+        state
+            .store
+            .sso()
+            .link_identity(
+                "oidc",
+                user.id,
+                provider_id,
+                &oidc_subject,
+                &provider.issuer_url,
+                oidc_email.as_deref(),
+                oidc_name.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to link OIDC identity: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to link identity".to_string(),
+                )
+            })?;
 
         // Update identity_provider to hybrid if currently local
         if user.identity_provider == "local" {
-            let _ = sqlx::query(
-                "UPDATE users SET identity_provider = 'hybrid', updated_at = NOW() WHERE id = $1",
-            )
-            .bind(user.id)
-            .execute(&state.pool)
-            .await;
+            let _ = state.store.sso().set_hybrid(user.id).await;
         }
 
         tracing::info!(user_id = %user.id, provider = %provider.name, "OIDC identity linked");
@@ -570,29 +575,28 @@ pub async fn oidc_callback(
     };
 
     // Update OIDC identity login tracking
-    let _ = sqlx::query(
-        r#"
-        UPDATE user_oidc_identities
-        SET last_login_at = NOW(), login_count = login_count + 1, oidc_email = $3, oidc_name = $4, updated_at = NOW()
-        WHERE provider_id = $1 AND oidc_subject = $2
-        "#,
-    )
-    .bind(provider_id)
-    .bind(&oidc_subject)
-    .bind(&oidc_email)
-    .bind(&oidc_name)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .oidc()
+        .touch_identity(provider_id, &oidc_subject, oidc_email, oidc_name)
+        .await;
 
     // Load tenant
-    let tenant = state.store.sso().tenant(tenant_id)
+    let tenant = state
+        .store
+        .sso()
+        .tenant(tenant_id)
         .await
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Tenant not found".to_string(),
             )
-        })?.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Tenant not found".to_string()))?;
+        })?
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Tenant not found".to_string(),
+        ))?;
 
     // Create session via shared logic
     match sso_common::create_sso_session(
@@ -633,13 +637,15 @@ pub async fn list_providers(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let providers: Vec<OidcProvider> = sqlx::query_as(
-        "SELECT * FROM tenant_oidc_providers WHERE tenant_id = $1 ORDER BY created_at DESC",
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let providers: Vec<OidcProvider> = state
+        .store
+        .oidc()
+        .list(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
 
     Ok(Json(json!({ "providers": providers })))
 }
@@ -653,51 +659,33 @@ pub async fn create_provider(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let provider: OidcProvider = sqlx::query_as(
-        r#"
-        INSERT INTO tenant_oidc_providers
-            (tenant_id, name, slug, provider_type, issuer_url, client_id, client_secret_encrypted,
-             scopes, auto_provision, default_role, default_department_id, email_domains, trust_idp_mfa, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        RETURNING *
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(&input.name)
-    .bind(&input.slug)
-    .bind(input.provider_type.as_deref().unwrap_or("generic"))
-    .bind(&input.issuer_url)
-    .bind(&input.client_id)
-    .bind(&input.client_secret) // SECURITY TODO: Encrypt at rest using ENCRYPTION_KEY. Requires key mgmt design + migration for existing plaintext values.
-    .bind(input.scopes.as_deref().unwrap_or("openid email profile"))
-    .bind(input.auto_provision.unwrap_or(false))
-    .bind(input.default_role.as_deref().unwrap_or("Employee"))
-    .bind(input.default_department_id)
-    .bind(&input.email_domains.unwrap_or_default())
-    .bind(input.trust_idp_mfa.unwrap_or(true))
-    .bind(input.enabled.unwrap_or(true))
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create OIDC provider: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Ensure tenant has 'oidc' in auth_methods
-    let _ = sqlx::query(
-        r#"
-        UPDATE tenants
-        SET auth_methods = CASE
-            WHEN NOT ('oidc' = ANY(auth_methods)) THEN array_append(auth_methods, 'oidc')
-            ELSE auth_methods
-        END,
-        updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .create(NewOidcProvider {
+            tenant_id: auth.tenant_id,
+            name: input.name,
+            slug: input.slug,
+            provider_type: input.provider_type.unwrap_or_else(|| "generic".into()),
+            issuer_url: input.issuer_url,
+            client_id: input.client_id,
+            client_secret: input.client_secret,
+            scopes: input
+                .scopes
+                .unwrap_or_else(|| "openid email profile".into()),
+            auto_provision: input.auto_provision.unwrap_or(false),
+            default_role: input.default_role.unwrap_or_else(|| "Employee".into()),
+            default_department_id: input.default_department_id,
+            email_domains: input.email_domains.unwrap_or_default(),
+            trust_idp_mfa: input.trust_idp_mfa.unwrap_or(true),
+            enabled: input.enabled.unwrap_or(true),
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create OIDC provider: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .into();
 
     Ok(Json(json!({ "provider": provider })))
 }
@@ -712,59 +700,35 @@ pub async fn update_provider(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    // Verify provider belongs to tenant
-    let existing: Option<OidcProvider> =
-        sqlx::query_as("SELECT * FROM tenant_oidc_providers WHERE id = $1 AND tenant_id = $2")
-            .bind(id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let _existing = existing.ok_or(StatusCode::NOT_FOUND)?;
-
-    let provider: OidcProvider = sqlx::query_as(
-        r#"
-        UPDATE tenant_oidc_providers SET
-            name = COALESCE($1, name),
-            slug = COALESCE($2, slug),
-            provider_type = COALESCE($3, provider_type),
-            issuer_url = COALESCE($4, issuer_url),
-            client_id = COALESCE($5, client_id),
-            client_secret_encrypted = COALESCE($6, client_secret_encrypted),
-            scopes = COALESCE($7, scopes),
-            auto_provision = COALESCE($8, auto_provision),
-            default_role = COALESCE($9, default_role),
-            default_department_id = COALESCE($10, default_department_id),
-            email_domains = COALESCE($11, email_domains),
-            trust_idp_mfa = COALESCE($12, trust_idp_mfa),
-            enabled = COALESCE($13, enabled),
-            updated_at = NOW()
-        WHERE id = $14 AND tenant_id = $15
-        RETURNING *
-        "#,
-    )
-    .bind(input.name.as_deref())
-    .bind(input.slug.as_deref())
-    .bind(input.provider_type.as_deref())
-    .bind(input.issuer_url.as_deref())
-    .bind(input.client_id.as_deref())
-    .bind(input.client_secret.as_deref())
-    .bind(input.scopes.as_deref())
-    .bind(input.auto_provision)
-    .bind(input.default_role.as_deref())
-    .bind(input.default_department_id)
-    .bind(input.email_domains.as_deref())
-    .bind(input.trust_idp_mfa)
-    .bind(input.enabled)
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update OIDC provider: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .update(
+            auth.tenant_id,
+            id,
+            OidcProviderPatch {
+                name: input.name,
+                slug: input.slug,
+                provider_type: input.provider_type,
+                issuer_url: input.issuer_url,
+                client_id: input.client_id,
+                client_secret: input.client_secret,
+                scopes: input.scopes,
+                auto_provision: input.auto_provision,
+                default_role: input.default_role,
+                default_department_id: input.default_department_id,
+                email_domains: input.email_domains,
+                trust_idp_mfa: input.trust_idp_mfa,
+                enabled: input.enabled,
+            },
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update OIDC provider: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?
+        .into();
 
     Ok(Json(json!({ "provider": provider })))
 }
@@ -779,50 +743,29 @@ pub async fn delete_provider(
     require_super_admin(&auth)?;
 
     // Check for OIDC-only users that would be locked out
-    let oidc_only_count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*)
-        FROM users u
-        JOIN user_oidc_identities i ON i.user_id = u.id
-        WHERE i.provider_id = $1 AND u.identity_provider = 'oidc' AND u.tenant_id = $2
-        "#,
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if oidc_only_count.0 > 0 {
-        return Ok(Json(json!({
-            "error": "provider_has_sso_only_users",
-            "message": format!("{} user(s) use only this provider for login and would be locked out. Set passwords for them first.", oidc_only_count.0),
-            "affected_count": oidc_only_count.0,
-        })));
-    }
-
-    sqlx::query("DELETE FROM tenant_oidc_providers WHERE id = $1 AND tenant_id = $2")
-        .bind(id)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    let oidc_only_count = state
+        .store
+        .oidc()
+        .oidc_only_count(auth.tenant_id, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Check if tenant still has OIDC providers; if not, remove 'oidc' from auth_methods
-    let remaining: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tenant_oidc_providers WHERE tenant_id = $1")
-            .bind(auth.tenant_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if oidc_only_count > 0 {
+        return Ok(Json(json!({
+            "error": "provider_has_sso_only_users",
+            "message": format!("{} user(s) use only this provider for login and would be locked out. Set passwords for them first.", oidc_only_count),
+            "affected_count": oidc_only_count,
+        })));
+    }
 
-    if remaining.0 == 0 {
-        let _ = sqlx::query(
-            "UPDATE tenants SET auth_methods = array_remove(auth_methods, 'oidc'), updated_at = NOW() WHERE id = $1",
-        )
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
-        .await;
+    let deleted = state
+        .store
+        .oidc()
+        .delete(auth.tenant_id, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !deleted {
+        return Err(StatusCode::NOT_FOUND);
     }
 
     Ok(Json(json!({ "success": true })))
@@ -837,14 +780,14 @@ pub async fn test_provider(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let provider: OidcProvider =
-        sqlx::query_as("SELECT * FROM tenant_oidc_providers WHERE id = $1 AND tenant_id = $2")
-            .bind(id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .tenant_provider(auth.tenant_id, id, None)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?
+        .into();
 
     let issuer =
         IssuerUrl::new(provider.issuer_url.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -876,25 +819,24 @@ pub async fn link_oidc_identity(
     Extension(auth): Extension<AuthUser>,
     Path(provider_id): Path<Uuid>,
 ) -> Result<Redirect, (StatusCode, Json<Value>)> {
-    let provider = sqlx::query_as::<_, OidcProvider>(
-        "SELECT * FROM tenant_oidc_providers WHERE id = $1 AND tenant_id = $2 AND enabled = true",
-    )
-    .bind(provider_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Provider not found"})),
-        )
-    })?;
+    let provider: OidcProvider = state
+        .store
+        .oidc()
+        .tenant_provider(auth.tenant_id, provider_id, Some(true))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .map(Into::into)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found"})),
+            )
+        })?;
 
     let base_url = types::config::get_config().web.base_url.clone();
     let callback_url = format!("{}/api/auth/oidc/callback", base_url);
@@ -942,25 +884,23 @@ pub async fn link_oidc_identity(
     let (auth_url, csrf_state, nonce) = auth_request.url();
 
     // Store state WITH user_id for account linking
-    sqlx::query(
-        r#"
-        INSERT INTO oidc_oauth_states (state, nonce, provider_id, tenant_id, user_id)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(csrf_state.secret())
-    .bind(nonce.secret())
-    .bind(provider.id)
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to create state"})),
+    state
+        .store
+        .oidc()
+        .create_state(
+            csrf_state.secret().clone(),
+            nonce.secret().clone(),
+            provider.id,
+            auth.tenant_id,
+            Some(auth.user_id),
         )
-    })?;
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to create state"})),
+            )
+        })?;
 
     Ok(Redirect::temporary(auth_url.as_str()))
 }
@@ -973,53 +913,49 @@ pub async fn unlink_oidc_identity(
     Path(identity_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify identity belongs to user
-    let identity: Option<OidcIdentity> =
-        sqlx::query_as("SELECT * FROM user_oidc_identities WHERE id = $1 AND user_id = $2")
-            .bind(identity_id)
-            .bind(auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let identity = state
+        .store
+        .oidc()
+        .identity(auth.user_id, identity_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let _identity = identity.ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if user has a password — prevent lockout
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let user = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Count remaining OIDC identities
+    let identity_count = state
+        .store
+        .oidc()
+        .identity_count(auth.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Count remaining OIDC identities
-    let identity_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM user_oidc_identities WHERE user_id = $1")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if user.password_hash.is_none() && identity_count.0 <= 1 {
+    if user.password_hash.is_none() && identity_count <= 1 {
         return Ok(Json(json!({
             "error": "cannot_unlink",
             "message": "Cannot unlink your only login method. Set a password first.",
         })));
     }
 
-    sqlx::query("DELETE FROM user_oidc_identities WHERE id = $1 AND user_id = $2")
-        .bind(identity_id)
-        .bind(auth.user_id)
-        .execute(&state.pool)
+    state
+        .store
+        .oidc()
+        .delete_identity(auth.user_id, identity_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Update identity_provider if no more OIDC identities
-    if identity_count.0 <= 1 && user.password_hash.is_some() {
-        let _ = sqlx::query(
-            "UPDATE users SET identity_provider = 'local', updated_at = NOW() WHERE id = $1",
-        )
-        .bind(auth.user_id)
-        .execute(&state.pool)
-        .await;
+    if identity_count <= 1 && user.password_hash.is_some() {
+        let _ = state.store.oidc().set_local(auth.user_id).await;
     }
 
     Ok(Json(json!({ "success": true })))
@@ -1031,35 +967,29 @@ pub async fn list_my_identities(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let identities: Vec<OidcIdentity> = sqlx::query_as(
-        r#"
-        SELECT i.*
-        FROM user_oidc_identities i
-        WHERE i.user_id = $1
-        ORDER BY i.created_at DESC
-        "#,
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let identities: Vec<OidcIdentity> = state
+        .store
+        .oidc()
+        .identities(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
 
     // Also fetch provider names for display
     let mut result = Vec::new();
     for identity in &identities {
-        let provider_info: Option<(String, String, String)> = sqlx::query_as(
-            "SELECT name, slug, provider_type FROM tenant_oidc_providers WHERE id = $1",
-        )
-        .bind(identity.provider_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let provider_info = state
+            .store
+            .oidc()
+            .provider(identity.provider_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let (provider_name, provider_slug, provider_type) = provider_info.unwrap_or((
-            "Unknown".to_string(),
-            "unknown".to_string(),
-            "generic".to_string(),
-        ));
+        let (provider_name, provider_slug, provider_type) = provider_info
+            .map(|p| (p.name, p.slug, p.provider_type))
+            .unwrap_or_else(|| ("Unknown".into(), "unknown".into(), "generic".into()));
 
         result.push(json!({
             "id": identity.id,

@@ -110,10 +110,19 @@ pub async fn create_alert(
 ) -> Result<Uuid, clovalink_entity::DataError> {
     let severity = alert_type.default_severity();
 
-    let result = store.security().create_alert(clovalink_entity::repositories::NewSecurityAlert {
-        tenant_id, user_id, alert_type: alert_type.as_str(), severity: severity.as_str(), title,
-        description, metadata: metadata.clone(), ip_address,
-    }).await?;
+    let result = store
+        .security()
+        .create_alert(clovalink_entity::repositories::NewSecurityAlert {
+            tenant_id,
+            user_id,
+            alert_type: alert_type.as_str(),
+            severity: severity.as_str(),
+            title,
+            description,
+            metadata: metadata.clone(),
+            ip_address,
+        })
+        .await?;
 
     tracing::info!(
         "Security alert created: type={}, severity={}, tenant={:?}, user={:?}",
@@ -127,16 +136,45 @@ pub async fn create_alert(
     if matches!(severity, AlertSeverity::Critical | AlertSeverity::High) {
         if let Some(tid) = tenant_id {
             // Get tenant info for email notification
-            let tenant = store.security().tenant(tid).await.ok().flatten().map(|m| Tenant {
-                id:m.id,name:m.name,domain:m.domain,plan:m.plan,status:m.status,compliance_mode:m.compliance_mode,
-                encryption_standard:m.encryption_standard,retention_policy_days:m.retention_policy_days,
-                storage_quota_bytes:m.storage_quota_bytes,storage_used_bytes:m.storage_used_bytes.unwrap_or(0),smtp_host:m.smtp_host,
-                smtp_port:m.smtp_port,smtp_username:m.smtp_username,smtp_password:m.smtp_password,smtp_from:m.smtp_from,smtp_secure:m.smtp_secure,
-                enable_totp:m.enable_totp,enable_passkeys:m.enable_passkeys,mfa_required:m.mfa_required,session_timeout_minutes:m.session_timeout_minutes,
-                public_sharing_enabled:m.public_sharing_enabled,data_export_enabled:m.data_export_enabled,max_upload_size_bytes:m.max_upload_size_bytes,
-                auth_methods:Some(m.auth_methods),approval_workflow_enabled:m.approval_workflow_enabled,backup_enabled:m.backup_enabled,
-                auto_backup_enabled:m.auto_backup_enabled,auto_backup_cron:m.auto_backup_cron,auto_backup_retention_count:m.auto_backup_retention_count,
-                created_at:m.created_at.into(),updated_at:m.updated_at.into() });
+            let tenant = store
+                .security()
+                .tenant(tid)
+                .await
+                .ok()
+                .flatten()
+                .map(|m| Tenant {
+                    id: m.id,
+                    name: m.name,
+                    domain: m.domain,
+                    plan: m.plan,
+                    status: m.status,
+                    compliance_mode: m.compliance_mode,
+                    encryption_standard: m.encryption_standard,
+                    retention_policy_days: m.retention_policy_days,
+                    storage_quota_bytes: m.storage_quota_bytes,
+                    storage_used_bytes: m.storage_used_bytes.unwrap_or(0),
+                    smtp_host: m.smtp_host,
+                    smtp_port: m.smtp_port,
+                    smtp_username: m.smtp_username,
+                    smtp_password: m.smtp_password,
+                    smtp_from: m.smtp_from,
+                    smtp_secure: m.smtp_secure,
+                    enable_totp: m.enable_totp,
+                    enable_passkeys: m.enable_passkeys,
+                    mfa_required: m.mfa_required,
+                    session_timeout_minutes: m.session_timeout_minutes,
+                    public_sharing_enabled: m.public_sharing_enabled,
+                    data_export_enabled: m.data_export_enabled,
+                    max_upload_size_bytes: m.max_upload_size_bytes,
+                    auth_methods: Some(m.auth_methods),
+                    approval_workflow_enabled: m.approval_workflow_enabled,
+                    backup_enabled: m.backup_enabled,
+                    auto_backup_enabled: m.auto_backup_enabled,
+                    auto_backup_cron: m.auto_backup_cron,
+                    auto_backup_retention_count: m.auto_backup_retention_count,
+                    created_at: m.created_at.into(),
+                    updated_at: m.updated_at.into(),
+                });
 
             if let Some(tenant) = tenant {
                 // Get affected user email from metadata if available
@@ -186,16 +224,25 @@ pub async fn record_failed_login(
     reason: &str,
 ) -> Result<bool, clovalink_entity::DataError> {
     // Record the failed attempt
-    store.security().record_failed_login(email, ip_address, reason).await?;
+    store
+        .security()
+        .record_failed_login(email, ip_address, reason)
+        .await?;
 
     // Check for spike (5+ failures in last 5 minutes)
     let five_minutes_ago = Utc::now() - Duration::minutes(5);
-    let count = store.security().failed_login_count(email, five_minutes_ago).await?;
+    let count = store
+        .security()
+        .failed_login_count(email, five_minutes_ago)
+        .await?;
 
     if count >= 5 {
         // Check if we already created an alert for this recently (within 30 minutes)
         let thirty_minutes_ago = Utc::now() - Duration::minutes(30);
-        let existing = store.security().recent_alert_count("failed_login_spike", None, Some(email), thirty_minutes_ago).await?;
+        let existing = store
+            .security()
+            .recent_alert_count("failed_login_spike", None, Some(email), thirty_minutes_ago)
+            .await?;
 
         if existing == 0 {
             // Try to find tenant_id from user's email
@@ -249,7 +296,10 @@ pub async fn check_and_record_login_ip(
     };
 
     // Try to insert or update login history
-    let is_new = store.security().record_login_ip(user_id, ip, user_agent).await?;
+    let is_new = store
+        .security()
+        .record_login_ip(user_id, ip, user_agent)
+        .await?;
 
     if is_new {
         // Check if user has logged in from at least one other IP before
@@ -324,7 +374,15 @@ pub async fn alert_suspended_access_attempt(
 ) -> Result<Uuid, clovalink_entity::DataError> {
     // Check if we already alerted for this user recently (within 1 hour)
     let one_hour_ago = Utc::now() - Duration::hours(1);
-    let existing = store.security().recent_alert_count("suspended_access_attempt", Some(user_id), None, one_hour_ago).await?;
+    let existing = store
+        .security()
+        .recent_alert_count(
+            "suspended_access_attempt",
+            Some(user_id),
+            None,
+            one_hour_ago,
+        )
+        .await?;
 
     if existing > 0 {
         // Already alerted recently, just return a dummy UUID
@@ -358,12 +416,18 @@ pub async fn check_bulk_download(
 ) -> Result<bool, clovalink_entity::DataError> {
     // Count downloads in last 10 minutes
     let ten_minutes_ago = Utc::now() - Duration::minutes(10);
-    let count = store.security().recent_download_count(tenant_id, user_id, ten_minutes_ago).await?;
+    let count = store
+        .security()
+        .recent_download_count(tenant_id, user_id, ten_minutes_ago)
+        .await?;
 
     if count >= 20 {
         // Check if we already alerted recently (within 1 hour)
         let one_hour_ago = Utc::now() - Duration::hours(1);
-        let existing = store.security().recent_alert_count("bulk_download", Some(user_id), None, one_hour_ago).await?;
+        let existing = store
+            .security()
+            .recent_alert_count("bulk_download", Some(user_id), None, one_hour_ago)
+            .await?;
 
         if existing == 0 {
             create_alert(
@@ -443,12 +507,18 @@ pub async fn check_excessive_sharing(
 ) -> Result<bool, clovalink_entity::DataError> {
     // Count shares created in last hour
     let one_hour_ago = Utc::now() - Duration::hours(1);
-    let count = store.security().recent_share_count(tenant_id, user_id, one_hour_ago).await?;
+    let count = store
+        .security()
+        .recent_share_count(tenant_id, user_id, one_hour_ago)
+        .await?;
 
     if count >= 10 {
         // Check if we already alerted recently (within 2 hours)
         let two_hours_ago = Utc::now() - Duration::hours(2);
-        let existing = store.security().recent_alert_count("excessive_sharing", Some(user_id), None, two_hours_ago).await?;
+        let existing = store
+            .security()
+            .recent_alert_count("excessive_sharing", Some(user_id), None, two_hours_ago)
+            .await?;
 
         if existing == 0 {
             create_alert(
@@ -503,7 +573,9 @@ pub async fn alert_account_lockout(
 }
 
 /// Clean up old failed login attempts (older than 24 hours)
-pub async fn cleanup_old_failed_attempts(store: &clovalink_entity::DataStore) -> Result<u64, clovalink_entity::DataError> {
+pub async fn cleanup_old_failed_attempts(
+    store: &clovalink_entity::DataStore,
+) -> Result<u64, clovalink_entity::DataError> {
     let one_day_ago = Utc::now() - Duration::hours(24);
     store.security().cleanup_failed_logins(one_day_ago).await
 }
@@ -552,7 +624,10 @@ pub async fn alert_user_suspended_malware(
     threat_name: &str,
 ) -> Result<Uuid, clovalink_entity::DataError> {
     // Get user email for the alert
-    let email = store.security().user_email(user_id).await?
+    let email = store
+        .security()
+        .user_email(user_id)
+        .await?
         .unwrap_or_else(|| "Unknown".to_string());
 
     create_alert(

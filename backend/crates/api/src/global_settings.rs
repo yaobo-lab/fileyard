@@ -50,12 +50,10 @@ pub async fn get_global_settings(
         }
     }
 
-    let settings = state.store.global_settings().all()
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch global settings: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let settings = state.store.global_settings().all().await.map_err(|e| {
+        tracing::error!("Failed to fetch global settings: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // Convert to a more usable format
     let mut result = serde_json::Map::new();
@@ -121,20 +119,32 @@ pub async fn update_global_settings(
             continue;
         }
 
-        state.store.global_settings().upsert(&setting.key, setting.value.clone(), auth.user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update global setting '{}': {:?}", setting.key, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state
+            .store
+            .global_settings()
+            .upsert(&setting.key, setting.value.clone(), auth.user_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update global setting '{}': {:?}", setting.key, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     }
 
     // Create audit log
-    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "update_global_settings", json!({
-        "updated_keys": input.settings.iter().map(|s| &s.key).collect::<Vec<_>>(),
-    }), auth.ip_address.as_deref())
-    .await
-    .ok(); // Don't fail if audit log fails
+    state
+        .store
+        .global_settings()
+        .audit(
+            auth.tenant_id,
+            auth.user_id,
+            "update_global_settings",
+            json!({
+                "updated_keys": input.settings.iter().map(|s| &s.key).collect::<Vec<_>>(),
+            }),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok(); // Don't fail if audit log fails
 
     // Invalidate global settings cache
     if let Some(ref cache) = state.cache {
@@ -209,17 +219,29 @@ pub async fn upload_logo(
             let logo_url = format!("/uploads/{}", filename);
 
             // Update global settings
-            state.store.global_settings().upsert("logo_url", json!(logo_url), auth.user_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to save logo URL: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+            state
+                .store
+                .global_settings()
+                .upsert("logo_url", json!(logo_url), auth.user_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to save logo URL: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
             // Create audit log
-            state.store.global_settings().audit(auth.tenant_id, auth.user_id, "upload_logo", json!({ "logo_url": logo_url }), auth.ip_address.as_deref())
-            .await
-            .ok();
+            state
+                .store
+                .global_settings()
+                .audit(
+                    auth.tenant_id,
+                    auth.user_id,
+                    "upload_logo",
+                    json!({ "logo_url": logo_url }),
+                    auth.ip_address.as_deref(),
+                )
+                .await
+                .ok();
 
             return Ok(Json(json!({
                 "success": true,
@@ -244,7 +266,10 @@ pub async fn delete_logo(
     }
 
     // Remove logo_url from settings
-    state.store.global_settings().delete("logo_url")
+    state
+        .store
+        .global_settings()
+        .delete("logo_url")
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete logo setting: {:?}", e);
@@ -252,9 +277,18 @@ pub async fn delete_logo(
         })?;
 
     // Create audit log
-    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "delete_logo", json!({}), auth.ip_address.as_deref())
-    .await
-    .ok();
+    state
+        .store
+        .global_settings()
+        .audit(
+            auth.tenant_id,
+            auth.user_id,
+            "delete_logo",
+            json!({}),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok();
 
     Ok(Json(json!({
         "success": true,
@@ -329,17 +363,29 @@ pub async fn upload_favicon(
             let favicon_url = format!("/uploads/{}", filename);
 
             // Update global settings
-            state.store.global_settings().upsert("favicon_url", json!(favicon_url), auth.user_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to save favicon URL: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+            state
+                .store
+                .global_settings()
+                .upsert("favicon_url", json!(favicon_url), auth.user_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to save favicon URL: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
             // Create audit log
-            state.store.global_settings().audit(auth.tenant_id, auth.user_id, "upload_favicon", json!({ "favicon_url": favicon_url }), auth.ip_address.as_deref())
-            .await
-            .ok();
+            state
+                .store
+                .global_settings()
+                .audit(
+                    auth.tenant_id,
+                    auth.user_id,
+                    "upload_favicon",
+                    json!({ "favicon_url": favicon_url }),
+                    auth.ip_address.as_deref(),
+                )
+                .await
+                .ok();
 
             return Ok(Json(json!({
                 "success": true,
@@ -364,7 +410,10 @@ pub async fn delete_favicon(
     }
 
     // Remove favicon_url from settings
-    state.store.global_settings().delete("favicon_url")
+    state
+        .store
+        .global_settings()
+        .delete("favicon_url")
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete favicon setting: {:?}", e);
@@ -372,9 +421,18 @@ pub async fn delete_favicon(
         })?;
 
     // Create audit log
-    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "delete_favicon", json!({}), auth.ip_address.as_deref())
-    .await
-    .ok();
+    state
+        .store
+        .global_settings()
+        .audit(
+            auth.tenant_id,
+            auth.user_id,
+            "delete_favicon",
+            json!({}),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok();
 
     Ok(Json(json!({
         "success": true,

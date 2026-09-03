@@ -11,14 +11,13 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clovalink_auth::{require_admin, require_manager, AuthUser};
 use clovalink_core::models::{CreateUserInput, SuspendUserInput, Tenant, UpdateUserInput, User};
 use clovalink_core::notification_service;
 use clovalink_core::security_service;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use std::sync::Arc;
 use totp_rs::{Algorithm, Secret, TOTP};
 use uuid::Uuid;
@@ -70,15 +69,15 @@ pub async fn list_users(
 
     // For Managers, get their accessible departments
     let manager_departments: Option<Vec<Uuid>> = if auth.role == "Manager" {
-        let dept_info: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
-            sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
-                .bind(auth.user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to get manager departments: {:?}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+        let dept_info = state
+            .store
+            .users()
+            .departments(auth.user_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get manager departments: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         let (primary_dept, allowed_depts) = dept_info.unwrap_or((None, None));
         let mut all_depts = Vec::new();
@@ -101,14 +100,6 @@ pub async fn list_users(
         None
     };
 
-    // Build query
-    let mut query = String::from(
-        "SELECT id, tenant_id, department_id, email, name, role, status, avatar_url, last_active_at, dashboard_layout, widget_config, allowed_tenant_ids, allowed_department_ids, suspended_at, suspended_until, suspension_reason, created_at, updated_at 
-         FROM users WHERE 1=1"
-    );
-
-    let mut param_count = 1;
-
     // Tenant filter (SuperAdmin can see all or filter, others see own)
     // Also include users who have access to this tenant via allowed_tenant_ids
     let tenant_id_filter = if auth.role == "SuperAdmin" {
@@ -119,15 +110,6 @@ pub async fn list_users(
     } else {
         Some(auth.tenant_id)
     };
-
-    if let Some(_) = tenant_id_filter {
-        // Include users whose primary tenant matches OR who have this tenant in allowed_tenant_ids
-        query.push_str(&format!(
-            " AND (tenant_id = ${0} OR ${0} = ANY(allowed_tenant_ids))",
-            param_count
-        ));
-        param_count += 1;
-    }
 
     // Department filter for Managers - they can only see users in their departments
     let dept_filter: Option<Uuid> = if auth.role == "Manager" {
@@ -158,71 +140,20 @@ pub async fn list_users(
             .and_then(|d| Uuid::parse_str(d).ok())
     };
 
-    if let Some(_) = dept_filter {
-        query.push_str(&format!(" AND department_id = ${}", param_count));
-        param_count += 1;
-    } else if let Some(ref _mgr_depts) = manager_departments {
-        // Manager viewing all their departments
-        query.push_str(&format!(" AND department_id = ANY(${})", param_count));
-        param_count += 1;
-    }
-
-    // For Managers: only show Employee-level users (not other Managers, Admins, or SuperAdmins)
-    if auth.role == "Manager" {
-        query.push_str(" AND role = 'Employee'");
-    }
-
-    if filters.role.is_some() {
-        query.push_str(&format!(" AND role = ${}", param_count));
-        param_count += 1;
-    }
-    if filters.status.is_some() {
-        query.push_str(&format!(" AND status = ${}", param_count));
-        param_count += 1;
-    }
-    if filters.search.is_some() {
-        query.push_str(&format!(
-            " AND (name ILIKE ${} OR email ILIKE ${})",
-            param_count, param_count
-        ));
-        param_count += 1;
-    }
-
-    query.push_str(" ORDER BY created_at DESC");
-    query.push_str(&format!(
-        " LIMIT ${} OFFSET ${}",
-        param_count,
-        param_count + 1
-    ));
-
-    // Execute query
-    let mut db_query = sqlx::query(&query);
-
-    if let Some(tid) = tenant_id_filter {
-        db_query = db_query.bind(tid);
-    }
-
-    if let Some(df) = dept_filter {
-        db_query = db_query.bind(df);
-    } else if let Some(ref mgr_depts) = manager_departments {
-        db_query = db_query.bind(mgr_depts);
-    }
-
-    if let Some(role) = filters.role {
-        db_query = db_query.bind(role);
-    }
-    if let Some(status) = filters.status {
-        db_query = db_query.bind(status);
-    }
-    if let Some(search) = filters.search {
-        let search_pattern = format!("%{}%", search);
-        db_query = db_query.bind(search_pattern.clone());
-    }
-
-    let users = db_query
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.pool)
+    let users = state
+        .store
+        .users()
+        .list(clovalink_entity::repositories::UserListFilter {
+            tenant_id: tenant_id_filter,
+            department_id: dept_filter,
+            manager_departments,
+            employee_only: auth.role == "Manager",
+            role: filters.role,
+            status: filters.status,
+            search: filters.search,
+            limit,
+            offset,
+        })
         .await
         .map_err(|e| {
             tracing::error!("Failed to list users: {:?}", e);
@@ -232,22 +163,10 @@ pub async fn list_users(
     // Convert to JSON manually
     let result: Vec<Value> = users.iter().map(|row| {
         json!({
-            "id": row.get::<Uuid, _>("id"),
-            "email": row.get::<String, _>("email"),
-            "name": row.get::<String, _>("name"),
-            "role": row.get::<String, _>("role"),
-            "status": row.get::<String, _>("status"),
-            "avatar_url": row.get::<Option<String>, _>("avatar_url"),
-            "last_active_at": row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_active_at"),
-            "department_id": row.get::<Option<Uuid>, _>("department_id"),
-            "dashboard_layout": row.get::<Option<Value>, _>("dashboard_layout"),
-            "widget_config": row.get::<Option<Value>, _>("widget_config"),
-            "allowed_tenant_ids": row.get::<Option<Vec<Uuid>>, _>("allowed_tenant_ids"),
-            "allowed_department_ids": row.get::<Option<Vec<Uuid>>, _>("allowed_department_ids"),
-            "suspended_at": row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_at"),
-            "suspended_until": row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_until"),
-            "suspension_reason": row.get::<Option<String>, _>("suspension_reason"),
-            "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            "id":row.id,"email":row.email,"name":row.name,"role":row.role,"status":row.status,"avatar_url":row.avatar_url,
+            "last_active_at":row.last_active_at,"department_id":row.department_id,"dashboard_layout":row.dashboard_layout,
+            "widget_config":row.widget_config,"allowed_tenant_ids":row.allowed_tenant_ids,"allowed_department_ids":row.allowed_department_ids,
+            "suspended_at":row.suspended_at,"suspended_until":row.suspended_until,"suspension_reason":row.suspension_reason,"created_at":row.created_at,
         })
     }).collect();
 
@@ -275,11 +194,14 @@ pub async fn create_user(
         auth.tenant_id
     };
 
-    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_one(&state.pool)
+    let tenant: Tenant = state
+        .store
+        .users()
+        .tenant(tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .into();
 
     // Hash password if provided (not required for SSO-only users)
     let password_hash: Option<String> =
@@ -318,30 +240,27 @@ pub async fn create_user(
     };
 
     // Insert user
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        INSERT INTO users (tenant_id, email, name, password_hash, role, department_id, identity_provider)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *
-        "#
-    )
-    .bind(tenant_id)
-    .bind(&input.email)
-    .bind(&input.name)
-    .bind(&password_hash)
-    .bind(&input.role)
-    .bind(input.department_id)
-    .bind(&input.identity_provider)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create user: {:?}", e);
-        if e.to_string().contains("unique") {
-            StatusCode::CONFLICT
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    let user = state
+        .store
+        .users()
+        .create(
+            tenant_id,
+            input.email,
+            input.name,
+            password_hash,
+            input.role,
+            input.department_id,
+            input.identity_provider,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create user: {:?}", e);
+            if e.to_string().contains("unique") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
 
     // Notify all admins about the new user
     let _ = notification_service::notify_all_admins(
@@ -391,15 +310,17 @@ pub async fn update_user(
     }
 
     // Fetch the user before update to track role changes
-    let old_user: Option<(String, String)> =
-        sqlx::query_as("SELECT role, email FROM users WHERE id = $1 AND tenant_id = $2")
-            .bind(id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_user = state
+        .store
+        .users()
+        .user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|u| u.tenant_id == auth.tenant_id);
 
-    let (old_role, user_email) = old_user.ok_or(StatusCode::NOT_FOUND)?;
+    let old_user = old_user.ok_or(StatusCode::NOT_FOUND)?;
+    let old_role = old_user.role;
+    let user_email = old_user.email;
     let role_changing = input.role.as_ref().map(|r| r != &old_role).unwrap_or(false);
 
     // Require password confirmation for role changes
@@ -410,12 +331,13 @@ pub async fn update_user(
             .ok_or(StatusCode::BAD_REQUEST)?;
 
         // Fetch the admin's password hash to verify
-        let admin_password_hash: Option<String> =
-            sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
-                .bind(auth.user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let admin_password_hash = state
+            .store
+            .users()
+            .user(auth.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .and_then(|u| u.password_hash);
 
         let hash = admin_password_hash.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
         let parsed_hash =
@@ -434,84 +356,39 @@ pub async fn update_user(
     }
     let new_role_value = input.role.clone();
 
-    // Build update query dynamically
-    let mut updates = Vec::new();
-    let mut param_count = 3; // $1 is id, $2 is tenant_id
-
-    if let Some(_name) = &input.name {
-        updates.push(format!("name = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_role) = &input.role {
-        updates.push(format!("role = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_status) = &input.status {
-        updates.push(format!("status = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_department_id) = &input.department_id {
-        updates.push(format!("department_id = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_dashboard_layout) = &input.dashboard_layout {
-        updates.push(format!("dashboard_layout = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_widget_config) = &input.widget_config {
-        updates.push(format!("widget_config = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_allowed_tenant_ids) = &input.allowed_tenant_ids {
+    if input.allowed_tenant_ids.is_some() {
         if auth.role != "SuperAdmin" {
             return Err(StatusCode::FORBIDDEN);
         }
-        updates.push(format!("allowed_tenant_ids = ${}", param_count));
-        param_count += 1;
     }
-    if let Some(_allowed_department_ids) = &input.allowed_department_ids {
-        updates.push(format!("allowed_department_ids = ${}", param_count));
-    }
-
-    if updates.is_empty() {
+    if input.name.is_none()
+        && input.role.is_none()
+        && input.status.is_none()
+        && input.department_id.is_none()
+        && input.dashboard_layout.is_none()
+        && input.widget_config.is_none()
+        && input.allowed_tenant_ids.is_none()
+        && input.allowed_department_ids.is_none()
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
-
-    updates.push("updated_at = NOW()".to_string());
-    let query = format!(
-        "UPDATE users SET {} WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, department_id, email, name, role, status, avatar_url, last_active_at, dashboard_layout, widget_config, allowed_tenant_ids, allowed_department_ids, created_at, updated_at",
-        updates.join(", ")
-    );
-
-    let mut db_query = sqlx::query(&query).bind(id).bind(auth.tenant_id);
-
-    if let Some(name) = input.name {
-        db_query = db_query.bind(name);
-    }
-    if let Some(role) = input.role {
-        db_query = db_query.bind(role);
-    }
-    if let Some(status) = input.status {
-        db_query = db_query.bind(status);
-    }
-    if let Some(department_id) = input.department_id {
-        db_query = db_query.bind(department_id);
-    }
-    if let Some(dashboard_layout) = input.dashboard_layout {
-        db_query = db_query.bind(dashboard_layout);
-    }
-    if let Some(widget_config) = input.widget_config {
-        db_query = db_query.bind(widget_config);
-    }
-    if let Some(allowed_tenant_ids) = input.allowed_tenant_ids {
-        db_query = db_query.bind(allowed_tenant_ids);
-    }
-    if let Some(allowed_department_ids) = input.allowed_department_ids {
-        db_query = db_query.bind(allowed_department_ids);
-    }
-
-    let row = db_query
-        .fetch_optional(&state.pool)
+    let row = state
+        .store
+        .users()
+        .update(
+            id,
+            auth.tenant_id,
+            clovalink_entity::repositories::UserUpdatePatch {
+                name: input.name,
+                role: input.role,
+                status: input.status,
+                department_id: input.department_id,
+                dashboard_layout: input.dashboard_layout,
+                widget_config: input.widget_config,
+                allowed_tenant_ids: input.allowed_tenant_ids,
+                allowed_department_ids: input.allowed_department_ids,
+            },
+        )
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -547,11 +424,8 @@ pub async fn update_user(
             }
 
             // Get tenant for email
-            if let Ok(tenant) = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-                .bind(auth.tenant_id)
-                .fetch_one(&state.pool)
-                .await
-            {
+            if let Ok(Some(entity_tenant)) = state.store.users().tenant(auth.tenant_id).await {
+                let tenant: Tenant = entity_tenant.into();
                 let _ = notification_service::notify_role_changed(
                     &state.store,
                     &tenant,
@@ -566,17 +440,9 @@ pub async fn update_user(
     }
 
     Ok(Json(json!({
-        "id": row.get::<Uuid, _>("id"),
-        "email": row.get::<String, _>("email"),
-        "name": row.get::<String, _>("name"),
-        "role": row.get::<String, _>("role"),
-        "department_id": row.get::<Option<Uuid>, _>("department_id"),
-        "dashboard_layout": row.get::<Option<Value>, _>("dashboard_layout"),
-        "widget_config": row.get::<Option<Value>, _>("widget_config"),
-        "allowed_tenant_ids": row.get::<Option<Vec<Uuid>>, _>("allowed_tenant_ids"),
-        "allowed_department_ids": row.get::<Option<Vec<Uuid>>, _>("allowed_department_ids"),
-        "status": row.get::<String, _>("status"),
-        "updated_at": row.get::<chrono::DateTime<chrono::Utc>, _>("updated_at"),
+        "id":row.id,"email":row.email,"name":row.name,"role":row.role,"department_id":row.department_id,
+        "dashboard_layout":row.dashboard_layout,"widget_config":row.widget_config,"allowed_tenant_ids":row.allowed_tenant_ids,
+        "allowed_department_ids":row.allowed_department_ids,"status":row.status,"updated_at":row.updated_at,
     })))
 }
 
@@ -596,15 +462,16 @@ pub async fn delete_user(
     }
 
     // Get the target user to check their role
-    let target_user = sqlx::query("SELECT role, tenant_id FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
+    let target_user = state
+        .store
+        .users()
+        .user(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
 
     // Validate role hierarchy - can only delete users with lower roles
     validate_role_assignment(&auth.role, &target_role)?;
@@ -615,9 +482,10 @@ pub async fn delete_user(
     }
 
     // Soft delete by setting status to inactive
-    sqlx::query("UPDATE users SET status = 'inactive', updated_at = NOW() WHERE id = $1")
-        .bind(id)
-        .execute(&state.pool)
+    state
+        .store
+        .users()
+        .deactivate(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -642,17 +510,18 @@ pub async fn permanent_delete_user(
     }
 
     // Get the target user to check their role
-    let target_user = sqlx::query("SELECT role, tenant_id, email, name FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
+    let target_user = state
+        .store
+        .users()
+        .user(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
-    let target_email: String = target_user.get("email");
-    let target_name: String = target_user.get("name");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
+    let target_email = target_user.email;
+    let target_name = target_user.name;
 
     // Validate role hierarchy - can only delete users with lower roles
     validate_role_assignment(&auth.role, &target_role)?;
@@ -662,70 +531,33 @@ pub async fn permanent_delete_user(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Delete user sessions first
-    sqlx::query("DELETE FROM user_sessions WHERE user_id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok(); // Ignore errors if table doesn't exist
-
-    // Delete user preferences
-    sqlx::query("DELETE FROM user_preferences WHERE user_id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    // Update audit logs to remove user_id reference (keep logs for compliance)
-    sqlx::query("UPDATE audit_logs SET user_id = NULL, metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{deleted_user}', $1::jsonb) WHERE user_id = $2")
-        .bind(json!({"email": target_email, "name": target_name}))
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    // Update file requests created_by to NULL
-    sqlx::query("UPDATE file_requests SET created_by = NULL WHERE created_by = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    // Update files owner_id to NULL
-    sqlx::query("UPDATE files SET owner_id = NULL WHERE owner_id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    // Finally, delete the user
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
-        .bind(id)
-        .execute(&state.pool)
+    let deleted = state
+        .store
+        .users()
+        .permanently_delete(id, &target_email, &target_name)
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(StatusCode::NOT_FOUND);
     }
 
     // Log audit event for permanent deletion
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, $3, 'user_permanently_deleted', 'user', $4, $5::inet)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({"deleted_user_email": target_email, "deleted_user_name": target_name}))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .system()
+        .audit(
+            auth.tenant_id,
+            auth.user_id,
+            "user_permanently_deleted",
+            "user",
+            json!({"deleted_user_email":target_email,"deleted_user_name":target_name}),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     Ok(Json(
         json!({"success": true, "message": "User permanently deleted"}),
@@ -762,18 +594,24 @@ pub async fn export_data(
     }
 
     // Get user profile
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let user: User = state
+        .store
+        .users()
+        .user(auth.user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .into();
 
     // Get tenant info
-    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(auth.tenant_id)
-        .fetch_one(&state.pool)
+    let tenant: Tenant = state
+        .store
+        .users()
+        .tenant(auth.tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .into();
 
     // Check if data export is enabled for this tenant
     if !tenant.data_export_enabled.unwrap_or(true) {
@@ -781,21 +619,18 @@ pub async fn export_data(
     }
 
     // Get recent activity
-    let activities = sqlx::query(
-        "SELECT action, resource_type, created_at FROM audit_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50"
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let activities = state
+        .store
+        .users()
+        .activities(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let activity_list: Vec<Value> = activities
         .iter()
         .map(|row| {
             json!({
-                "action": row.get::<String, _>("action"),
-                "resource_type": row.get::<String, _>("resource_type"),
-                "created_at": row.get::<chrono::DateTime<chrono::Utc>, _>("created_at")
+                "action":row.action,"resource_type":row.resource_type,"created_at":row.created_at
             })
         })
         .collect();
@@ -824,14 +659,12 @@ pub async fn validate_password_against_policy(
     use crate::settings::PasswordPolicy;
 
     // Fetch tenant's password policy
-    let policy_result = store.auth().password_policy(tenant_id)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?;
+    let policy_result = store.auth().password_policy(tenant_id).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Database error"})),
+        )
+    })?;
 
     let policy: PasswordPolicy = match policy_result {
         Some(json_value) => serde_json::from_value(json_value).unwrap_or_default(),
@@ -883,12 +716,13 @@ pub async fn update_my_profile(
     // If email is being changed, verify 2FA if enabled
     if input.email.is_some() {
         // Check if user has 2FA enabled
-        let totp_secret: Option<String> =
-            sqlx::query_scalar("SELECT totp_secret FROM users WHERE id = $1")
-                .bind(auth.user_id)
-                .fetch_one(&state.pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let totp_secret = state
+            .store
+            .users()
+            .user(auth.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .and_then(|u| u.totp_secret);
 
         if let Some(secret_str) = totp_secret {
             // 2FA is enabled, require verification
@@ -924,48 +758,27 @@ pub async fn update_my_profile(
         }
     }
 
-    let mut updates = Vec::new();
-    let mut param_count = 2; // $1 is user_id
-
-    if let Some(_) = &input.name {
-        updates.push(format!("name = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(_) = &input.email {
-        updates.push(format!("email = ${}", param_count));
-    }
-
-    // If nothing to update, return success (no error)
-    if updates.is_empty() {
+    if input.name.is_none() && input.email.is_none() {
         tracing::debug!("No profile changes to update for user {}", auth.user_id);
         return Ok(Json(json!({
             "message": "No changes to update"
         })));
     }
 
-    updates.push("updated_at = NOW()".to_string());
-    let query = format!(
-        "UPDATE users SET {} WHERE id = $1 RETURNING id, email, name, role, avatar_url",
-        updates.join(", ")
-    );
-
-    let mut db_query = sqlx::query(&query).bind(auth.user_id);
-
-    if let Some(name) = input.name {
-        db_query = db_query.bind(name);
-    }
-    if let Some(email) = input.email {
-        db_query = db_query.bind(email);
-    }
-
-    let row = db_query.fetch_one(&state.pool).await.map_err(|e| {
-        tracing::error!("Failed to update profile: {:?}", e);
-        if e.to_string().contains("unique") {
-            StatusCode::CONFLICT
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    let row = state
+        .store
+        .users()
+        .update_profile(auth.user_id, input.name, input.email)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update profile: {:?}", e);
+            if e.to_string().contains("unique") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Invalidate user cache
     if let Some(ref cache) = state.cache {
@@ -977,11 +790,7 @@ pub async fn update_my_profile(
     }
 
     Ok(Json(json!({
-        "id": row.get::<Uuid, _>("id"),
-        "email": row.get::<String, _>("email"),
-        "name": row.get::<String, _>("name"),
-        "role": row.get::<String, _>("role"),
-        "avatar_url": row.get::<Option<String>, _>("avatar_url"),
+        "id":row.id,"email":row.email,"name":row.name,"role":row.role,"avatar_url":row.avatar_url,
     })))
 }
 
@@ -993,15 +802,16 @@ pub async fn change_password(
     Json(input): Json<ChangePasswordInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Get current user with password hash and 2FA secret
-    let user = sqlx::query("SELECT password_hash, totp_secret FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let user = state
+        .store
+        .users()
+        .user(auth.user_id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let current_hash: Option<String> = user.get("password_hash");
-    let current_hash = current_hash.ok_or(StatusCode::BAD_REQUEST)?; // OIDC-only users can't change password
-    let totp_secret: Option<String> = user.get("totp_secret");
+    let current_hash = user.password_hash.ok_or(StatusCode::BAD_REQUEST)?;
+    let totp_secret = user.totp_secret;
 
     // Check if user has 2FA enabled - require TOTP code
     if let Some(secret_str) = totp_secret {
@@ -1063,10 +873,10 @@ pub async fn change_password(
         .to_string();
 
     // Update password
-    sqlx::query("UPDATE users SET password_hash = $1, password_changed_at = NOW(), updated_at = NOW() WHERE id = $2")
-        .bind(&new_hash)
-        .bind(auth.user_id)
-        .execute(&state.pool)
+    state
+        .store
+        .users()
+        .set_password(auth.user_id, new_hash)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1134,10 +944,10 @@ pub async fn upload_avatar(
             let avatar_url = format!("/uploads/{}", filename);
 
             // Update user
-            sqlx::query("UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2")
-                .bind(&avatar_url)
-                .bind(auth.user_id)
-                .execute(&state.pool)
+            state
+                .store
+                .users()
+                .set_avatar(auth.user_id, avatar_url.clone())
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1163,28 +973,18 @@ pub async fn list_sessions(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let sessions = sqlx::query(
-        r#"
-        SELECT id, device_info, ip_address::text as ip_address, last_active_at, created_at
-        FROM user_sessions
-        WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()
-        ORDER BY last_active_at DESC
-        "#,
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let sessions = state
+        .store
+        .users()
+        .sessions(auth.user_id)
+        .await
+        .unwrap_or_default();
 
     let result: Vec<Value> = sessions
         .iter()
         .map(|row| {
             json!({
-                "id": row.get::<Uuid, _>("id"),
-                "device_info": row.get::<Option<String>, _>("device_info"),
-                "ip_address": row.get::<Option<String>, _>("ip_address"),
-                "last_active_at": row.get::<DateTime<Utc>, _>("last_active_at"),
-                "created_at": row.get::<DateTime<Utc>, _>("created_at"),
+                "id":row.id,"device_info":row.device_info,"ip_address":row.ip_address,"last_active_at":row.last_active_at,"created_at":row.created_at,
             })
         })
         .collect();
@@ -1199,15 +999,14 @@ pub async fn revoke_session(
     Extension(auth): Extension<AuthUser>,
     Path(session_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let result =
-        sqlx::query("UPDATE user_sessions SET is_revoked = true WHERE id = $1 AND user_id = $2")
-            .bind(session_id)
-            .bind(auth.user_id)
-            .execute(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let revoked = state
+        .store
+        .users()
+        .revoke_session(auth.user_id, session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if result.rows_affected() == 0 {
+    if !revoked {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -1229,18 +1028,18 @@ pub async fn get_preferences(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // Try to get existing preferences
-    let prefs: Option<(Value,)> =
-        sqlx::query_as("SELECT settings FROM user_preferences WHERE user_id = $1")
-            .bind(auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch user preferences: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let prefs = state
+        .store
+        .users()
+        .preferences(auth.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch user preferences: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     match prefs {
-        Some((settings,)) => Ok(Json(settings)),
+        Some(settings) => Ok(Json(settings)),
         None => {
             // Return empty settings if no preferences exist
             Ok(Json(json!({})))
@@ -1256,27 +1055,17 @@ pub async fn update_preferences(
     Json(input): Json<UpdatePreferencesInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Upsert preferences - merge new settings with existing
-    let result: (Value,) = sqlx::query_as(
-        r#"
-        INSERT INTO user_preferences (user_id, settings, updated_at)
-        VALUES ($1, $2, NOW())
-        ON CONFLICT (user_id) 
-        DO UPDATE SET 
-            settings = user_preferences.settings || $2,
-            updated_at = NOW()
-        RETURNING settings
-        "#,
-    )
-    .bind(auth.user_id)
-    .bind(&input.settings)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update user preferences: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let result = state
+        .store
+        .users()
+        .update_preferences(auth.user_id, input.settings)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update user preferences: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Json(result.0))
+    Ok(Json(result))
 }
 
 // ==================== User Suspension Endpoints ====================
@@ -1298,15 +1087,16 @@ pub async fn suspend_user(
     }
 
     // Get the target user to check their role
-    let target_user = sqlx::query("SELECT role, tenant_id FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
+    let target_user = state
+        .store
+        .users()
+        .user(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
 
     // Validate role hierarchy - can only suspend users with lower roles
     validate_role_assignment(&auth.role, &target_role)?;
@@ -1317,29 +1107,12 @@ pub async fn suspend_user(
     }
 
     // Suspend the user
-    sqlx::query(
-        r#"
-        UPDATE users 
-        SET suspended_at = NOW(), 
-            suspended_until = $1, 
-            suspension_reason = $2,
-            updated_at = NOW() 
-        WHERE id = $3
-        "#,
-    )
-    .bind(input.until)
-    .bind(&input.reason)
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Invalidate all active sessions for this user
-    sqlx::query("UPDATE user_sessions SET is_revoked = true WHERE user_id = $1")
-        .bind(id)
-        .execute(&state.pool)
+    state
+        .store
+        .users()
+        .suspend(id, input.until, input.reason.clone())
         .await
-        .ok(); // Ignore errors - sessions table might not exist
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -1359,16 +1132,17 @@ pub async fn unsuspend_user(
     require_manager(&auth)?;
 
     // Get the target user to check their role
-    let target_user = sqlx::query("SELECT role, tenant_id, suspended_at FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
+    let target_user = state
+        .store
+        .users()
+        .user(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
-    let suspended_at: Option<DateTime<Utc>> = target_user.get("suspended_at");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
+    let suspended_at = target_user.suspended_at;
 
     // Check if user is actually suspended
     if suspended_at.is_none() {
@@ -1384,20 +1158,12 @@ pub async fn unsuspend_user(
     }
 
     // Unsuspend the user
-    sqlx::query(
-        r#"
-        UPDATE users 
-        SET suspended_at = NULL, 
-            suspended_until = NULL, 
-            suspension_reason = NULL,
-            updated_at = NOW() 
-        WHERE id = $1
-        "#,
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .users()
+        .unsuspend(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -1415,25 +1181,24 @@ pub async fn get_suspension_status(
     // Check permissions
     require_manager(&auth)?;
 
-    let user = sqlx::query(
-        "SELECT suspended_at, suspended_until, suspension_reason, tenant_id FROM users WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let user = state
+        .store
+        .users()
+        .user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_tenant_id: Uuid = user.get("tenant_id");
+    let target_tenant_id = user.tenant_id;
 
     // Non-SuperAdmins can only view users in their own tenant
     if auth.role != "SuperAdmin" && target_tenant_id != auth.tenant_id {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let suspended_at: Option<DateTime<Utc>> = user.get("suspended_at");
-    let suspended_until: Option<DateTime<Utc>> = user.get("suspended_until");
-    let suspension_reason: Option<String> = user.get("suspension_reason");
+    let suspended_at = user.suspended_at;
+    let suspended_until = user.suspended_until;
+    let suspension_reason = user.suspension_reason;
 
     Ok(Json(json!({
         "is_suspended": suspended_at.is_some(),
@@ -1476,18 +1241,18 @@ pub async fn admin_reset_password(
     }
 
     // Get target user
-    let target_user =
-        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user = state
+        .store
+        .users()
+        .user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
-    let target_email: String = target_user.get("email");
-    let target_name: String = target_user.get("name");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
+    let target_email = target_user.email;
+    let target_name = target_user.name;
 
     // Non-SuperAdmins can only reset passwords for users in their own tenant
     if auth.role != "SuperAdmin" && target_tenant_id != auth.tenant_id {
@@ -1523,30 +1288,32 @@ pub async fn admin_reset_password(
         .to_string();
 
     // Update the password
-    sqlx::query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&password_hash)
-        .bind(id)
-        .execute(&state.pool)
+    state
+        .store
+        .users()
+        .set_password(id, password_hash)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
-    sqlx::query(
-        "INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address) 
-         VALUES ($1, $2, 'admin_reset_password', 'user', $3, $4, $5::inet)"
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(id)
-    .bind(json!({
-        "target_user_email": target_email,
-        "target_user_name": target_name,
-        "target_user_role": target_role
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "admin_reset_password",
+            "user",
+            id,
+            json!({
+                "target_user_email": target_email,
+                "target_user_name": target_name,
+                "target_user_role": target_role
+            }),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok();
 
     tracing::info!(
         "Admin {} ({}) reset password for user {} ({})",
@@ -1574,18 +1341,18 @@ pub async fn send_password_reset_email(
     require_manager(&auth)?;
 
     // Get target user
-    let target_user =
-        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user = state
+        .store
+        .users()
+        .user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
-    let target_email: String = target_user.get("email");
-    let target_name: String = target_user.get("name");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
+    let target_email = target_user.email;
+    let target_name = target_user.name;
 
     // Non-SuperAdmins can only send reset emails for users in their own tenant
     if auth.role != "SuperAdmin" && target_tenant_id != auth.tenant_id {
@@ -1621,34 +1388,22 @@ pub async fn send_password_reset_email(
     // Token expires in 24 hours
     let expires_at = Utc::now() + chrono::Duration::hours(24);
 
-    // Invalidate any existing tokens for this user
-    sqlx::query(
-        "UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
-    )
-    .bind(id)
-    .execute(&state.pool)
-    .await
-    .ok();
-
-    // Store the new token
-    sqlx::query(
-        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, created_by) 
-         VALUES ($1, $2, $3, $4)",
-    )
-    .bind(id)
-    .bind(&token_hash)
-    .bind(expires_at)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Get tenant for SMTP config
-    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(target_tenant_id)
-        .fetch_one(&state.pool)
+    state
+        .store
+        .users()
+        .create_password_reset_token(id, token_hash, expires_at, auth.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get tenant for SMTP config
+    let tenant: Tenant = state
+        .store
+        .users()
+        .tenant(target_tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .into();
 
     // Build reset URL (frontend will handle this route)
     let frontend_url = types::config::get_config().frontend_url.clone();
@@ -1672,22 +1427,24 @@ pub async fn send_password_reset_email(
     .is_ok();
 
     // Audit log
-    sqlx::query(
-        "INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address) 
-         VALUES ($1, $2, 'send_password_reset_email', 'user', $3, $4, $5::inet)"
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(id)
-    .bind(json!({
-        "target_user_email": target_email,
-        "target_user_name": target_name,
-        "email_sent": email_sent
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "send_password_reset_email",
+            "user",
+            id,
+            json!({
+                "target_user_email": target_email,
+                "target_user_name": target_name,
+                "email_sent": email_sent
+            }),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok();
 
     tracing::info!(
         "Admin {} ({}) sent password reset email to user {} (email_sent: {})",
@@ -1726,18 +1483,18 @@ pub async fn admin_change_email(
     require_manager(&auth)?;
 
     // Get target user
-    let target_user =
-        sqlx::query("SELECT id, email, name, role, tenant_id FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
+    let target_user = state
+        .store
+        .users()
+        .user(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let target_role: String = target_user.get("role");
-    let target_tenant_id: Uuid = target_user.get("tenant_id");
-    let old_email: String = target_user.get("email");
-    let target_name: String = target_user.get("name");
+    let target_role = target_user.role;
+    let target_tenant_id = target_user.tenant_id;
+    let old_email = target_user.email;
+    let target_name = target_user.name;
 
     // Non-SuperAdmins can only change emails for users in their own tenant
     if auth.role != "SuperAdmin" && target_tenant_id != auth.tenant_id {
@@ -1762,44 +1519,44 @@ pub async fn admin_change_email(
     }
 
     // Check if email is already in use
-    let existing: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM users WHERE email = $1 AND id != $2")
-            .bind(&input.email)
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if existing.is_some() {
+    if state
+        .store
+        .users()
+        .email_in_use_except(&input.email, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::CONFLICT);
     }
 
     // Update the email
-    sqlx::query("UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&input.email)
-        .bind(id)
-        .execute(&state.pool)
+    state
+        .store
+        .users()
+        .set_email(id, input.email.clone())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
-    sqlx::query(
-        "INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address) 
-         VALUES ($1, $2, 'admin_change_email', 'user', $3, $4, $5::inet)"
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(id)
-    .bind(json!({
-        "target_user_name": target_name,
-        "old_email": old_email,
-        "new_email": input.email,
-        "target_user_role": target_role
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    state
+        .store
+        .system()
+        .audit_resource(
+            auth.tenant_id,
+            auth.user_id,
+            "admin_change_email",
+            "user",
+            id,
+            json!({
+                "target_user_name": target_name,
+                "old_email": old_email,
+                "new_email": input.email,
+                "target_user_role": target_role
+            }),
+            auth.ip_address.as_deref(),
+        )
+        .await
+        .ok();
 
     tracing::info!(
         "Admin {} ({}) changed email for user {} from {} to {}",

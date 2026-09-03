@@ -8,6 +8,17 @@ import { InviteUserModal, UserData } from '../components/InviteUserModal';
 import { UserDetailsModal } from '../components/UserDetailsModal';
 import { ManageUserModal } from '../components/ManageUserModal';
 import { Avatar } from '../components/Avatar';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 
 interface User {
     id: string;
@@ -378,14 +389,16 @@ export function Users() {
                     {/* Department Switcher - always show for Managers and Admins */}
                     {(isManager || isAdminOrAbove) ? (
                         <div className="relative" ref={deptDropdownRef}>
-                            <button
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={(e) => { e.stopPropagation(); setIsDeptDropdownOpen(!isDeptDropdownOpen); }}
-                                className="flex items-center px-3 sm:px-4 py-1.5 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                                className="h-9 gap-1.5"
                             >
-                                <Building2 className="w-4 h-4 sm:mr-2 text-muted-foreground" />
+                                <Building2 className="w-4 h-4 text-muted-foreground" />
                                 <span className="hidden sm:inline">{getSelectedDepartmentName()}</span>
-                                <ChevronDown className="w-3.5 h-3.5 ml-1 sm:ml-2 text-muted-foreground/60" />
-                            </button>
+                                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/60" />
+                            </Button>
                             {isDeptDropdownOpen && (
                                 <div className="absolute right-0 mt-2 w-56 bg-popover rounded-xl shadow-lg border border-border z-50 py-1">
                                     {isAdminOrAbove && (
@@ -416,39 +429,44 @@ export function Users() {
                         </div>
                     ) : null}
                     
-                    <button
+                    <Button
+                        size="sm"
                         onClick={() => {
                             setSelectedUser(null);
                             setIsInviteModalOpen(true);
                         }}
-                        className="px-3 sm:px-4 py-1.5 bg-foreground text-background rounded-lg text-sm font-medium hover:bg-foreground/90 transition-colors flex items-center">
-                        <Plus className="w-4 h-4 sm:mr-1.5" />
+                        className="h-9 gap-1.5"
+                    >
+                        <Plus className="w-4 h-4" />
                         <span className="hidden sm:inline">Invite User</span>
-                    </button>
+                    </Button>
                 </div>
             </div>
 
-            <div className="bg-card border border-border rounded-xl overflow-hidden transition-colors">
-                <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
+            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-xs">
+                <div className="p-3 sm:p-4 border-b border-border flex items-center justify-between gap-3 bg-muted/20">
                     <div className="relative max-w-md w-full">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <Search className="h-4 w-4 text-muted-foreground/60" />
                         </div>
-                        <input
+                        <Input
                             type="text"
-                            className="block w-full pl-9 pr-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
+                            className="pl-9 h-9 text-sm"
                             placeholder="Search users..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <button
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setIsFilterOpen(true)}
-                        className="px-3 py-1.5 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted flex items-center transition-colors">
-                        <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
-                        Filters
-                        {(filters.role || filters.status) && <span className="ml-2 w-2 h-2 bg-foreground rounded-full"></span>}
-                    </button>
+                        className="h-9 gap-1.5 shrink-0"
+                    >
+                        <Filter className="w-4 h-4 text-muted-foreground" />
+                        <span>Filters</span>
+                        {(filters.role || filters.status) && <span className="ml-1 w-2 h-2 bg-primary rounded-full"></span>}
+                    </Button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -484,24 +502,25 @@ export function Users() {
                                                         {user.email}
                                                     </p>
                                                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-muted text-foreground">
+                                                        <Badge variant="secondary">
                                                             {user.role}
-                                                        </span>
+                                                        </Badge>
                                                         {isUserSuspended(user) ? (
-                                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
-                                                                <Ban className="w-3 h-3 mr-1" />
+                                                            <Badge variant="destructive" className="gap-1">
+                                                                <Ban className="w-3 h-3" />
                                                                 Suspended
-                                                            </span>
+                                                            </Badge>
                                                         ) : (
-                                                            <span className={clsx(
-                                                                "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
-                                                                user.status === 'active'
-                                                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                                                    : "bg-muted text-muted-foreground"
-                                                            )}>
-                                                                {user.status === 'active' ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                                                            <Badge
+                                                                variant={user.status === 'active' ? 'outline' : 'secondary'}
+                                                                className={clsx(
+                                                                    "gap-1",
+                                                                    user.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                                )}
+                                                            >
+                                                                {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                                                                 {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
-                                                            </span>
+                                                            </Badge>
                                                         )}
                                                     </div>
                                                 </div>
@@ -509,23 +528,27 @@ export function Users() {
                                             {/* Action buttons */}
                                             <div className="flex items-center gap-2 ml-2" onClick={e => e.stopPropagation()}>
                                                 {currentUser && canManageUser(currentUser.role, user.role) && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
                                                         onClick={() => handleEdit(user)}
-                                                        className="p-1.5 text-foreground hover:bg-muted rounded-lg text-xs font-semibold transition-colors"
+                                                        className="h-8 px-2 text-xs"
                                                     >
                                                         Edit
-                                                    </button>
+                                                    </Button>
                                                 )}
                                                 {currentUser && currentUser.id !== user.id && canManageUser(currentUser.role, user.role) && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         onClick={() => {
                                                             setManagingUser(user);
                                                             setIsManageModalOpen(true);
                                                         }}
-                                                        className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                                                        className="h-8 w-8 text-muted-foreground"
                                                     >
                                                         <Settings className="w-4 h-4" />
-                                                    </button>
+                                                    </Button>
                                                 )}
                                             </div>
                                         </div>
@@ -534,21 +557,21 @@ export function Users() {
                             </div>
                             
                             {/* Desktop: Table view */}
-                            <table className="hidden sm:table min-w-full divide-y divide-border">
-                                <thead className="bg-muted/50">
-                                    <tr>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">User</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Role</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Department</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Status</th>
-                                        <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase">Last Active</th>
-                                        <th className="relative px-5 py-3"><span className="sr-only">Actions</span></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border">
+                            <Table className="hidden sm:table">
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>User</TableHead>
+                                        <TableHead>Role</TableHead>
+                                        <TableHead>Department</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Last Active</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
                                     {filteredUsers.map((user) => (
-                                        <tr key={user.id} className="hover:bg-muted/30 transition-colors">
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                        <TableRow key={user.id}>
+                                            <TableCell className="font-medium">
                                                 <div className="flex items-center">
                                                     <Avatar 
                                                         src={user.avatar_url} 
@@ -561,7 +584,7 @@ export function Users() {
                                                                 setViewingUser(user);
                                                                 setIsDetailsModalOpen(true);
                                                             }}
-                                                            className="text-sm font-semibold text-foreground hover:underline text-left"
+                                                            className="text-sm font-semibold text-foreground hover:underline text-left cursor-pointer"
                                                         >
                                                             {user.name}
                                                         </button>
@@ -571,69 +594,74 @@ export function Users() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
-                                                <span className="px-2 py-0.5 inline-flex text-xs font-semibold rounded-full bg-muted text-foreground">
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="secondary">
                                                     {user.role}
-                                                </span>
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
                                                 {getDepartmentName(user.department_id)}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                            </TableCell>
+                                            <TableCell>
                                                 {isUserSuspended(user) ? (
                                                     <div>
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive">
-                                                            <Ban className="w-3 h-3 mr-1" />
+                                                        <Badge variant="destructive" className="gap-1">
+                                                            <Ban className="w-3 h-3" />
                                                             Suspended
-                                                        </span>
+                                                        </Badge>
                                                         <p className="text-xs text-muted-foreground mt-0.5">
                                                             {getSuspensionInfo(user)}
                                                         </p>
                                                     </div>
                                                 ) : (
-                                                    <span className={clsx(
-                                                        "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
-                                                        user.status === 'active'
-                                                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                                            : "bg-muted text-muted-foreground"
-                                                    )}>
-                                                        {user.status === 'active' ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                                                    <Badge
+                                                        variant={user.status === 'active' ? 'outline' : 'secondary'}
+                                                        className={clsx(
+                                                            "gap-1",
+                                                            user.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                        )}
+                                                    >
+                                                        {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                                                         {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
-                                                    </span>
+                                                    </Badge>
                                                 )}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-sm text-muted-foreground">
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
                                                 {user.last_active_at ? formatDate(user.last_active_at) : 'Never'}
-                                            </td>
-                                            <td className="px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                                                {/* Edit button - only show if user can manage target */}
-                                                {currentUser && canManageUser(currentUser.role, user.role) && (
-                                                    <button
-                                                        onClick={() => handleEdit(user)}
-                                                        className="text-foreground hover:underline transition-colors"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                )}
-                                                {/* Manage button - suspend/delete options */}
-                                                {currentUser && currentUser.id !== user.id && canManageUser(currentUser.role, user.role) && (
-                                                    <button
-                                                        onClick={() => {
-                                                            setManagingUser(user);
-                                                            setIsManageModalOpen(true);
-                                                        }}
-                                                        className="text-muted-foreground hover:text-foreground transition-colors"
-                                                        title="Manage User"
-                                                    >
-                                                        <Settings className="w-4 h-4 inline" />
-                                                    </button>
-                                                )}
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    {currentUser && canManageUser(currentUser.role, user.role) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleEdit(user)}
+                                                            className="h-8 px-2.5 text-xs"
+                                                        >
+                                                            Edit
+                                                        </Button>
+                                                    )}
+                                                    {currentUser && currentUser.id !== user.id && canManageUser(currentUser.role, user.role) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => {
+                                                                setManagingUser(user);
+                                                                setIsManageModalOpen(true);
+                                                            }}
+                                                            className="h-8 w-8 text-muted-foreground"
+                                                            title="Manage User"
+                                                        >
+                                                            <Settings className="w-4 h-4" />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
                                     ))}
-                                </tbody>
-                            </table>
+                                </TableBody>
+                            </Table>
                         </>
                     )}
                 </div>

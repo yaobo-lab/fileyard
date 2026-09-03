@@ -93,7 +93,12 @@ pub async fn get_email_template(
     tenant_id: Uuid,
     template_key: &str,
 ) -> Option<(String, String, Option<String>)> {
-    store.notifications().email_template(tenant_id, template_key).await.ok().flatten()
+    store
+        .notifications()
+        .email_template(tenant_id, template_key)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Replace template variables with actual values
@@ -113,7 +118,8 @@ pub async fn render_email_template(
     template_key: &str,
     variables: HashMap<String, String>,
 ) -> Option<RenderedTemplate> {
-    let (subject, body_html, body_text) = get_email_template(store, tenant.id, template_key).await?;
+    let (subject, body_html, body_text) =
+        get_email_template(store, tenant.id, template_key).await?;
 
     // Add default variables
     let mut all_vars = variables;
@@ -164,11 +170,21 @@ pub struct Notification {
     pub created_at: DateTime<Utc>,
 }
 
-fn notification_from_entity(model: clovalink_entity::entities::notifications::Model) -> Notification {
-    Notification { id: model.id, user_id: model.user_id, tenant_id: model.tenant_id,
-        notification_type: model.notification_type, title: model.title, message: model.message,
-        metadata: model.metadata.unwrap_or_else(|| json!({})), is_read: model.is_read,
-        email_sent: model.email_sent, created_at: model.created_at.into() }
+fn notification_from_entity(
+    model: clovalink_entity::entities::notifications::Model,
+) -> Notification {
+    Notification {
+        id: model.id,
+        user_id: model.user_id,
+        tenant_id: model.tenant_id,
+        notification_type: model.notification_type,
+        title: model.title,
+        message: model.message,
+        metadata: model.metadata.unwrap_or_else(|| json!({})),
+        is_read: model.is_read,
+        email_sent: model.email_sent,
+        created_at: model.created_at.into(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,8 +290,17 @@ pub async fn create_notification(
 
     // Create in-app notification if enabled
     if effective_prefs.in_app_enabled {
-        let notif = store.notifications().create(user_id, tenant.id, notification_type.as_str(), title,
-            message, metadata.clone().unwrap_or_else(|| json!({}))).await?;
+        let notif = store
+            .notifications()
+            .create(
+                user_id,
+                tenant.id,
+                notification_type.as_str(),
+                title,
+                message,
+                metadata.clone().unwrap_or_else(|| json!({})),
+            )
+            .await?;
 
         notification_id = Some(notif.id);
     }
@@ -311,7 +336,11 @@ pub async fn create_notification(
 
     // Return the notification (or a placeholder if not created)
     if let Some(nid) = notification_id {
-        let model = store.notifications().by_id(nid).await?.ok_or(clovalink_entity::DataError::NotFound)?;
+        let model = store
+            .notifications()
+            .by_id(nid)
+            .await?
+            .ok_or(clovalink_entity::DataError::NotFound)?;
         Ok(notification_from_entity(model))
     } else {
         // Return a placeholder notification (not stored)
@@ -362,10 +391,25 @@ async fn get_tenant_settings_for_role(
     event_type: &str,
     role: &str,
 ) -> Option<TenantNotificationSetting> {
-    store.notifications().tenant_setting(tenant_id, event_type, role).await.ok().flatten().map(|m| TenantNotificationSetting {
-        id:m.id, tenant_id:m.tenant_id, event_type:m.event_type, enabled:m.enabled, email_enforced:m.email_enforced,
-        in_app_enforced:m.in_app_enforced, default_email:m.default_email, default_in_app:m.default_in_app,
-        role:m.role, created_at:m.created_at.into(), updated_at:m.updated_at.into() })
+    store
+        .notifications()
+        .tenant_setting(tenant_id, event_type, role)
+        .await
+        .ok()
+        .flatten()
+        .map(|m| TenantNotificationSetting {
+            id: m.id,
+            tenant_id: m.tenant_id,
+            event_type: m.event_type,
+            enabled: m.enabled,
+            email_enforced: m.email_enforced,
+            in_app_enforced: m.in_app_enforced,
+            default_email: m.default_email,
+            default_in_app: m.default_in_app,
+            role: m.role,
+            created_at: m.created_at.into(),
+            updated_at: m.updated_at.into(),
+        })
 }
 
 /// Get user preferences for a specific event type
@@ -374,9 +418,19 @@ async fn get_user_preferences(
     user_id: Uuid,
     event_type: &str,
 ) -> Result<NotificationPreference, clovalink_entity::DataError> {
-    let m = store.notifications().user_preference(user_id, event_type).await?;
-    Ok(NotificationPreference { id:m.id, user_id:m.user_id, event_type:m.event_type, email_enabled:m.email_enabled,
-        in_app_enabled:m.in_app_enabled, created_at:m.created_at.into(), updated_at:m.updated_at.into() })
+    let m = store
+        .notifications()
+        .user_preference(user_id, event_type)
+        .await?;
+    Ok(NotificationPreference {
+        id: m.id,
+        user_id: m.user_id,
+        event_type: m.event_type,
+        email_enabled: m.email_enabled,
+        in_app_enabled: m.in_app_enabled,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    })
 }
 
 /// Get effective preferences by merging tenant settings with user preferences
@@ -958,7 +1012,12 @@ pub async fn notify_security_alert(
     // Send email to each admin
     for (admin_id, admin_email, _admin_role) in admins {
         // Get admin's name
-        let admin_name = store.notifications().user_name(admin_id).await.ok().flatten();
+        let admin_name = store
+            .notifications()
+            .user_name(admin_id)
+            .await
+            .ok()
+            .flatten();
 
         let admin_name = admin_name.unwrap_or_else(|| "Admin".to_string());
 

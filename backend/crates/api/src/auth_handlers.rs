@@ -59,12 +59,15 @@ pub async fn login(
                 .map(|s| s.to_string())
         });
 
-    let user = state.store.auth().active_user_by_email(&input.email)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let user = state
+        .store
+        .auth()
+        .active_user_by_email(&input.email)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Handle user not found - track failed login
     let user = match user {
@@ -111,7 +114,12 @@ pub async fn login(
         || user.password_hash.is_none()
         || user.password_hash.as_deref() == Some("")
     {
-        let providers = state.store.auth().enabled_sso_providers(user.tenant_id).await.unwrap_or_default();
+        let providers = state
+            .store
+            .auth()
+            .enabled_sso_providers(user.tenant_id)
+            .await
+            .unwrap_or_default();
         let provider_list:Vec<Value>=providers.into_iter().map(|(id,name,slug,protocol)|json!({"id":id,"name":name,"slug":slug,"protocol":protocol})).collect();
 
         return Ok(Json(json!({
@@ -145,9 +153,14 @@ pub async fn login(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let tenant:Tenant = state.store.auth().tenant(user.tenant_id)
+    let tenant: Tenant = state
+        .store
+        .auth()
+        .tenant(user.tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?.into();
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .into();
 
     // Check if tenant/company is suspended
     let mut active_tenant = tenant.clone();
@@ -162,7 +175,14 @@ pub async fn login(
                 if *tenant_id == user.tenant_id {
                     continue; // Skip the suspended primary tenant
                 }
-                let other_tenant:Option<Tenant>=state.store.auth().active_tenant(*tenant_id).await.ok().flatten().map(Into::into);
+                let other_tenant: Option<Tenant> = state
+                    .store
+                    .auth()
+                    .active_tenant(*tenant_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(Into::into);
 
                 if let Some(t) = other_tenant {
                     fallback_tenant = Some(t);
@@ -288,7 +308,17 @@ pub async fn login(
 
     // Upsert session: update existing session from same device or create new one
     // This prevents duplicate sessions from the same browser/device
-    let session_result=state.store.sso().upsert_session(user.id,&token_hash,device_info.as_deref(),ip_address.as_deref(),&fingerprint_hash).await;
+    let session_result = state
+        .store
+        .sso()
+        .upsert_session(
+            user.id,
+            &token_hash,
+            device_info.as_deref(),
+            ip_address.as_deref(),
+            &fingerprint_hash,
+        )
+        .await;
 
     if let Err(e) = session_result {
         tracing::warn!("Failed to create/update session record: {:?}", e);
@@ -340,18 +370,33 @@ pub async fn forgot_password(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ForgotPasswordInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user = state.store.auth().active_user_by_email(&input.email).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user = state
+        .store
+        .auth()
+        .active_user_by_email(&input.email)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Some(user) = user {
-        let tenant:Tenant=state.store.auth().tenant(user.tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?.into();
+        let tenant: Tenant = state
+            .store
+            .auth()
+            .tenant(user.tenant_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+            .into();
 
         // Generate recovery token
         let token = Uuid::new_v4().to_string();
         let expires_at = Utc::now() + Duration::hours(1);
 
-        state.store.auth().set_recovery_token(user.id,&token,expires_at)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .store
+            .auth()
+            .set_recovery_token(user.id, &token, expires_at)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Send email
         let reset_link = format!("https://{}/reset-password?token={}", tenant.domain, token);
@@ -370,10 +415,13 @@ pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ResetPasswordInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user = state.store.auth().user_by_valid_recovery_token(&input.token)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::BAD_REQUEST)?;
+    let user = state
+        .store
+        .auth()
+        .user_by_valid_recovery_token(&input.token)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     // Validate password against tenant's password policy
     crate::users::validate_password_against_policy(
@@ -392,9 +440,12 @@ pub async fn reset_password(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .to_string();
 
-    state.store.auth().reset_password(user.id,password_hash)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .auth()
+        .reset_password(user.id, password_hash)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -419,14 +470,24 @@ pub async fn get_password_policy(
         Some(auth_user.tenant_id)
     } else if let Some(domain) = query.domain {
         // Look up tenant by domain
-        state.store.auth().tenant_id_by_domain_or_name(&domain).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?
+        state
+            .store
+            .auth()
+            .tenant_id_by_domain_or_name(&domain)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         None
     };
 
     // Fetch the password policy
     let policy: PasswordPolicy = if let Some(tid) = tenant_id {
-        let policy_result=state.store.auth().password_policy(tid).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        let policy_result = state
+            .store
+            .auth()
+            .password_policy(tid)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         match policy_result {
             Some(json_value) => serde_json::from_value(json_value).unwrap_or_default(),
@@ -500,7 +561,10 @@ pub async fn verify_2fa(
     }
 
     // Save secret to user, enabling 2FA
-    state.store.auth().set_totp_secret(auth.user_id,secret_str)
+    state
+        .store
+        .auth()
+        .set_totp_secret(auth.user_id, secret_str)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -529,22 +593,35 @@ pub async fn register(
         })?
         .to_string();
 
-    let tenant_id = state.store.auth().active_tenant_id()
+    let tenant_id = state
+        .store
+        .auth()
+        .active_tenant_id()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Insert user
-    let user = state.store.auth().create_local_user(tenant_id,input.email,input.name,password_hash,input.role)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create user: {:?}", e);
-        // Check if it's a unique constraint violation (duplicate email)
-        if e.to_string().contains("unique") {
-            StatusCode::CONFLICT
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    let user = state
+        .store
+        .auth()
+        .create_local_user(
+            tenant_id,
+            input.email,
+            input.name,
+            password_hash,
+            input.role,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create user: {:?}", e);
+            // Check if it's a unique constraint violation (duplicate email)
+            if e.to_string().contains("unique") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
 
     // Generate JWT token
     let token = generate_token(user.id, user.tenant_id, user.role.clone())
@@ -598,12 +675,14 @@ async fn get_user_permissions(
 
     // Look up the role in the roles table
     // First check for tenant-specific role, then global role
-    let role = store.auth().role_permissions(tenant_id,role_name)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch role: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let role = store
+        .auth()
+        .role_permissions(tenant_id, role_name)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch role: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let (base_role, custom_perms) = match role {
         Some(r) => r,
@@ -670,15 +749,24 @@ pub async fn me(
         }
     }
 
-    let user:User = state.store.auth().user(auth.user_id)
+    let user: User = state
+        .store
+        .auth()
+        .user(auth.user_id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?.ok_or(StatusCode::NOT_FOUND)?.into();
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?
+        .into();
 
     // Use tenant_id from JWT (auth.tenant_id) not from user record
     // This ensures we show the correct tenant after switching
-    let tenant = state.store.auth().tenant(auth.tenant_id)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = state
+        .store
+        .auth()
+        .tenant(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get user's resolved permissions based on their role
     let permissions = get_user_permissions(&state.store, auth.tenant_id, &user.role).await?;

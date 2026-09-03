@@ -434,8 +434,20 @@ pub async fn get_version_info(
     let current_version = CURRENT_VERSION.to_string();
 
     // Try to get github_repo from global settings
-    let github_repo = state.store.global_settings().get("github_repo").await.ok().flatten()
-        .and_then(|setting| setting.value.as_str().filter(|v| !v.is_empty()).map(ToOwned::to_owned));
+    let github_repo = state
+        .store
+        .global_settings()
+        .get("github_repo")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|setting| {
+            setting
+                .value
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+        });
 
     // If no repo configured, just return current version
     let Some(repo) = github_repo else {
@@ -591,12 +603,15 @@ pub async fn sync_storage(
     let mut errors: Vec<String> = Vec::new();
 
     // Get all non-deleted, non-directory files from the database
-    let files = state.store.system().active_storage_files()
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to query files for sync: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let files = state
+        .store
+        .system()
+        .active_storage_files()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query files for sync: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     tracing::info!(
         user_id = %auth.user_id,
@@ -619,8 +634,7 @@ pub async fn sync_storage(
                 // File doesn't exist in storage - mark as deleted (orphaned)
                 orphaned += 1;
 
-                match state.store.system().mark_file_deleted(file_id).await
-                {
+                match state.store.system().mark_file_deleted(file_id).await {
                     Ok(_) => {
                         cleaned += 1;
                         tracing::info!(
@@ -644,14 +658,24 @@ pub async fn sync_storage(
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Audit log
-    let _ = state.store.system().audit(auth.tenant_id, auth.user_id, "storage_sync", "system", json!({
-        "scanned": scanned,
-        "orphaned": orphaned,
-        "cleaned": cleaned,
-        "errors_count": errors.len(),
-        "duration_ms": duration_ms
-    }), auth.ip_address.as_deref())
-    .await;
+    let _ = state
+        .store
+        .system()
+        .audit(
+            auth.tenant_id,
+            auth.user_id,
+            "storage_sync",
+            "system",
+            json!({
+                "scanned": scanned,
+                "orphaned": orphaned,
+                "cleaned": cleaned,
+                "errors_count": errors.len(),
+                "duration_ms": duration_ms
+            }),
+            auth.ip_address.as_deref(),
+        )
+        .await;
 
     tracing::info!(
         user_id = %auth.user_id,

@@ -1,22 +1,202 @@
-use chrono::{DateTime,Utc};
-use sea_orm::{ActiveModelTrait,ActiveValue::Set,ColumnTrait,Condition,DatabaseConnection,EntityTrait,PaginatorTrait,QueryFilter,QueryOrder};
-use serde::Serialize; use uuid::Uuid;
-use crate::{entities::{role_permissions,roles,users},DataResult};
+use crate::{
+    entities::{role_permissions, roles, users},
+    DataResult,
+};
+use chrono::{DateTime, Utc};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder,
+};
+use serde::Serialize;
+use uuid::Uuid;
 
-#[derive(Debug,Clone,Serialize)] pub struct RoleView{pub id:Uuid,pub tenant_id:Option<Uuid>,pub name:String,pub description:Option<String>,pub base_role:String,pub is_system:bool,pub created_at:DateTime<Utc>,pub updated_at:DateTime<Utc>}
-impl From<roles::Model> for RoleView{fn from(v:roles::Model)->Self{Self{id:v.id,tenant_id:v.tenant_id,name:v.name,description:v.description,base_role:v.base_role,is_system:v.is_system.unwrap_or(false),created_at:v.created_at.with_timezone(&Utc),updated_at:v.updated_at.with_timezone(&Utc)}}}
-pub struct RolePatch{pub name:Option<String>,pub description:Option<String>,pub base_role:Option<String>}
-pub struct RoleRepository<'a>{db:&'a DatabaseConnection}
-impl<'a> RoleRepository<'a>{pub(crate)fn new(db:&'a DatabaseConnection)->Self{Self{db}}
- pub async fn list(&self,tenant:Uuid,include_global:bool)->DataResult<Vec<RoleView>>{let mut q=roles::Entity::find();if include_global{q=q.filter(Condition::any().add(roles::Column::TenantId.is_null()).add(roles::Column::TenantId.eq(tenant))).order_by_desc(roles::Column::IsSystem)}else{q=q.filter(roles::Column::TenantId.eq(tenant))}Ok(q.order_by_asc(roles::Column::Name).all(self.db).await?.into_iter().map(Into::into).collect())}
- pub async fn create(&self,tenant:Option<Uuid>,name:String,description:Option<String>,base_role:String,permissions:Vec<String>)->DataResult<RoleView>{let now=Utc::now().into();let id=Uuid::new_v4();roles::ActiveModel{id:Set(id),tenant_id:Set(tenant),name:Set(name),description:Set(description),base_role:Set(base_role),is_system:Set(Some(false)),created_at:Set(now),updated_at:Set(now)}.insert(self.db).await?;for permission in permissions{let _=role_permissions::ActiveModel{id:Set(Uuid::new_v4()),role_id:Set(id),permission:Set(permission),granted:Set(Some(true)),created_at:Set(now)}.insert(self.db).await;}Ok(self.by_id(id).await?.unwrap())}
- pub async fn accessible(&self,id:Uuid,tenant:Uuid)->DataResult<Option<RoleView>>{Ok(roles::Entity::find_by_id(id).filter(Condition::any().add(roles::Column::TenantId.is_null()).add(roles::Column::TenantId.eq(tenant))).one(self.db).await?.map(Into::into))}
- pub async fn by_id(&self,id:Uuid)->DataResult<Option<RoleView>>{Ok(roles::Entity::find_by_id(id).one(self.db).await?.map(Into::into))}
- pub async fn tenant_role(&self,id:Uuid,tenant:Uuid)->DataResult<Option<RoleView>>{Ok(roles::Entity::find_by_id(id).filter(roles::Column::TenantId.eq(tenant)).one(self.db).await?.map(Into::into))}
- pub async fn update(&self,id:Uuid,p:RolePatch)->DataResult<Option<RoleView>>{let Some(row)=roles::Entity::find_by_id(id).one(self.db).await?else{return Ok(None)};let mut a:roles::ActiveModel=row.into();if let Some(v)=p.name{a.name=Set(v)}if let Some(v)=p.description{a.description=Set(Some(v))}if let Some(v)=p.base_role{a.base_role=Set(v)}a.updated_at=Set(Utc::now().into());Ok(Some(a.update(self.db).await?.into()))}
- pub async fn user_count(&self,id:Uuid)->DataResult<u64>{Ok(users::Entity::find().filter(users::Column::CustomRoleId.eq(id)).count(self.db).await?)}
- pub async fn delete(&self,id:Uuid)->DataResult<bool>{Ok(roles::Entity::delete_by_id(id).exec(self.db).await?.rows_affected>0)}
- pub async fn permissions(&self,id:Uuid)->DataResult<Vec<(String,bool)>>{Ok(role_permissions::Entity::find().filter(role_permissions::Column::RoleId.eq(id)).all(self.db).await?.into_iter().map(|p|(p.permission,p.granted.unwrap_or(false))).collect())}
- pub async fn upsert_permissions(&self,id:Uuid,values:&[(String,bool)])->DataResult<()>{for (permission,granted) in values{if let Some(row)=role_permissions::Entity::find().filter(role_permissions::Column::RoleId.eq(id)).filter(role_permissions::Column::Permission.eq(permission)).one(self.db).await?{let mut a:role_permissions::ActiveModel=row.into();a.granted=Set(Some(*granted));a.update(self.db).await?;}else{role_permissions::ActiveModel{id:Set(Uuid::new_v4()),role_id:Set(id),permission:Set(permission.clone()),granted:Set(Some(*granted)),created_at:Set(Utc::now().into())}.insert(self.db).await?;}}Ok(())}
- pub async fn user_ids_by_role(&self,name:&str)->DataResult<Vec<Uuid>>{Ok(users::Entity::find().filter(users::Column::Role.eq(name)).all(self.db).await?.into_iter().map(|u|u.id).collect())}
+#[derive(Debug, Clone, Serialize)]
+pub struct RoleView {
+    pub id: Uuid,
+    pub tenant_id: Option<Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub base_role: String,
+    pub is_system: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+impl From<roles::Model> for RoleView {
+    fn from(v: roles::Model) -> Self {
+        Self {
+            id: v.id,
+            tenant_id: v.tenant_id,
+            name: v.name,
+            description: v.description,
+            base_role: v.base_role,
+            is_system: v.is_system.unwrap_or(false),
+            created_at: v.created_at.with_timezone(&Utc),
+            updated_at: v.updated_at.with_timezone(&Utc),
+        }
+    }
+}
+pub struct RolePatch {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub base_role: Option<String>,
+}
+pub struct RoleRepository<'a> {
+    db: &'a DatabaseConnection,
+}
+impl<'a> RoleRepository<'a> {
+    pub(crate) fn new(db: &'a DatabaseConnection) -> Self {
+        Self { db }
+    }
+    pub async fn list(&self, tenant: Uuid, include_global: bool) -> DataResult<Vec<RoleView>> {
+        let mut q = roles::Entity::find();
+        if include_global {
+            q = q
+                .filter(
+                    Condition::any()
+                        .add(roles::Column::TenantId.is_null())
+                        .add(roles::Column::TenantId.eq(tenant)),
+                )
+                .order_by_desc(roles::Column::IsSystem)
+        } else {
+            q = q.filter(roles::Column::TenantId.eq(tenant))
+        }
+        Ok(q.order_by_asc(roles::Column::Name)
+            .all(self.db)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+    pub async fn create(
+        &self,
+        tenant: Option<Uuid>,
+        name: String,
+        description: Option<String>,
+        base_role: String,
+        permissions: Vec<String>,
+    ) -> DataResult<RoleView> {
+        let now = Utc::now().into();
+        let id = Uuid::new_v4();
+        roles::ActiveModel {
+            id: Set(id),
+            tenant_id: Set(tenant),
+            name: Set(name),
+            description: Set(description),
+            base_role: Set(base_role),
+            is_system: Set(Some(false)),
+            created_at: Set(now),
+            updated_at: Set(now),
+        }
+        .insert(self.db)
+        .await?;
+        for permission in permissions {
+            let _ = role_permissions::ActiveModel {
+                id: Set(Uuid::new_v4()),
+                role_id: Set(id),
+                permission: Set(permission),
+                granted: Set(Some(true)),
+                created_at: Set(now),
+            }
+            .insert(self.db)
+            .await;
+        }
+        Ok(self.by_id(id).await?.unwrap())
+    }
+    pub async fn accessible(&self, id: Uuid, tenant: Uuid) -> DataResult<Option<RoleView>> {
+        Ok(roles::Entity::find_by_id(id)
+            .filter(
+                Condition::any()
+                    .add(roles::Column::TenantId.is_null())
+                    .add(roles::Column::TenantId.eq(tenant)),
+            )
+            .one(self.db)
+            .await?
+            .map(Into::into))
+    }
+    pub async fn by_id(&self, id: Uuid) -> DataResult<Option<RoleView>> {
+        Ok(roles::Entity::find_by_id(id)
+            .one(self.db)
+            .await?
+            .map(Into::into))
+    }
+    pub async fn tenant_role(&self, id: Uuid, tenant: Uuid) -> DataResult<Option<RoleView>> {
+        Ok(roles::Entity::find_by_id(id)
+            .filter(roles::Column::TenantId.eq(tenant))
+            .one(self.db)
+            .await?
+            .map(Into::into))
+    }
+    pub async fn update(&self, id: Uuid, p: RolePatch) -> DataResult<Option<RoleView>> {
+        let Some(row) = roles::Entity::find_by_id(id).one(self.db).await? else {
+            return Ok(None);
+        };
+        let mut a: roles::ActiveModel = row.into();
+        if let Some(v) = p.name {
+            a.name = Set(v)
+        }
+        if let Some(v) = p.description {
+            a.description = Set(Some(v))
+        }
+        if let Some(v) = p.base_role {
+            a.base_role = Set(v)
+        }
+        a.updated_at = Set(Utc::now().into());
+        Ok(Some(a.update(self.db).await?.into()))
+    }
+    pub async fn user_count(&self, id: Uuid) -> DataResult<u64> {
+        Ok(users::Entity::find()
+            .filter(users::Column::CustomRoleId.eq(id))
+            .count(self.db)
+            .await?)
+    }
+    pub async fn delete(&self, id: Uuid) -> DataResult<bool> {
+        Ok(roles::Entity::delete_by_id(id)
+            .exec(self.db)
+            .await?
+            .rows_affected
+            > 0)
+    }
+    pub async fn permissions(&self, id: Uuid) -> DataResult<Vec<(String, bool)>> {
+        Ok(role_permissions::Entity::find()
+            .filter(role_permissions::Column::RoleId.eq(id))
+            .all(self.db)
+            .await?
+            .into_iter()
+            .map(|p| (p.permission, p.granted.unwrap_or(false)))
+            .collect())
+    }
+    pub async fn upsert_permissions(&self, id: Uuid, values: &[(String, bool)]) -> DataResult<()> {
+        for (permission, granted) in values {
+            if let Some(row) = role_permissions::Entity::find()
+                .filter(role_permissions::Column::RoleId.eq(id))
+                .filter(role_permissions::Column::Permission.eq(permission))
+                .one(self.db)
+                .await?
+            {
+                let mut a: role_permissions::ActiveModel = row.into();
+                a.granted = Set(Some(*granted));
+                a.update(self.db).await?;
+            } else {
+                role_permissions::ActiveModel {
+                    id: Set(Uuid::new_v4()),
+                    role_id: Set(id),
+                    permission: Set(permission.clone()),
+                    granted: Set(Some(*granted)),
+                    created_at: Set(Utc::now().into()),
+                }
+                .insert(self.db)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+    pub async fn user_ids_by_role(&self, name: &str) -> DataResult<Vec<Uuid>> {
+        Ok(users::Entity::find()
+            .filter(users::Column::Role.eq(name))
+            .all(self.db)
+            .await?
+            .into_iter()
+            .map(|u| u.id)
+            .collect())
+    }
 }

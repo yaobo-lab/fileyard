@@ -49,3 +49,6 @@ tmp/
 temp/
 *.tmp
 *.temp
+
+
+frontend/shadcn-admin

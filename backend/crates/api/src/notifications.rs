@@ -85,9 +85,50 @@ pub struct NotificationListResponse {
     pub limit: i64,
 }
 
-fn notification(m: clovalink_entity::entities::notifications::Model)->Notification{Notification{id:m.id,user_id:m.user_id,tenant_id:m.tenant_id,notification_type:m.notification_type,title:m.title,message:m.message,metadata:m.metadata.unwrap_or_else(||json!({})),is_read:m.is_read,email_sent:m.email_sent,created_at:m.created_at.into()}}
-fn preference(m: clovalink_entity::entities::notification_preferences::Model)->NotificationPreference{NotificationPreference{id:m.id,user_id:m.user_id,event_type:m.event_type,email_enabled:m.email_enabled,in_app_enabled:m.in_app_enabled,created_at:m.created_at.into(),updated_at:m.updated_at.into()}}
-fn tenant_setting(m: clovalink_entity::entities::tenant_notification_settings::Model)->TenantNotificationSetting{TenantNotificationSetting{id:m.id,tenant_id:m.tenant_id,event_type:m.event_type,enabled:m.enabled,email_enforced:m.email_enforced,in_app_enforced:m.in_app_enforced,default_email:m.default_email,default_in_app:m.default_in_app,role:m.role,created_at:m.created_at.into(),updated_at:m.updated_at.into()}}
+fn notification(m: clovalink_entity::entities::notifications::Model) -> Notification {
+    Notification {
+        id: m.id,
+        user_id: m.user_id,
+        tenant_id: m.tenant_id,
+        notification_type: m.notification_type,
+        title: m.title,
+        message: m.message,
+        metadata: m.metadata.unwrap_or_else(|| json!({})),
+        is_read: m.is_read,
+        email_sent: m.email_sent,
+        created_at: m.created_at.into(),
+    }
+}
+fn preference(
+    m: clovalink_entity::entities::notification_preferences::Model,
+) -> NotificationPreference {
+    NotificationPreference {
+        id: m.id,
+        user_id: m.user_id,
+        event_type: m.event_type,
+        email_enabled: m.email_enabled,
+        in_app_enabled: m.in_app_enabled,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    }
+}
+fn tenant_setting(
+    m: clovalink_entity::entities::tenant_notification_settings::Model,
+) -> TenantNotificationSetting {
+    TenantNotificationSetting {
+        id: m.id,
+        tenant_id: m.tenant_id,
+        event_type: m.event_type,
+        enabled: m.enabled,
+        email_enforced: m.email_enforced,
+        in_app_enforced: m.in_app_enforced,
+        default_email: m.default_email,
+        default_in_app: m.default_in_app,
+        role: m.role,
+        created_at: m.created_at.into(),
+        updated_at: m.updated_at.into(),
+    }
+}
 
 // ==================== Handlers ====================
 
@@ -103,8 +144,13 @@ pub async fn list_notifications(
     let offset = (page - 1) * limit;
     let unread_only = params.unread_only.unwrap_or(false);
 
-    let (rows,total,unread_count)=state.store.notifications().list(auth.user_id,unread_only,limit as u64,offset as u64).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
-    let notifications=rows.into_iter().map(notification).collect();
+    let (rows, total, unread_count) = state
+        .store
+        .notifications()
+        .list(auth.user_id, unread_only, limit as u64, offset as u64)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let notifications = rows.into_iter().map(notification).collect();
 
     Ok(Json(NotificationListResponse {
         notifications,
@@ -121,7 +167,12 @@ pub async fn get_unread_count(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let (_,_,count)=state.store.notifications().list(auth.user_id,true,1,0).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (_, _, count) = state
+        .store
+        .notifications()
+        .list(auth.user_id, true, 1, 0)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({ "unread_count": count })))
 }
@@ -133,7 +184,13 @@ pub async fn mark_as_read(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !state.store.notifications().mark_read(notification_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
+    if !state
+        .store
+        .notifications()
+        .mark_read(notification_id, auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -146,7 +203,12 @@ pub async fn mark_all_as_read(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let marked=state.store.notifications().mark_all_read(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let marked = state
+        .store
+        .notifications()
+        .mark_all_read(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "success": true,
@@ -161,7 +223,13 @@ pub async fn delete_notification(
     Extension(auth): Extension<AuthUser>,
     Path(notification_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    if !state.store.notifications().delete(notification_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
+    if !state
+        .store
+        .notifications()
+        .delete(notification_id, auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -175,7 +243,12 @@ pub async fn get_preferences(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Vec<NotificationPreference>>, StatusCode> {
     // Get existing preferences
-    let mut preferences=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut preferences = state
+        .store
+        .notifications()
+        .preferences(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // If no preferences exist, create defaults
     if preferences.is_empty() {
@@ -188,8 +261,18 @@ pub async fn get_preferences(
             "file_shared",
         ];
 
-        state.store.notifications().ensure_default_preferences(auth.user_id,&event_types).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
-        preferences=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .store
+            .notifications()
+            .ensure_default_preferences(auth.user_id, &event_types)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        preferences = state
+            .store
+            .notifications()
+            .preferences(auth.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     Ok(Json(preferences.into_iter().map(preference).collect()))
@@ -203,7 +286,19 @@ pub async fn update_preferences(
     Json(input): Json<UpdatePreferencesInput>,
 ) -> Result<Json<Vec<NotificationPreference>>, StatusCode> {
     for pref in input.preferences {
-        state.store.notifications().update_preference(auth.user_id,clovalink_entity::repositories::PreferencePatch{event_type:pref.event_type,email_enabled:pref.email_enabled,in_app_enabled:pref.in_app_enabled}).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .store
+            .notifications()
+            .update_preference(
+                auth.user_id,
+                clovalink_entity::repositories::PreferencePatch {
+                    event_type: pref.event_type,
+                    email_enabled: pref.email_enabled,
+                    in_app_enabled: pref.in_app_enabled,
+                },
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Return updated preferences
@@ -275,17 +370,33 @@ pub async fn get_tenant_notification_settings(
     ];
 
     // Get all settings for this tenant (global + role-specific)
-    let mut settings=state.store.notifications().tenant_settings(tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut settings = state
+        .store
+        .notifications()
+        .tenant_settings(tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // If no global settings exist, create defaults
     let has_global = settings.iter().any(|s| s.role.is_none());
     if !has_global {
-        state.store.notifications().ensure_global_settings(tenant_id,&event_types).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .store
+            .notifications()
+            .ensure_global_settings(tenant_id, &event_types)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Re-fetch all settings
-    settings=state.store.notifications().tenant_settings(tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
-    let all_settings:Vec<TenantNotificationSetting>=settings.into_iter().map(tenant_setting).collect();
+    settings = state
+        .store
+        .notifications()
+        .tenant_settings(tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let all_settings: Vec<TenantNotificationSetting> =
+        settings.into_iter().map(tenant_setting).collect();
 
     // Group settings by role
     let global_settings: Vec<&TenantNotificationSetting> =
@@ -380,7 +491,23 @@ pub async fn update_tenant_notification_settings(
     let target_role = input.role.clone();
 
     for setting in input.settings {
-        state.store.notifications().update_tenant_setting(tenant_id,target_role.clone(),clovalink_entity::repositories::TenantNotificationPatch{event_type:setting.event_type,enabled:setting.enabled,email_enforced:setting.email_enforced,in_app_enforced:setting.in_app_enforced,default_email:setting.default_email,default_in_app:setting.default_in_app}).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .store
+            .notifications()
+            .update_tenant_setting(
+                tenant_id,
+                target_role.clone(),
+                clovalink_entity::repositories::TenantNotificationPatch {
+                    event_type: setting.event_type,
+                    enabled: setting.enabled,
+                    email_enforced: setting.email_enforced,
+                    in_app_enforced: setting.in_app_enforced,
+                    default_email: setting.default_email,
+                    default_in_app: setting.default_in_app,
+                },
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     // Return updated settings for the same role
@@ -397,7 +524,15 @@ pub async fn get_preferences_with_company_settings(
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
     // Get user preferences
-    let user_prefs:Vec<NotificationPreference>=state.store.notifications().preferences(auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?.into_iter().map(preference).collect();
+    let user_prefs: Vec<NotificationPreference> = state
+        .store
+        .notifications()
+        .preferences(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(preference)
+        .collect();
 
     // SuperAdmins are exempt from company-level notification controls
     if auth.role == "SuperAdmin" {
@@ -409,7 +544,15 @@ pub async fn get_preferences_with_company_settings(
     }
 
     // Get all company settings (global + role-specific)
-    let all_settings:Vec<TenantNotificationSetting>=state.store.notifications().tenant_settings(auth.tenant_id).await.unwrap_or_default().into_iter().map(tenant_setting).collect();
+    let all_settings: Vec<TenantNotificationSetting> = state
+        .store
+        .notifications()
+        .tenant_settings(auth.tenant_id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(tenant_setting)
+        .collect();
 
     // Get role-specific settings first, then fall back to global
     let event_types = vec![

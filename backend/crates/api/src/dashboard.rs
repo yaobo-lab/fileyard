@@ -32,44 +32,15 @@ pub async fn get_dashboard_stats(
 
     // Get tenant storage distribution (for SuperAdmin, show all tenants; otherwise show current tenant)
     // Calculate actual storage from files_metadata instead of using stale tenants.storage_used_bytes
-    let storage_distribution = if auth.role == "SuperAdmin" {
-        sqlx::query_as::<_, (uuid::Uuid, String, i64, Option<i64>)>(
-            r#"
-            SELECT t.id, t.name, 
-                COALESCE((SELECT SUM(size_bytes) FROM files_metadata 
-                    WHERE tenant_id = t.id AND is_deleted = false AND is_directory = false), 0)::bigint as storage_used,
-                t.storage_quota_bytes 
-            FROM tenants t
-            WHERE t.status = 'active'
-            ORDER BY storage_used DESC
-            LIMIT 10
-            "#
-        )
-        .fetch_all(&state.pool)
+    let storage_distribution = state
+        .store
+        .dashboard()
+        .storage_distribution(auth.tenant_id, auth.role == "SuperAdmin")
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch storage distribution: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    } else {
-        sqlx::query_as::<_, (uuid::Uuid, String, i64, Option<i64>)>(
-            r#"
-            SELECT t.id, t.name, 
-                COALESCE((SELECT SUM(size_bytes) FROM files_metadata 
-                    WHERE tenant_id = t.id AND is_deleted = false AND is_directory = false), 0)::bigint as storage_used,
-                t.storage_quota_bytes 
-            FROM tenants t
-            WHERE t.id = $1
-            "#
-        )
-        .bind(auth.tenant_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch storage distribution: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    };
+        })?;
 
     // Calculate total storage for percentage calculation
     let total_storage: i64 = storage_distribution
@@ -105,26 +76,15 @@ pub async fn get_dashboard_stats(
         .collect();
 
     // Get active file requests count and summaries
-    let file_requests = sqlx::query_as::<_, (uuid::Uuid, String, i64, chrono::DateTime<chrono::Utc>)>(
-        r#"
-        SELECT fr.id, fr.name, 
-            COALESCE((SELECT COUNT(*) FROM file_request_uploads WHERE file_request_id = fr.id), 0) as upload_count,
-            fr.expires_at
-        FROM file_requests fr
-        WHERE fr.tenant_id = $1 
-            AND fr.status = 'active' 
-            AND fr.expires_at > NOW()
-        ORDER BY fr.expires_at ASC
-        LIMIT 5
-        "#
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch file requests: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let file_requests = state
+        .store
+        .dashboard()
+        .active_requests(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch file requests: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let file_request_data: Vec<Value> = file_requests
         .iter()
@@ -152,94 +112,65 @@ pub async fn get_dashboard_stats(
         .collect();
 
     // Get total active file requests count
-    let total_active_requests: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) 
-        FROM file_requests 
-        WHERE tenant_id = $1 AND status = 'active' AND expires_at > NOW()
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to count file requests: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let total_active_requests = state
+        .store
+        .dashboard()
+        .active_request_count(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to count file requests: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Get total files count
-    let total_files: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) 
-        FROM files_metadata 
-        WHERE tenant_id = $1 AND is_deleted = false
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let total_files = state
+        .store
+        .dashboard()
+        .file_count(auth.tenant_id)
+        .await
+        .unwrap_or(0);
 
     // Get user count for current tenant
-    let user_count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) 
-        FROM users 
-        WHERE tenant_id = $1 AND status = 'active'
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let user_count = state
+        .store
+        .dashboard()
+        .user_count(auth.tenant_id)
+        .await
+        .unwrap_or(0);
 
     // Get company count (for SuperAdmin)
-    let company_count: (i64,) = if auth.role == "SuperAdmin" {
-        sqlx::query_as(r#"SELECT COUNT(*) FROM tenants WHERE status = 'active'"#)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,))
+    let company_count = if auth.role == "SuperAdmin" {
+        state.store.dashboard().company_count().await.unwrap_or(0)
     } else {
-        (1,) // Just their own tenant
+        1
     };
 
     // Get total storage for current tenant (calculated from actual files)
-    let tenant_storage: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COALESCE(SUM(size_bytes), 0)::bigint
-        FROM files_metadata 
-        WHERE tenant_id = $1 
-        AND is_deleted = false 
-        AND is_directory = false
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let tenant_storage = state
+        .store
+        .dashboard()
+        .tenant_storage(auth.tenant_id)
+        .await
+        .unwrap_or(0);
 
     // Get storage quota for current tenant
-    let tenant_quota: (Option<i64>,) =
-        sqlx::query_as("SELECT storage_quota_bytes FROM tenants WHERE id = $1")
-            .bind(auth.tenant_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((None,));
+    let tenant_quota = state
+        .store
+        .dashboard()
+        .tenant_quota(auth.tenant_id)
+        .await
+        .unwrap_or(None);
 
     let response = json!({
         "storage_distribution": storage_data,
         "total_storage_bytes": total_storage,
         "total_storage_formatted": format_bytes(total_storage),
         "file_requests": file_request_data,
-        "total_active_requests": total_active_requests.0,
+        "total_active_requests": total_active_requests,
         "stats": {
-            "companies": company_count.0,
-            "users": user_count.0,
-            "files": total_files.0,
-            "storage_used_bytes": tenant_storage.0,
-            "storage_used_formatted": format_bytes(tenant_storage.0),
-            "storage_quota_bytes": tenant_quota.0,
-            "storage_quota_formatted": tenant_quota.0.map(format_bytes)
+            "companies": company_count, "users": user_count, "files": total_files,
+            "storage_used_bytes": tenant_storage, "storage_used_formatted": format_bytes(tenant_storage),
+            "storage_quota_bytes": tenant_quota, "storage_quota_formatted": tenant_quota.map(format_bytes)
         }
     });
 
@@ -266,40 +197,23 @@ pub async fn get_file_types(
     // SECURITY: Dashboard is Admin/SuperAdmin only
     require_admin(&auth)?;
     // Get file count grouped by content type for the current tenant
-    let file_types = sqlx::query_as::<_, (String, i64)>(
-        r#"
-        SELECT 
-            COALESCE(content_type, 'application/octet-stream') as content_type,
-            COUNT(*) as count
-        FROM files_metadata 
-        WHERE tenant_id = $1 
-            AND is_deleted = false 
-            AND is_directory = false
-        GROUP BY content_type
-        ORDER BY count DESC
-        LIMIT 10
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch file types: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let file_types = state
+        .store
+        .dashboard()
+        .file_types(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch file types: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Get total file count
-    let total: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) 
-        FROM files_metadata 
-        WHERE tenant_id = $1 AND is_deleted = false AND is_directory = false
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or((0,));
+    let total = state
+        .store
+        .dashboard()
+        .non_directory_file_count(auth.tenant_id)
+        .await
+        .unwrap_or(0);
 
     // Map content types to friendly labels
     let file_type_data: Vec<Value> = file_types
@@ -316,7 +230,7 @@ pub async fn get_file_types(
 
     Ok(Json(json!({
         "file_types": file_type_data,
-        "total": total.0
+        "total": total
     })))
 }
 
