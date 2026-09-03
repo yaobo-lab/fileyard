@@ -8,13 +8,12 @@
 use axum::http::{HeaderMap, StatusCode};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
 use clovalink_auth::generate_token_with_fingerprint;
-use clovalink_core::models::{Tenant, User};
 use clovalink_core::security_service;
+use clovalink_entity::entities::{tenants::Model as Tenant, users::Model as User};
 
 // ==================== Types ====================
 
@@ -80,7 +79,7 @@ pub struct SsoProvisionConfig {
 /// Evaluate SSO attribute mappings for a provider.
 /// Returns the first matching role/department mapping (by priority DESC), or None.
 pub async fn apply_attribute_mapping(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     protocol: &str,
     provider_id: Uuid,
     attributes: &HashMap<String, Vec<String>>,
@@ -89,27 +88,7 @@ pub async fn apply_attribute_mapping(
         return None;
     }
 
-    #[derive(sqlx::FromRow)]
-    struct MappingRow {
-        attribute_name: String,
-        attribute_value: String,
-        match_type: String,
-        target_role: String,
-        target_custom_role_id: Option<Uuid>,
-        target_department_id: Option<Uuid>,
-    }
-
-    let mappings: Vec<MappingRow> = sqlx::query_as(
-        r#"
-        SELECT attribute_name, attribute_value, match_type, target_role, target_custom_role_id, target_department_id
-        FROM sso_attribute_mappings
-        WHERE protocol = $1 AND provider_id = $2 AND enabled = true
-        ORDER BY priority DESC, created_at ASC
-        "#,
-    )
-    .bind(protocol)
-    .bind(provider_id)
-    .fetch_all(pool)
+    let mappings = store.sso().enabled_mappings(protocol, provider_id)
     .await
     .unwrap_or_default();
 
@@ -150,7 +129,7 @@ pub async fn apply_attribute_mapping(
 /// This is protocol-agnostic — the caller (OIDC or SAML handler) provides
 /// the identity params and this function handles the rest.
 pub async fn resolve_sso_user(
-    pool: &PgPool,
+    store: &clovalink_entity::DataStore,
     identity: &SsoIdentityParams,
     config: &SsoProvisionConfig,
     role_override: Option<&SsoRoleMapping>,
@@ -163,39 +142,11 @@ pub async fn resolve_sso_user(
     };
 
     // Step 1: Look up by subject in the appropriate identity table
-    let existing_user_id = match identity.protocol.as_str() {
-        "oidc" => {
-            let row: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT user_id FROM user_oidc_identities WHERE provider_id = $1 AND oidc_subject = $2",
-            )
-            .bind(identity.provider_id)
-            .bind(&identity.subject)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
-            row.map(|r| r.0)
-        }
-        "saml" => {
-            let row: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT user_id FROM user_saml_identities WHERE provider_id = $1 AND saml_name_id = $2",
-            )
-            .bind(identity.provider_id)
-            .bind(&identity.subject)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
-            row.map(|r| r.0)
-        }
-        _ => None,
-    };
+    let existing_user_id = store.sso().identity_user_id(&identity.protocol, identity.provider_id, &identity.subject).await.map_err(db_err)?;
 
     if let Some(user_id) = existing_user_id {
         // Known identity — load user
-        let user =
-            sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND status = 'active'")
-                .bind(user_id)
-                .fetch_optional(pool)
-                .await
+        let user = store.sso().active_user(user_id).await
                 .map_err(db_err)?
                 .ok_or_else(|| (StatusCode::FORBIDDEN, "Account is deactivated".to_string()))?;
 
@@ -208,12 +159,7 @@ pub async fn resolve_sso_user(
         _ => return Ok(SsoUserResolution::NoEmail),
     };
 
-    let email_match: Option<User> = sqlx::query_as(
-        "SELECT * FROM users WHERE email = $1 AND tenant_id = $2 AND status = 'active'",
-    )
-    .bind(email)
-    .bind(identity.tenant_id)
-    .fetch_optional(pool)
+    let email_match = store.sso().active_user_by_email(identity.tenant_id, email)
     .await
     .map_err(db_err)?;
 
@@ -227,16 +173,11 @@ pub async fn resolve_sso_user(
             sso_subject = %identity.subject,
             "SSO identity auto-linked by email match"
         );
-        link_sso_identity(pool, identity, user.id).await;
+        link_sso_identity(store, identity, user.id).await;
 
         // Update identity_provider to hybrid if currently local
         if user.identity_provider == "local" {
-            let _ = sqlx::query(
-                "UPDATE users SET identity_provider = 'hybrid', updated_at = NOW() WHERE id = $1",
-            )
-            .bind(user.id)
-            .execute(pool)
-            .await;
+            let _ = store.sso().set_hybrid(user.id).await;
         }
 
         return Ok(SsoUserResolution::ExistingUser(user));
@@ -261,21 +202,7 @@ pub async fn resolve_sso_user(
         .and_then(|m| m.department_id)
         .or(config.default_department_id);
 
-    let new_user: User = sqlx::query_as(
-        r#"
-        INSERT INTO users (tenant_id, email, name, role, custom_role_id, identity_provider, department_id, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-        RETURNING *
-        "#,
-    )
-    .bind(identity.tenant_id)
-    .bind(email)
-    .bind(&user_name)
-    .bind(&base_role)
-    .bind(custom_role_id)
-    .bind(identity_provider)
-    .bind(department_id)
-    .fetch_one(pool)
+    let new_user = store.sso().create_user(identity.tenant_id,email,&user_name,&base_role,custom_role_id,identity_provider,department_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to auto-provision user: {:?}", e);
@@ -283,7 +210,7 @@ pub async fn resolve_sso_user(
     })?;
 
     // Link identity
-    link_sso_identity(pool, &identity, new_user.id).await;
+    link_sso_identity(store, &identity, new_user.id).await;
 
     tracing::info!(
         user_id = %new_user.id,
@@ -298,49 +225,8 @@ pub async fn resolve_sso_user(
 }
 
 /// Create an SSO identity link record in the appropriate table.
-async fn link_sso_identity(pool: &PgPool, identity: &SsoIdentityParams, user_id: Uuid) {
-    match identity.protocol.as_str() {
-        "oidc" => {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO user_oidc_identities (user_id, provider_id, oidc_subject, oidc_issuer, oidc_email, oidc_name)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (provider_id, oidc_subject) DO UPDATE SET
-                    oidc_email = EXCLUDED.oidc_email,
-                    oidc_name = EXCLUDED.oidc_name,
-                    updated_at = NOW()
-                "#,
-            )
-            .bind(user_id)
-            .bind(identity.provider_id)
-            .bind(&identity.subject)
-            .bind(&identity.issuer)
-            .bind(&identity.email)
-            .bind(&identity.name)
-            .execute(pool)
-            .await;
-        }
-        "saml" => {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO user_saml_identities (user_id, provider_id, saml_name_id, saml_email, saml_name)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (provider_id, saml_name_id) DO UPDATE SET
-                    saml_email = EXCLUDED.saml_email,
-                    saml_name = EXCLUDED.saml_name,
-                    updated_at = NOW()
-                "#,
-            )
-            .bind(user_id)
-            .bind(identity.provider_id)
-            .bind(&identity.subject)
-            .bind(&identity.email)
-            .bind(&identity.name)
-            .execute(pool)
-            .await;
-        }
-        _ => {}
-    }
+async fn link_sso_identity(store: &clovalink_entity::DataStore, identity: &SsoIdentityParams, user_id: Uuid) {
+    let _ = store.sso().link_identity(&identity.protocol,user_id,identity.provider_id,&identity.subject,&identity.issuer,identity.email.as_deref(),identity.name.as_deref()).await;
 }
 
 // ==================== Session Creation ====================
@@ -351,7 +237,6 @@ async fn link_sso_identity(pool: &PgPool, identity: &SsoIdentityParams, user_id:
 /// session record, IP tracking. Returns a token or pending_2fa redirect.
 pub async fn create_sso_session(
     store: &clovalink_entity::DataStore,
-    pool: &PgPool,
     user: &User,
     tenant: &Tenant,
     headers: &HeaderMap,
@@ -378,10 +263,7 @@ pub async fn create_sso_session(
     }
 
     // Update last active
-    let _ = sqlx::query("UPDATE users SET last_active_at = NOW() WHERE id = $1")
-        .bind(user.id)
-        .execute(pool)
-        .await;
+    let _ = store.sso().touch_user(user.id).await;
 
     // Generate session fingerprint
     let ip_address = headers
@@ -453,26 +335,7 @@ pub async fn create_sso_session(
         hex::encode(hasher.finalize())
     };
 
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO user_sessions (user_id, token_hash, device_info, ip_address, fingerprint_hash, expires_at)
-        VALUES ($1, $2, $3, $4::inet, $5, NOW() + INTERVAL '7 days')
-        ON CONFLICT (user_id, fingerprint_hash) WHERE is_revoked = false AND fingerprint_hash IS NOT NULL
-        DO UPDATE SET
-            token_hash = EXCLUDED.token_hash,
-            device_info = EXCLUDED.device_info,
-            ip_address = EXCLUDED.ip_address,
-            last_active_at = NOW(),
-            expires_at = EXCLUDED.expires_at
-        "#,
-    )
-    .bind(user.id)
-    .bind(&token_hash)
-    .bind(&device_info)
-    .bind(&ip_address)
-    .bind(&fingerprint_hash)
-    .execute(pool)
-    .await;
+    let _ = store.sso().upsert_session(user.id,&token_hash,device_info.as_deref(),ip_address.as_deref(),&fingerprint_hash).await;
 
     // Track login IP for security
     let _ = security_service::check_and_record_login_ip(

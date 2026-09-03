@@ -26,7 +26,7 @@ use crate::sso_common::{
 };
 use crate::AppState;
 use clovalink_auth::{require_super_admin, AuthUser};
-use clovalink_core::models::{Tenant, User};
+use clovalink_core::models::User;
 
 // ==================== Models ====================
 
@@ -496,7 +496,7 @@ pub async fn saml_acs(
 
     // Step 11: Apply attribute mappings
     let role_override = sso_common::apply_attribute_mapping(
-        &state.pool,
+        &state.store,
         "saml",
         provider_id,
         &assertion.attributes,
@@ -598,7 +598,7 @@ pub async fn saml_acs(
     };
 
     let user = match sso_common::resolve_sso_user(
-        &state.pool,
+        &state.store,
         &identity,
         &provision_config,
         role_override.as_ref(),
@@ -638,21 +638,18 @@ pub async fn saml_acs(
     .await;
 
     // Load tenant
-    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_one(&state.pool)
+    let tenant = state.store.sso().tenant(tenant_id)
         .await
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Tenant not found".to_string(),
             )
-        })?;
+        })?.ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Tenant not found".to_string()))?;
 
     // Create session via shared logic
     match sso_common::create_sso_session(
         &state.store,
-        &state.pool,
         &user,
         &tenant,
         &headers,

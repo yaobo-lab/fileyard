@@ -37,7 +37,7 @@ pub async fn readiness(State(state): State<Arc<AppState>>) -> Result<Json<Value>
     let mut all_healthy = true;
 
     // Check database connection
-    let db_healthy = match sqlx::query("SELECT 1").execute(&state.pool).await {
+    let db_healthy = match state.store.system().ping().await {
         Ok(_) => true,
         Err(e) => {
             tracing::error!("Database health check failed: {:?}", e);
@@ -171,7 +171,7 @@ pub async fn detailed_health(
 
     // Database check with latency
     let db_start = Instant::now();
-    let db_result = sqlx::query("SELECT 1").execute(&state.pool).await;
+    let db_result = state.store.system().ping().await;
     let db_latency = db_start.elapsed().as_millis() as u64;
 
     let db_connected = db_result.is_ok();
@@ -180,9 +180,10 @@ pub async fn detailed_health(
     }
 
     // Get pool statistics
-    let pool_size = state.pool.size();
-    let pool_idle = state.pool.num_idle() as u32;
-    let pool_in_use = pool_size.saturating_sub(pool_idle);
+    let pool_stats = state.store.system().pool_stats();
+    let pool_size = pool_stats.size;
+    let pool_idle = pool_stats.idle;
+    let pool_in_use = pool_stats.in_use;
 
     checks.push(HealthCheck {
         name: "database".to_string(),
@@ -433,21 +434,8 @@ pub async fn get_version_info(
     let current_version = CURRENT_VERSION.to_string();
 
     // Try to get github_repo from global settings
-    let github_repo: Option<String> =
-        sqlx::query_scalar("SELECT value::text FROM global_settings WHERE key = 'github_repo'")
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|v: String| {
-                // Remove quotes from JSON string
-                let trimmed = v.trim_matches('"');
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            });
+    let github_repo = state.store.global_settings().get("github_repo").await.ok().flatten()
+        .and_then(|setting| setting.value.as_str().filter(|v| !v.is_empty()).map(ToOwned::to_owned));
 
     // If no repo configured, just return current version
     let Some(repo) = github_repo else {
@@ -603,18 +591,7 @@ pub async fn sync_storage(
     let mut errors: Vec<String> = Vec::new();
 
     // Get all non-deleted, non-directory files from the database
-    let files: Vec<(uuid::Uuid, String, String)> = sqlx::query_as(
-        r#"
-        SELECT id, name, storage_path 
-        FROM files_metadata 
-        WHERE is_deleted = false 
-          AND is_directory = false 
-          AND storage_path IS NOT NULL 
-          AND storage_path != ''
-        ORDER BY created_at DESC
-        "#,
-    )
-    .fetch_all(&state.pool)
+    let files = state.store.system().active_storage_files()
     .await
     .map_err(|e| {
         tracing::error!("Failed to query files for sync: {:?}", e);
@@ -627,7 +604,10 @@ pub async fn sync_storage(
         "Starting storage sync"
     );
 
-    for (file_id, file_name, storage_path) in files {
+    for file in files {
+        let file_id = file.id;
+        let file_name = file.name;
+        let storage_path = file.storage_path;
         scanned += 1;
 
         // Check if file exists in storage
@@ -639,16 +619,7 @@ pub async fn sync_storage(
                 // File doesn't exist in storage - mark as deleted (orphaned)
                 orphaned += 1;
 
-                match sqlx::query(
-                    r#"
-                    UPDATE files_metadata 
-                    SET is_deleted = true, deleted_at = NOW(), updated_at = NOW()
-                    WHERE id = $1
-                    "#,
-                )
-                .bind(file_id)
-                .execute(&state.pool)
-                .await
+                match state.store.system().mark_file_deleted(file_id).await
                 {
                     Ok(_) => {
                         cleaned += 1;
@@ -673,23 +644,13 @@ pub async fn sync_storage(
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Audit log
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'storage_sync', 'system', NULL, $3, $4::inet)
-        "#
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
+    let _ = state.store.system().audit(auth.tenant_id, auth.user_id, "storage_sync", "system", json!({
         "scanned": scanned,
         "orphaned": orphaned,
         "cleaned": cleaned,
         "errors_count": errors.len(),
         "duration_ms": duration_ms
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
+    }), auth.ip_address.as_deref())
     .await;
 
     tracing::info!(

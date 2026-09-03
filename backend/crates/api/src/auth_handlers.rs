@@ -59,10 +59,7 @@ pub async fn login(
                 .map(|s| s.to_string())
         });
 
-    let user =
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND status = 'active'")
-            .bind(&input.email)
-            .fetch_optional(&state.pool)
+    let user = state.store.auth().active_user_by_email(&input.email)
             .await
             .map_err(|e| {
                 tracing::error!("Database error: {:?}", e);
@@ -98,12 +95,7 @@ pub async fn login(
                 })));
             }
             // Suspension expired, clear it
-            let _ = sqlx::query(
-                "UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL WHERE id = $1"
-            )
-            .bind(user.id)
-            .execute(&state.pool)
-            .await;
+            let _ = state.store.auth().clear_suspension(user.id).await;
         } else {
             // Indefinitely suspended
             return Ok(Json(json!({
@@ -119,29 +111,8 @@ pub async fn login(
         || user.password_hash.is_none()
         || user.password_hash.as_deref() == Some("")
     {
-        let oidc_providers: Vec<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT id, name, slug FROM tenant_oidc_providers WHERE tenant_id = $1 AND enabled = true"
-        )
-        .bind(user.tenant_id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-
-        let saml_providers: Vec<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT id, name, slug FROM tenant_saml_providers WHERE tenant_id = $1 AND enabled = true"
-        )
-        .bind(user.tenant_id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-
-        let mut provider_list: Vec<serde_json::Value> = oidc_providers
-            .iter()
-            .map(|(id, name, slug)| json!({"id": id, "name": name, "slug": slug, "protocol": "oidc"}))
-            .collect();
-        for (id, name, slug) in &saml_providers {
-            provider_list.push(json!({"id": id, "name": name, "slug": slug, "protocol": "saml"}));
-        }
+        let providers = state.store.auth().enabled_sso_providers(user.tenant_id).await.unwrap_or_default();
+        let provider_list:Vec<Value>=providers.into_iter().map(|(id,name,slug,protocol)|json!({"id":id,"name":name,"slug":slug,"protocol":protocol})).collect();
 
         return Ok(Json(json!({
             "error": "sso_required",
@@ -174,11 +145,9 @@ pub async fn login(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(user.tenant_id)
-        .fetch_one(&state.pool)
+    let tenant:Tenant = state.store.auth().tenant(user.tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?.into();
 
     // Check if tenant/company is suspended
     let mut active_tenant = tenant.clone();
@@ -193,13 +162,7 @@ pub async fn login(
                 if *tenant_id == user.tenant_id {
                     continue; // Skip the suspended primary tenant
                 }
-                let other_tenant: Option<Tenant> =
-                    sqlx::query_as("SELECT * FROM tenants WHERE id = $1 AND status = 'active'")
-                        .bind(tenant_id)
-                        .fetch_optional(&state.pool)
-                        .await
-                        .ok()
-                        .flatten();
+                let other_tenant:Option<Tenant>=state.store.auth().active_tenant(*tenant_id).await.ok().flatten().map(Into::into);
 
                 if let Some(t) = other_tenant {
                     fallback_tenant = Some(t);
@@ -262,10 +225,7 @@ pub async fn login(
         }
     }
 
-    let _ = sqlx::query("UPDATE users SET last_active_at = NOW() WHERE id = $1")
-        .bind(user.id)
-        .execute(&state.pool)
-        .await;
+    let _ = state.store.auth().touch_user(user.id).await;
 
     // Extract device info from User-Agent header
     let device_info = headers
@@ -328,26 +288,7 @@ pub async fn login(
 
     // Upsert session: update existing session from same device or create new one
     // This prevents duplicate sessions from the same browser/device
-    let session_result = sqlx::query(
-        r#"
-        INSERT INTO user_sessions (user_id, token_hash, device_info, ip_address, fingerprint_hash, expires_at)
-        VALUES ($1, $2, $3, $4::inet, $5, NOW() + INTERVAL '7 days')
-        ON CONFLICT (user_id, fingerprint_hash) WHERE is_revoked = false AND fingerprint_hash IS NOT NULL
-        DO UPDATE SET 
-            token_hash = EXCLUDED.token_hash,
-            device_info = EXCLUDED.device_info,
-            ip_address = EXCLUDED.ip_address,
-            last_active_at = NOW(),
-            expires_at = EXCLUDED.expires_at
-        "#
-    )
-    .bind(user.id)
-    .bind(&token_hash)
-    .bind(&device_info)
-    .bind(&ip_address)
-    .bind(&fingerprint_hash)
-    .execute(&state.pool)
-    .await;
+    let session_result=state.store.sso().upsert_session(user.id,&token_hash,device_info.as_deref(),ip_address.as_deref(),&fingerprint_hash).await;
 
     if let Err(e) = session_result {
         tracing::warn!("Failed to create/update session record: {:?}", e);
@@ -366,7 +307,7 @@ pub async fn login(
     .await;
 
     // Get user's resolved permissions based on their role
-    let permissions = get_user_permissions(&state.pool, active_tenant.id, &user.role).await?;
+    let permissions = get_user_permissions(&state.store, active_tenant.id, &user.role).await?;
 
     Ok(Json(json!({
         "token": token,
@@ -399,31 +340,16 @@ pub async fn forgot_password(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ForgotPasswordInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user =
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND status = 'active'")
-            .bind(&input.email)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user = state.store.auth().active_user_by_email(&input.email).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Some(user) = user {
-        let tenant = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-            .bind(user.tenant_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let tenant:Tenant=state.store.auth().tenant(user.tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?.into();
 
         // Generate recovery token
         let token = Uuid::new_v4().to_string();
         let expires_at = Utc::now() + Duration::hours(1);
 
-        sqlx::query(
-            "UPDATE users SET recovery_token = $1, recovery_token_expires_at = $2 WHERE id = $3",
-        )
-        .bind(&token)
-        .bind(expires_at)
-        .bind(user.id)
-        .execute(&state.pool)
+        state.store.auth().set_recovery_token(user.id,&token,expires_at)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -444,18 +370,14 @@ pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ResetPasswordInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE recovery_token = $1 AND recovery_token_expires_at > NOW()",
-    )
-    .bind(&input.token)
-    .fetch_optional(&state.pool)
+    let user = state.store.auth().user_by_valid_recovery_token(&input.token)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::BAD_REQUEST)?;
 
     // Validate password against tenant's password policy
     crate::users::validate_password_against_policy(
-        &state.pool,
+        &state.store,
         user.tenant_id,
         &input.new_password,
     )
@@ -470,12 +392,7 @@ pub async fn reset_password(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .to_string();
 
-    sqlx::query(
-        "UPDATE users SET password_hash = $1, recovery_token = NULL, recovery_token_expires_at = NULL WHERE id = $2"
-    )
-    .bind(password_hash)
-    .bind(user.id)
-    .execute(&state.pool)
+    state.store.auth().reset_password(user.id,password_hash)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -502,29 +419,17 @@ pub async fn get_password_policy(
         Some(auth_user.tenant_id)
     } else if let Some(domain) = query.domain {
         // Look up tenant by domain
-        let tenant_id: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM tenants WHERE domain = $1 OR name = $1")
-                .bind(&domain)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        tenant_id.map(|(id,)| id)
+        state.store.auth().tenant_id_by_domain_or_name(&domain).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         None
     };
 
     // Fetch the password policy
     let policy: PasswordPolicy = if let Some(tid) = tenant_id {
-        let policy_result: Option<(Value,)> =
-            sqlx::query_as("SELECT password_policy FROM tenants WHERE id = $1")
-                .bind(tid)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let policy_result=state.store.auth().password_policy(tid).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)?;
 
         match policy_result {
-            Some((json_value,)) => serde_json::from_value(json_value).unwrap_or_default(),
+            Some(json_value) => serde_json::from_value(json_value).unwrap_or_default(),
             None => PasswordPolicy::default(),
         }
     } else {
@@ -595,10 +500,7 @@ pub async fn verify_2fa(
     }
 
     // Save secret to user, enabling 2FA
-    sqlx::query("UPDATE users SET totp_secret = $1 WHERE id = $2")
-        .bind(secret_str)
-        .bind(auth.user_id)
-        .execute(&state.pool)
+    state.store.auth().set_totp_secret(auth.user_id,secret_str)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -627,25 +529,12 @@ pub async fn register(
         })?
         .to_string();
 
-    let tenant = sqlx::query!("SELECT id FROM tenants WHERE status = 'active' LIMIT 1")
-        .fetch_one(&state.pool)
+    let tenant_id = state.store.auth().active_tenant_id()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Insert user
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        INSERT INTO users (tenant_id, email, name, password_hash, role)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING *
-        "#,
-    )
-    .bind(tenant.id)
-    .bind(&input.email)
-    .bind(&input.name)
-    .bind(&password_hash)
-    .bind(&input.role)
-    .fetch_one(&state.pool)
+    let user = state.store.auth().create_local_user(tenant_id,input.email,input.name,password_hash,input.role)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create user: {:?}", e);
@@ -698,7 +587,7 @@ struct UserInfo {
 /// Get resolved permissions for a user based on their role
 /// Returns only the permissions that are granted (either by base role or custom override)
 async fn get_user_permissions(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     role_name: &str,
 ) -> Result<Vec<String>, StatusCode> {
@@ -709,24 +598,14 @@ async fn get_user_permissions(
 
     // Look up the role in the roles table
     // First check for tenant-specific role, then global role
-    let role: Option<(Uuid, String)> = sqlx::query_as(
-        r#"
-        SELECT id, base_role FROM roles 
-        WHERE name = $1 AND (tenant_id = $2 OR tenant_id IS NULL)
-        ORDER BY tenant_id DESC NULLS LAST
-        LIMIT 1
-        "#,
-    )
-    .bind(role_name)
-    .bind(tenant_id)
-    .fetch_optional(pool)
+    let role = store.auth().role_permissions(tenant_id,role_name)
     .await
     .map_err(|e| {
         tracing::error!("Failed to fetch role: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let (role_id, base_role) = match role {
+    let (base_role, custom_perms) = match role {
         Some(r) => r,
         None => {
             // No role found - use role_name as base_role for backwards compatibility
@@ -743,17 +622,6 @@ async fn get_user_permissions(
 
     // Get base permissions for this role level
     let base_perms: Vec<&str> = get_base_permissions(&base_role);
-
-    // Get custom permission overrides for this role
-    let custom_perms: Vec<(String, bool)> =
-        sqlx::query_as("SELECT permission, granted FROM role_permissions WHERE role_id = $1")
-            .bind(role_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch role permissions: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
 
     // Build the list of granted permissions
     let mut granted_permissions: Vec<String> = vec![];
@@ -802,24 +670,18 @@ pub async fn me(
         }
     }
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let user:User = state.store.auth().user(auth.user_id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|_| StatusCode::NOT_FOUND)?.ok_or(StatusCode::NOT_FOUND)?.into();
 
     // Use tenant_id from JWT (auth.tenant_id) not from user record
     // This ensures we show the correct tenant after switching
-    let tenant: (Uuid, String, String, String, String, i32, Option<bool>, Option<bool>) = sqlx::query_as(
-        "SELECT id, name, domain, plan, compliance_mode, retention_policy_days, data_export_enabled, approval_workflow_enabled FROM tenants WHERE id = $1"
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
+    let tenant = state.store.auth().tenant(auth.tenant_id)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get user's resolved permissions based on their role
-    let permissions = get_user_permissions(&state.pool, auth.tenant_id, &user.role).await?;
+    let permissions = get_user_permissions(&state.store, auth.tenant_id, &user.role).await?;
 
     let response = MeResponse {
         user: UserInfo {
@@ -834,14 +696,14 @@ pub async fn me(
             permissions,
         },
         tenant: TenantInfo {
-            id: tenant.0,
-            name: tenant.1,
-            domain: tenant.2,
-            plan: tenant.3,
-            compliance_mode: tenant.4,
-            retention_policy_days: tenant.5,
-            data_export_enabled: tenant.6.unwrap_or(true),
-            approval_workflow_enabled: tenant.7.unwrap_or(false),
+            id: tenant.id,
+            name: tenant.name,
+            domain: tenant.domain,
+            plan: tenant.plan,
+            compliance_mode: tenant.compliance_mode,
+            retention_policy_days: tenant.retention_policy_days,
+            data_export_enabled: tenant.data_export_enabled.unwrap_or(true),
+            approval_workflow_enabled: tenant.approval_workflow_enabled.unwrap_or(false),
         },
     };
 

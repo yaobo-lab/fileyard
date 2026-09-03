@@ -185,35 +185,9 @@ pub async fn delete_quarantined_file(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Verify the quarantined file belongs to the tenant
-    let exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM quarantined_files WHERE id = $1 AND tenant_id = $2 AND permanently_deleted_at IS NULL"
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to verify quarantined file: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if exists.is_none() {
+    if !state.store.virus_scan().permanently_delete_quarantined(id,auth.tenant_id,auth.user_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
         return Err(StatusCode::NOT_FOUND);
     }
-
-    // Mark as permanently deleted
-    sqlx::query(
-        "UPDATE quarantined_files SET permanently_deleted_at = NOW(), deleted_by = $2 WHERE id = $1"
-    )
-    .bind(id)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to delete quarantined file: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
 
     Ok(Json(
         json!({ "message": "Quarantined file permanently deleted" }),
@@ -239,19 +213,7 @@ pub async fn rescan_file(
     }
 
     // Verify file exists and belongs to tenant
-    let file_exists: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false",
-    )
-    .bind(file_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to verify file: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    if file_exists.is_none() {
+    if !state.store.virus_scan().active_tenant_file_exists(file_id,auth.tenant_id).await.map_err(|_|StatusCode::INTERNAL_SERVER_ERROR)? {
         return Err(StatusCode::NOT_FOUND);
     }
 

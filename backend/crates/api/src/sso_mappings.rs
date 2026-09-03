@@ -9,8 +9,7 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -20,23 +19,7 @@ use clovalink_auth::{require_super_admin, AuthUser};
 
 // ==================== Models ====================
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct AttributeMapping {
-    pub id: Uuid,
-    pub tenant_id: Uuid,
-    pub protocol: String,
-    pub provider_id: Uuid,
-    pub attribute_name: String,
-    pub attribute_value: String,
-    pub match_type: String,
-    pub target_role: String,
-    pub target_custom_role_id: Option<Uuid>,
-    pub target_department_id: Option<Uuid>,
-    pub priority: i32,
-    pub enabled: bool,
-    pub created_at: chrono::DateTime<Utc>,
-    pub updated_at: chrono::DateTime<Utc>,
-}
+pub type AttributeMapping = clovalink_entity::entities::sso_attribute_mappings::Model;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateMappingInput {
@@ -77,17 +60,7 @@ pub async fn list_mappings(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mappings = sqlx::query_as::<_, AttributeMapping>(
-        r#"
-        SELECT * FROM sso_attribute_mappings
-        WHERE protocol = $1 AND provider_id = $2 AND tenant_id = $3
-        ORDER BY priority DESC, created_at ASC
-        "#,
-    )
-    .bind(&protocol)
-    .bind(provider_id)
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
+    let mappings = state.store.sso().mappings(auth.tenant_id, &protocol, provider_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to list mappings: {:?}", e);
@@ -135,30 +108,12 @@ pub async fn create_mapping(
         }
     }
 
-    let mapping = sqlx::query_as::<_, AttributeMapping>(
-        r#"
-        INSERT INTO sso_attribute_mappings (
-            tenant_id, protocol, provider_id,
-            attribute_name, attribute_value, match_type,
-            target_role, target_custom_role_id, target_department_id,
-            priority, enabled
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING *
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(&protocol)
-    .bind(provider_id)
-    .bind(&input.attribute_name)
-    .bind(&input.attribute_value)
-    .bind(&match_type)
-    .bind(&input.target_role)
-    .bind(input.target_custom_role_id)
-    .bind(input.target_department_id)
-    .bind(input.priority.unwrap_or(0))
-    .bind(input.enabled.unwrap_or(true))
-    .fetch_one(&state.pool)
+    let mapping = state.store.sso().create_mapping(clovalink_entity::repositories::NewSsoMapping {
+        tenant_id: auth.tenant_id, protocol, provider_id, attribute_name: input.attribute_name,
+        attribute_value: input.attribute_value, match_type, target_role: input.target_role,
+        target_custom_role_id: input.target_custom_role_id, target_department_id: input.target_department_id,
+        priority: input.priority.unwrap_or(0), enabled: input.enabled.unwrap_or(true),
+    })
     .await
     .map_err(|e| {
         tracing::error!("Failed to create mapping: {:?}", e);
@@ -189,11 +144,7 @@ pub async fn update_mapping(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Verify mapping belongs to this tenant
-    let existing: Option<AttributeMapping> =
-        sqlx::query_as("SELECT * FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2")
-            .bind(mapping_id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
+    let existing = state.store.sso().mapping(auth.tenant_id, mapping_id)
             .await
             .map_err(|_| {
                 (
@@ -209,7 +160,7 @@ pub async fn update_mapping(
         )
     })?;
 
-    let match_type = input.match_type.unwrap_or(existing.match_type);
+    let match_type = input.match_type.unwrap_or_else(|| existing.match_type.clone());
     if !["exact", "contains", "regex"].contains(&match_type.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -217,7 +168,7 @@ pub async fn update_mapping(
         ));
     }
 
-    let attr_value = input.attribute_value.unwrap_or(existing.attribute_value);
+    let attr_value = input.attribute_value.unwrap_or_else(|| existing.attribute_value.clone());
     if match_type == "regex" {
         if let Err(e) = regex::RegexBuilder::new(&attr_value)
             .size_limit(10_000)
@@ -230,36 +181,14 @@ pub async fn update_mapping(
         }
     }
 
-    let mapping = sqlx::query_as::<_, AttributeMapping>(
-        r#"
-        UPDATE sso_attribute_mappings SET
-            attribute_name = $2,
-            attribute_value = $3,
-            match_type = $4,
-            target_role = $5,
-            target_custom_role_id = $6,
-            target_department_id = $7,
-            priority = $8,
-            enabled = $9,
-            updated_at = NOW()
-        WHERE id = $1
-        RETURNING *
-        "#,
-    )
-    .bind(mapping_id)
-    .bind(input.attribute_name.unwrap_or(existing.attribute_name))
-    .bind(&attr_value)
-    .bind(&match_type)
-    .bind(input.target_role.unwrap_or(existing.target_role))
-    .bind(
-        input
-            .target_custom_role_id
-            .or(existing.target_custom_role_id),
-    )
-    .bind(input.target_department_id.or(existing.target_department_id))
-    .bind(input.priority.unwrap_or(existing.priority))
-    .bind(input.enabled.unwrap_or(existing.enabled))
-    .fetch_one(&state.pool)
+    let patch = clovalink_entity::repositories::SsoMappingPatch {
+        attribute_name: input.attribute_name.unwrap_or_else(|| existing.attribute_name.clone()), attribute_value: attr_value,
+        match_type, target_role: input.target_role.unwrap_or_else(|| existing.target_role.clone()),
+        target_custom_role_id: input.target_custom_role_id.or(existing.target_custom_role_id),
+        target_department_id: input.target_department_id.or(existing.target_department_id),
+        priority: input.priority.unwrap_or(existing.priority), enabled: input.enabled.unwrap_or(existing.enabled),
+    };
+    let mapping = state.store.sso().update_mapping(existing, patch)
     .await
     .map_err(|e| {
         tracing::error!("Failed to update mapping: {:?}", e);
@@ -281,10 +210,7 @@ pub async fn delete_mapping(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
-    let result = sqlx::query("DELETE FROM sso_attribute_mappings WHERE id = $1 AND tenant_id = $2")
-        .bind(mapping_id)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    let deleted = state.store.sso().delete_mapping(auth.tenant_id, mapping_id)
         .await
         .map_err(|_| {
             (
@@ -293,7 +219,7 @@ pub async fn delete_mapping(
             )
         })?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err((
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Mapping not found"})),

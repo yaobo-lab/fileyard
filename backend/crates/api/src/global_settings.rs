@@ -50,9 +50,7 @@ pub async fn get_global_settings(
         }
     }
 
-    let settings: Vec<(String, Value, Option<chrono::DateTime<chrono::Utc>>)> =
-        sqlx::query_as("SELECT key, value, updated_at FROM global_settings ORDER BY key")
-            .fetch_all(&state.pool)
+    let settings = state.store.global_settings().all()
             .await
             .map_err(|e| {
                 tracing::error!("Failed to fetch global settings: {:?}", e);
@@ -61,8 +59,8 @@ pub async fn get_global_settings(
 
     // Convert to a more usable format
     let mut result = serde_json::Map::new();
-    for (key, value, _) in settings {
-        result.insert(key, value);
+    for setting in settings {
+        result.insert(setting.key, setting.value);
     }
 
     let response = json!(result);
@@ -123,18 +121,7 @@ pub async fn update_global_settings(
             continue;
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO global_settings (key, value, updated_at, updated_by)
-            VALUES ($1, $2, NOW(), $3)
-            ON CONFLICT (key) DO UPDATE 
-            SET value = $2, updated_at = NOW(), updated_by = $3
-            "#,
-        )
-        .bind(&setting.key)
-        .bind(&setting.value)
-        .bind(auth.user_id)
-        .execute(&state.pool)
+        state.store.global_settings().upsert(&setting.key, setting.value.clone(), auth.user_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to update global setting '{}': {:?}", setting.key, e);
@@ -143,19 +130,9 @@ pub async fn update_global_settings(
     }
 
     // Create audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'update_global_settings', 'global_settings', $3, $4::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
+    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "update_global_settings", json!({
         "updated_keys": input.settings.iter().map(|s| &s.key).collect::<Vec<_>>(),
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
+    }), auth.ip_address.as_deref())
     .await
     .ok(); // Don't fail if audit log fails
 
@@ -232,17 +209,7 @@ pub async fn upload_logo(
             let logo_url = format!("/uploads/{}", filename);
 
             // Update global settings
-            sqlx::query(
-                r#"
-                INSERT INTO global_settings (key, value, updated_at, updated_by)
-                VALUES ('logo_url', $1, NOW(), $2)
-                ON CONFLICT (key) DO UPDATE 
-                SET value = $1, updated_at = NOW(), updated_by = $2
-                "#,
-            )
-            .bind(json!(logo_url))
-            .bind(auth.user_id)
-            .execute(&state.pool)
+            state.store.global_settings().upsert("logo_url", json!(logo_url), auth.user_id)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to save logo URL: {:?}", e);
@@ -250,17 +217,7 @@ pub async fn upload_logo(
             })?;
 
             // Create audit log
-            sqlx::query(
-                r#"
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-                VALUES ($1, $2, 'upload_logo', 'global_settings', $3, $4::inet)
-                "#
-            )
-            .bind(auth.tenant_id)
-            .bind(auth.user_id)
-            .bind(json!({ "logo_url": logo_url }))
-            .bind(&auth.ip_address)
-            .execute(&state.pool)
+            state.store.global_settings().audit(auth.tenant_id, auth.user_id, "upload_logo", json!({ "logo_url": logo_url }), auth.ip_address.as_deref())
             .await
             .ok();
 
@@ -287,8 +244,7 @@ pub async fn delete_logo(
     }
 
     // Remove logo_url from settings
-    sqlx::query("DELETE FROM global_settings WHERE key = 'logo_url'")
-        .execute(&state.pool)
+    state.store.global_settings().delete("logo_url")
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete logo setting: {:?}", e);
@@ -296,16 +252,7 @@ pub async fn delete_logo(
         })?;
 
     // Create audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'delete_logo', 'global_settings', '{}', $3::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
+    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "delete_logo", json!({}), auth.ip_address.as_deref())
     .await
     .ok();
 
@@ -382,17 +329,7 @@ pub async fn upload_favicon(
             let favicon_url = format!("/uploads/{}", filename);
 
             // Update global settings
-            sqlx::query(
-                r#"
-                INSERT INTO global_settings (key, value, updated_at, updated_by)
-                VALUES ('favicon_url', $1, NOW(), $2)
-                ON CONFLICT (key) DO UPDATE 
-                SET value = $1, updated_at = NOW(), updated_by = $2
-                "#,
-            )
-            .bind(json!(favicon_url))
-            .bind(auth.user_id)
-            .execute(&state.pool)
+            state.store.global_settings().upsert("favicon_url", json!(favicon_url), auth.user_id)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to save favicon URL: {:?}", e);
@@ -400,17 +337,7 @@ pub async fn upload_favicon(
             })?;
 
             // Create audit log
-            sqlx::query(
-                r#"
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-                VALUES ($1, $2, 'upload_favicon', 'global_settings', $3, $4::inet)
-                "#
-            )
-            .bind(auth.tenant_id)
-            .bind(auth.user_id)
-            .bind(json!({ "favicon_url": favicon_url }))
-            .bind(&auth.ip_address)
-            .execute(&state.pool)
+            state.store.global_settings().audit(auth.tenant_id, auth.user_id, "upload_favicon", json!({ "favicon_url": favicon_url }), auth.ip_address.as_deref())
             .await
             .ok();
 
@@ -437,8 +364,7 @@ pub async fn delete_favicon(
     }
 
     // Remove favicon_url from settings
-    sqlx::query("DELETE FROM global_settings WHERE key = 'favicon_url'")
-        .execute(&state.pool)
+    state.store.global_settings().delete("favicon_url")
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete favicon setting: {:?}", e);
@@ -446,16 +372,7 @@ pub async fn delete_favicon(
         })?;
 
     // Create audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'delete_favicon', 'global_settings', '{}', $3::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
+    state.store.global_settings().audit(auth.tenant_id, auth.user_id, "delete_favicon", json!({}), auth.ip_address.as_deref())
     .await
     .ok();
 

@@ -5,7 +5,7 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime,Utc};
 use clovalink_auth::AuthUser;
 use clovalink_core::models::{
     get_base_permissions, CreateRoleInput, UpdateRoleInput, UpdateRolePermissionsInput,
@@ -13,7 +13,6 @@ use clovalink_core::models::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -30,18 +29,6 @@ pub struct CreateRoleParams {
 }
 
 // ==================== Response Types ====================
-
-#[derive(Debug, Serialize, FromRow)]
-pub struct RoleResponse {
-    pub id: Uuid,
-    pub tenant_id: Option<Uuid>,
-    pub name: String,
-    pub description: Option<String>,
-    pub base_role: String,
-    pub is_system: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
 
 #[derive(Debug, Serialize)]
 pub struct RoleWithPermissionsResponse {
@@ -74,33 +61,7 @@ pub async fn list_roles(
 ) -> Result<Json<Value>, StatusCode> {
     let include_global = params.include_global.unwrap_or(true);
 
-    let roles = if include_global {
-        // Get global roles + tenant-specific roles
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE tenant_id IS NULL OR tenant_id = $1
-            ORDER BY is_system DESC, name ASC
-            "#,
-        )
-        .bind(auth.tenant_id)
-        .fetch_all(&state.pool)
-        .await
-    } else {
-        // Only tenant-specific roles
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE tenant_id = $1
-            ORDER BY name ASC
-            "#,
-        )
-        .bind(auth.tenant_id)
-        .fetch_all(&state.pool)
-        .await
-    };
+    let roles=state.store.roles().list(auth.tenant_id,include_global).await;
 
     match roles {
         Ok(roles) => Ok(Json(json!(roles))),
@@ -146,72 +107,18 @@ pub async fn create_role(
     };
 
     // Create role
-    let role_id = Uuid::new_v4();
-    let result = sqlx::query(
-        r#"
-        INSERT INTO roles (id, tenant_id, name, description, base_role, is_system)
-        VALUES ($1, $2, $3, $4, $5, false)
-        "#,
-    )
-    .bind(role_id)
-    .bind(tenant_id)
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.base_role)
-    .execute(&state.pool)
-    .await;
-
-    if let Err(e) = result {
+    let role = state.store.roles().create(tenant_id,input.name.clone(),input.description.clone(),input.base_role.clone(),input.permissions.clone().unwrap_or_default()).await;
+    if let Err(e) = &role {
         tracing::error!("Failed to create role: {:?}", e);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    // Add any additional permissions
-    if let Some(permissions) = &input.permissions {
-        for permission in permissions {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO role_permissions (id, role_id, permission, granted)
-                VALUES ($1, $2, $3, true)
-                ON CONFLICT (role_id, permission) DO NOTHING
-                "#,
-            )
-            .bind(Uuid::new_v4())
-            .bind(role_id)
-            .bind(permission)
-            .execute(&state.pool)
-            .await;
-        }
-    }
+    let role=role.unwrap(); let role_id=role.id;
 
     // Log audit event
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, $3, 'role_created', 'role', $4, $5, $6::inet)
-        "#
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(role_id)
-    .bind(json!({ "role_name": input.name }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_created","role",role_id,json!({"role_name":input.name}),auth.ip_address.as_deref()).await;
 
     // Fetch and return the created role
-    let role = sqlx::query_as::<_, RoleResponse>(
-        r#"
-        SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-        FROM roles WHERE id = $1
-        "#,
-    )
-    .bind(role_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     Ok(Json(json!(role)))
 }
 
@@ -223,16 +130,7 @@ pub async fn get_role(
     Path(role_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch the role
-    let role = sqlx::query_as::<_, RoleResponse>(
-        r#"
-        SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-        FROM roles
-        WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)
-        "#,
-    )
-    .bind(role_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
+    let role=state.store.roles().accessible(role_id,auth.tenant_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to fetch role: {:?}", e);
@@ -245,7 +143,7 @@ pub async fn get_role(
     };
 
     // Get permissions for this role
-    let permissions = get_role_permissions(&state.pool, role_id, &role.base_role).await?;
+    let permissions = get_role_permissions(&state.store, role_id, &role.base_role).await?;
 
     let response = RoleWithPermissionsResponse {
         id: role.id,
@@ -276,30 +174,7 @@ pub async fn update_role(
     }
 
     // Fetch role - SuperAdmin can access any role, others only their tenant's roles
-    let role = if auth.role == "SuperAdmin" {
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE id = $1
-            "#,
-        )
-        .bind(role_id)
-        .fetch_optional(&state.pool)
-        .await
-    } else {
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE id = $1 AND tenant_id = $2
-            "#,
-        )
-        .bind(role_id)
-        .bind(auth.tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-    }
+    let role = if auth.role == "SuperAdmin" {state.store.roles().by_id(role_id).await} else {state.store.roles().tenant_role(role_id,auth.tenant_id).await}
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // SuperAdmin can edit system roles, others cannot
@@ -310,66 +185,16 @@ pub async fn update_role(
         None => return Err(StatusCode::NOT_FOUND),
     };
 
-    // Build update query dynamically
-    let mut updates = vec![];
-    let mut param_count = 1;
-
-    if input.name.is_some() {
-        updates.push(format!("name = ${}", param_count));
-        param_count += 1;
-    }
-    if input.description.is_some() {
-        updates.push(format!("description = ${}", param_count));
-        param_count += 1;
-    }
-    if input.base_role.is_some() {
-        updates.push(format!("base_role = ${}", param_count));
-        param_count += 1;
-    }
-
-    if updates.is_empty() {
+    if input.name.is_none()&&input.description.is_none()&&input.base_role.is_none() {
         return Ok(Json(json!(role)));
     }
-
-    let query = format!(
-        "UPDATE roles SET {}, updated_at = NOW() WHERE id = ${} RETURNING id, tenant_id, name, description, base_role, is_system, created_at, updated_at",
-        updates.join(", "),
-        param_count
-    );
-
-    let mut query_builder = sqlx::query_as::<_, RoleResponse>(&query);
-
-    if let Some(ref name) = input.name {
-        query_builder = query_builder.bind(name);
-    }
-    if let Some(ref description) = input.description {
-        query_builder = query_builder.bind(description);
-    }
-    if let Some(ref base_role) = input.base_role {
-        query_builder = query_builder.bind(base_role);
-    }
-    query_builder = query_builder.bind(role_id);
-
-    let updated_role = query_builder.fetch_one(&state.pool).await.map_err(|e| {
+    let updated_role = state.store.roles().update(role_id,clovalink_entity::repositories::RolePatch{name:input.name,description:input.description,base_role:input.base_role}).await.map_err(|e| {
         tracing::error!("Failed to update role: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    })?.ok_or(StatusCode::NOT_FOUND)?;
 
     // Log audit event
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, $3, 'role_updated', 'role', $4, $5, $6::inet)
-        "#
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(role_id)
-    .bind(json!({ "role_name": updated_role.name }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_updated","role",role_id,json!({"role_name":updated_role.name}),auth.ip_address.as_deref()).await;
 
     Ok(Json(json!(updated_role)))
 }
@@ -387,16 +212,7 @@ pub async fn delete_role(
     }
 
     // Check if role exists and is deletable (not system role, belongs to tenant)
-    let role = sqlx::query_as::<_, RoleResponse>(
-        r#"
-        SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-        FROM roles
-        WHERE id = $1 AND tenant_id = $2
-        "#,
-    )
-    .bind(role_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
+    let role=state.store.roles().tenant_role(role_id,auth.tenant_id)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -407,10 +223,7 @@ pub async fn delete_role(
     }
 
     // Check if any users are using this role
-    let user_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE custom_role_id = $1")
-            .bind(role_id)
-            .fetch_one(&state.pool)
+    let user_count=state.store.roles().user_count(role_id)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -419,9 +232,7 @@ pub async fn delete_role(
     }
 
     // Delete the role (cascade will delete permissions)
-    sqlx::query("DELETE FROM roles WHERE id = $1")
-        .bind(role_id)
-        .execute(&state.pool)
+    state.store.roles().delete(role_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete role: {:?}", e);
@@ -429,20 +240,7 @@ pub async fn delete_role(
         })?;
 
     // Log audit event
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, $3, 'role_deleted', 'role', $4, $5, $6::inet)
-        "#
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(role_id)
-    .bind(json!({}))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_deleted","role",role_id,json!({}),auth.ip_address.as_deref()).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -455,16 +253,7 @@ pub async fn get_role_permissions_handler(
     Path(role_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch the role
-    let role = sqlx::query_as::<_, RoleResponse>(
-        r#"
-        SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-        FROM roles
-        WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)
-        "#,
-    )
-    .bind(role_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
+    let role=state.store.roles().accessible(role_id,auth.tenant_id)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -473,7 +262,7 @@ pub async fn get_role_permissions_handler(
         None => return Err(StatusCode::NOT_FOUND),
     };
 
-    let permissions = get_role_permissions(&state.pool, role_id, &role.base_role).await?;
+    let permissions = get_role_permissions(&state.store, role_id, &role.base_role).await?;
 
     Ok(Json(json!({
         "role_id": role_id,
@@ -497,30 +286,7 @@ pub async fn update_role_permissions(
     }
 
     // Fetch role - SuperAdmin can access any role, others only their tenant's roles
-    let role = if auth.role == "SuperAdmin" {
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE id = $1
-            "#,
-        )
-        .bind(role_id)
-        .fetch_optional(&state.pool)
-        .await
-    } else {
-        sqlx::query_as::<_, RoleResponse>(
-            r#"
-            SELECT id, tenant_id, name, description, base_role, is_system, created_at, updated_at
-            FROM roles
-            WHERE id = $1 AND tenant_id = $2
-            "#,
-        )
-        .bind(role_id)
-        .bind(auth.tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-    }
+    let role=if auth.role=="SuperAdmin"{state.store.roles().by_id(role_id).await}else{state.store.roles().tenant_role(role_id,auth.tenant_id).await}
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // SuperAdmin can edit system roles, others cannot
@@ -539,53 +305,19 @@ pub async fn update_role_permissions(
         }
 
         // Upsert permission
-        sqlx::query(
-            r#"
-            INSERT INTO role_permissions (id, role_id, permission, granted)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (role_id, permission) 
-            DO UPDATE SET granted = $4
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(role_id)
-        .bind(&perm.permission)
-        .bind(perm.granted)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update permission: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        state.store.roles().upsert_permissions(role_id,&[(perm.permission.clone(),perm.granted)]).await.map_err(|e|{tracing::error!("Failed to update permission: {:?}",e);StatusCode::INTERNAL_SERVER_ERROR})?;
     }
 
     // Log audit event
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, $3, 'role_permissions_updated', 'role', $4, $5, $6::inet)
-        "#
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(role_id)
-    .bind(json!({ "role_name": role.name }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _=state.store.system().audit_resource(auth.tenant_id,auth.user_id,"role_permissions_updated","role",role_id,json!({"role_name":role.name}),auth.ip_address.as_deref()).await;
 
     // Invalidate cache for all users with this role
     // This ensures they get fresh permissions on next /api/auth/me call
     if let Some(ref cache) = state.cache {
         // Find all users with this role and invalidate their cache
-        let users_with_role: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE role = $1")
-            .bind(&role.name)
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+        let users_with_role=state.store.roles().user_ids_by_role(&role.name).await.unwrap_or_default();
 
-        for (user_id,) in users_with_role {
+        for user_id in users_with_role {
             let cache_key = clovalink_core::cache::keys::user(user_id);
             if let Err(e) = cache.delete(&cache_key).await {
                 tracing::warn!("Failed to invalidate cache for user {}: {}", user_id, e);
@@ -596,7 +328,7 @@ pub async fn update_role_permissions(
     }
 
     // Return updated permissions
-    let permissions = get_role_permissions(&state.pool, role_id, &role.base_role).await?;
+    let permissions = get_role_permissions(&state.store, role_id, &role.base_role).await?;
 
     Ok(Json(json!({
         "role_id": role_id,
@@ -607,7 +339,7 @@ pub async fn update_role_permissions(
 // ==================== Helper Functions ====================
 
 async fn get_role_permissions(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     role_id: Uuid,
     base_role: &str,
 ) -> Result<Vec<PermissionResponse>, StatusCode> {
@@ -627,17 +359,7 @@ async fn get_role_permissions(
     let base_perms: Vec<&str> = get_base_permissions(base_role);
 
     // Get custom permissions for this specific role
-    #[derive(FromRow)]
-    struct DbPermission {
-        permission: String,
-        granted: bool,
-    }
-
-    let custom_perms = sqlx::query_as::<_, DbPermission>(
-        "SELECT permission, granted FROM role_permissions WHERE role_id = $1",
-    )
-    .bind(role_id)
-    .fetch_all(pool)
+    let custom_perms=store.roles().permissions(role_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to fetch role permissions: {:?}", e);
@@ -650,10 +372,10 @@ async fn get_role_permissions(
     // Add all permissions with their status
     for perm in ALL_PERMISSIONS {
         let is_base = base_perms.contains(perm);
-        let custom = custom_perms.iter().find(|p| p.permission == *perm);
+        let custom = custom_perms.iter().find(|p| p.0 == *perm);
 
         let (granted, inherited) = match custom {
-            Some(c) => (c.granted, false), // Custom override
+            Some(c) => (c.1, false), // Custom override
             None => (is_base, is_base),    // Use base permission
         };
 

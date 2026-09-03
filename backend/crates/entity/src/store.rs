@@ -1,9 +1,9 @@
 use sea_orm::DatabaseConnection;
 
 use crate::repositories::{
-    AiRepository, AuthRepository, DepartmentRepository, ExtensionPermissionRepository,
-    ExtensionRuntimeRepository, FileRepository, NotificationRepository,
-    ReplicationRepository, SecurityRepository, VirusScanRepository,
+    AiRepository, AuthRepository, CommentRepository, DepartmentRepository, ExtensionPermissionRepository,
+    ExtensionRuntimeRepository, FileRepository, GlobalSettingsRepository, NotificationRepository,
+    ReplicationRepository, RoleRepository, SecurityRepository, SsoRepository, SystemRepository, VirusScanRepository,
 };
 
 /// The only database capability exposed to application crates.
@@ -27,6 +27,7 @@ impl DataStore {
     pub fn auth(&self) -> AuthRepository<'_> {
         AuthRepository::new(&self.db)
     }
+    pub fn comments(&self) -> CommentRepository<'_> { CommentRepository::new(&self.db) }
 
     pub fn departments(&self) -> DepartmentRepository<'_> {
         DepartmentRepository::new(&self.db)
@@ -43,9 +44,14 @@ impl DataStore {
     pub fn replication(&self) -> ReplicationRepository<'_> {
         ReplicationRepository::new(&self.db)
     }
+    pub fn roles(&self)->RoleRepository<'_>{RoleRepository::new(&self.db)}
 
     pub fn files(&self) -> FileRepository<'_> {
         FileRepository::new(&self.db)
+    }
+
+    pub fn global_settings(&self) -> GlobalSettingsRepository<'_> {
+        GlobalSettingsRepository::new(&self.db)
     }
 
     pub fn notifications(&self) -> NotificationRepository<'_> {
@@ -54,6 +60,14 @@ impl DataStore {
 
     pub fn security(&self) -> SecurityRepository<'_> {
         SecurityRepository::new(&self.db)
+    }
+
+    pub fn sso(&self) -> SsoRepository<'_> {
+        SsoRepository::new(&self.db)
+    }
+
+    pub fn system(&self) -> SystemRepository<'_> {
+        SystemRepository::new(&self.db)
     }
 
     pub fn virus_scan(&self) -> VirusScanRepository<'_> {

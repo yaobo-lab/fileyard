@@ -293,7 +293,7 @@ pub async fn create_user(
             })?;
 
             // Validate password against tenant's password policy
-            validate_password_against_policy(&state.pool, tenant_id, password)
+            validate_password_against_policy(&state.store, tenant_id, password)
                 .await
                 .map_err(|(status, _json)| status)?;
 
@@ -817,17 +817,14 @@ pub async fn export_data(
 
 /// Validate password against tenant's password policy
 pub async fn validate_password_against_policy(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: uuid::Uuid,
     password: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     use crate::settings::PasswordPolicy;
 
     // Fetch tenant's password policy
-    let policy_result: Option<(Value,)> =
-        sqlx::query_as("SELECT password_policy FROM tenants WHERE id = $1")
-            .bind(tenant_id)
-            .fetch_optional(pool)
+    let policy_result = store.auth().password_policy(tenant_id)
             .await
             .map_err(|_| {
                 (
@@ -837,7 +834,7 @@ pub async fn validate_password_against_policy(
             })?;
 
     let policy: PasswordPolicy = match policy_result {
-        Some((json_value,)) => serde_json::from_value(json_value).unwrap_or_default(),
+        Some(json_value) => serde_json::from_value(json_value).unwrap_or_default(),
         None => PasswordPolicy::default(),
     };
 
@@ -1054,7 +1051,7 @@ pub async fn change_password(
     }
 
     // Validate new password against tenant's password policy
-    validate_password_against_policy(&state.pool, auth.tenant_id, &input.new_password)
+    validate_password_against_policy(&state.store, auth.tenant_id, &input.new_password)
         .await
         .map_err(|(status, _json)| status)?;
 
@@ -1510,7 +1507,7 @@ pub async fn admin_reset_password(
     }
 
     // Validate password against tenant's password policy
-    validate_password_against_policy(&state.pool, target_tenant_id, &input.new_password)
+    validate_password_against_policy(&state.store, target_tenant_id, &input.new_password)
         .await
         .map_err(|(status, _json)| status)?;
 

@@ -11,7 +11,6 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -21,7 +20,7 @@ use clovalink_auth::middleware::AuthUser;
 
 // ==================== Models ====================
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize)]
 #[allow(dead_code)]
 pub struct FileComment {
     pub id: Uuid,
@@ -97,31 +96,7 @@ pub async fn list_comments(
     }
 
     // Fetch all comments with user info
-    let comments: Vec<(
-        Uuid,
-        Uuid,
-        Uuid,
-        String,
-        Option<String>,
-        String,
-        Option<Uuid>,
-        bool,
-        DateTime<Utc>,
-        DateTime<Utc>,
-    )> = sqlx::query_as(
-        r#"
-        SELECT 
-            c.id, c.file_id, c.user_id, u.name as user_name, u.avatar_url,
-            c.content, c.parent_id, c.is_edited, c.created_at, c.updated_at
-        FROM file_comments c
-        JOIN users u ON c.user_id = u.id
-        WHERE c.file_id = $1 AND c.tenant_id = $2
-        ORDER BY c.created_at ASC
-        "#,
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_all(&state.pool)
+    let comments = state.store.comments().list(tenant_id,file_uuid)
     .await
     .map_err(|e| {
         tracing::error!("Failed to fetch comments: {:?}", e);
@@ -133,19 +108,8 @@ pub async fn list_comments(
     let mut replies_map: std::collections::HashMap<Uuid, Vec<CommentWithUser>> =
         std::collections::HashMap::new();
 
-    for (
-        id,
-        file_id,
-        user_id,
-        user_name,
-        user_avatar,
-        content,
-        parent_id,
-        is_edited,
-        created_at,
-        updated_at,
-    ) in comments
-    {
+    for row in comments {
+        let c=row.comment; let id=c.id;let file_id=c.file_id;let user_id=c.user_id;let user_name=row.user_name;let user_avatar=row.user_avatar;let content=c.content;let parent_id=c.parent_id;let is_edited=c.is_edited;let created_at=c.created_at.with_timezone(&Utc);let updated_at=c.updated_at.with_timezone(&Utc);
         let comment = CommentWithUser {
             id,
             file_id,
@@ -226,43 +190,25 @@ pub async fn create_comment(
 
     // Verify parent comment exists if provided
     if let Some(pid) = parent_id {
-        let parent_exists: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM file_comments WHERE id = $1 AND file_id = $2")
-                .bind(pid)
-                .bind(file_uuid)
-                .fetch_optional(&state.pool)
+        let parent_exists = state.store.comments().exists(pid,file_uuid)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        if parent_exists.is_none() {
+        if !parent_exists {
             return Err(StatusCode::BAD_REQUEST);
         }
     }
 
     // Get file info for notification
-    let file_info: Option<(String, Uuid)> =
-        sqlx::query_as("SELECT name, owner_id FROM files_metadata WHERE id = $1")
-            .bind(file_uuid)
-            .fetch_optional(&state.pool)
+    let file_info = state.store.comments().file_info(file_uuid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let (file_name, file_owner_id) = file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file_owner_id = file_owner_id.ok_or(StatusCode::NOT_FOUND)?;
 
     // Create the comment
-    let comment_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO file_comments (file_id, tenant_id, user_id, content, parent_id)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id
-        "#,
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .bind(auth.user_id)
-    .bind(content)
-    .bind(parent_id)
-    .fetch_one(&state.pool)
+    let comment_id = state.store.comments().create(tenant_id,file_uuid,auth.user_id,content,parent_id)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create comment: {:?}", e);
@@ -270,22 +216,11 @@ pub async fn create_comment(
     })?;
 
     // Audit log
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'comment_added', 'file', $3, $4, $5::inet)
-        "#
-    )
-    .bind(tenant_id)
-    .bind(auth.user_id)
-    .bind(file_uuid)
-    .bind(json!({
+    let _ = state.store.system().audit(tenant_id,auth.user_id,"comment_added","file",json!({
         "comment_id": comment_id,
         "file_name": file_name,
         "is_reply": parent_id.is_some()
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
+    }),auth.ip_address.as_deref())
     .await;
 
     // Send Discord notification to file owner (if not commenting on own file)
@@ -317,11 +252,7 @@ pub async fn create_comment(
     }
 
     // Get user info for response
-    let user_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or_else(|_| "Unknown".to_string());
+    let user_name = state.store.comments().user_name(auth.user_id).await.ok().flatten().unwrap_or_else(||"Unknown".into());
 
     Ok(Json(json!({
         "id": comment_id,
@@ -361,17 +292,11 @@ pub async fn update_comment(
     }
 
     // Check if comment exists and user owns it
-    let comment: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3",
-    )
-    .bind(comment_uuid)
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
+    let comment = state.store.comments().owner(tenant_id,file_uuid,comment_uuid)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (owner_id,) = comment.ok_or(StatusCode::NOT_FOUND)?;
+    let owner_id = comment.ok_or(StatusCode::NOT_FOUND)?;
 
     // Only comment owner can edit
     if owner_id != auth.user_id {
@@ -379,16 +304,7 @@ pub async fn update_comment(
     }
 
     // Update the comment
-    sqlx::query(
-        r#"
-        UPDATE file_comments
-        SET content = $1, is_edited = true, updated_at = NOW()
-        WHERE id = $2
-        "#,
-    )
-    .bind(content)
-    .bind(comment_uuid)
-    .execute(&state.pool)
+    state.store.comments().update(comment_uuid,content)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -417,17 +333,11 @@ pub async fn delete_comment(
     }
 
     // Check if comment exists and get owner
-    let comment: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM file_comments WHERE id = $1 AND file_id = $2 AND tenant_id = $3",
-    )
-    .bind(comment_uuid)
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
+    let comment = state.store.comments().owner(tenant_id,file_uuid,comment_uuid)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (owner_id,) = comment.ok_or(StatusCode::NOT_FOUND)?;
+    let owner_id = comment.ok_or(StatusCode::NOT_FOUND)?;
 
     // Only comment owner or admins can delete
     if owner_id != auth.user_id && auth.role != "Admin" && auth.role != "SuperAdmin" {
@@ -435,9 +345,7 @@ pub async fn delete_comment(
     }
 
     // Delete the comment (cascades to replies)
-    sqlx::query("DELETE FROM file_comments WHERE id = $1")
-        .bind(comment_uuid)
-        .execute(&state.pool)
+    state.store.comments().delete(comment_uuid)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -459,12 +367,7 @@ pub async fn get_comment_count(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM file_comments WHERE file_id = $1 AND tenant_id = $2",
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_one(&state.pool)
+    let count = state.store.comments().count(tenant_id,file_uuid)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

@@ -64,6 +64,21 @@ pub struct Tenant {
     pub updated_at: DateTime<Utc>,
 }
 
+impl From<clovalink_entity::entities::tenants::Model> for Tenant {
+    fn from(v: clovalink_entity::entities::tenants::Model) -> Self { Self {
+        id:v.id,name:v.name,domain:v.domain,plan:v.plan,status:v.status,compliance_mode:v.compliance_mode,
+        encryption_standard:v.encryption_standard,retention_policy_days:v.retention_policy_days,
+        storage_quota_bytes:v.storage_quota_bytes,storage_used_bytes:v.storage_used_bytes.unwrap_or_default(),
+        smtp_host:v.smtp_host,smtp_port:v.smtp_port,smtp_username:v.smtp_username,smtp_password:v.smtp_password,
+        smtp_from:v.smtp_from,smtp_secure:v.smtp_secure,enable_totp:v.enable_totp,enable_passkeys:v.enable_passkeys,
+        mfa_required:v.mfa_required,session_timeout_minutes:v.session_timeout_minutes,public_sharing_enabled:v.public_sharing_enabled,
+        data_export_enabled:v.data_export_enabled,max_upload_size_bytes:v.max_upload_size_bytes,auth_methods:Some(v.auth_methods),
+        approval_workflow_enabled:v.approval_workflow_enabled,backup_enabled:v.backup_enabled,auto_backup_enabled:v.auto_backup_enabled,
+        auto_backup_cron:v.auto_backup_cron,auto_backup_retention_count:v.auto_backup_retention_count,
+        created_at:v.created_at.with_timezone(&Utc),updated_at:v.updated_at.with_timezone(&Utc)
+    }}
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateTenantInput {
     pub name: String,
@@ -162,6 +177,18 @@ pub struct User {
     pub suspension_reason: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl From<clovalink_entity::entities::users::Model> for User {
+    fn from(v: clovalink_entity::entities::users::Model) -> Self { Self {
+        id:v.id,tenant_id:v.tenant_id,department_id:v.department_id,email:v.email,name:v.name,password_hash:v.password_hash,
+        role:v.role,identity_provider:v.identity_provider,status:v.status,avatar_url:v.avatar_url,
+        last_active_at:v.last_active_at.map(|d|d.with_timezone(&Utc)),dashboard_layout:v.dashboard_layout,widget_config:v.widget_config,
+        allowed_tenant_ids:v.allowed_tenant_ids,allowed_department_ids:v.allowed_department_ids,custom_role_id:v.custom_role_id,
+        totp_secret:v.totp_secret,recovery_token:v.recovery_token,recovery_token_expires_at:v.recovery_token_expires_at.map(|d|d.with_timezone(&Utc)),
+        suspended_at:v.suspended_at.map(|d|d.with_timezone(&Utc)),suspended_until:v.suspended_until.map(|d|d.with_timezone(&Utc)),
+        suspension_reason:v.suspension_reason,created_at:v.created_at.with_timezone(&Utc),updated_at:v.updated_at.with_timezone(&Utc)
+    }}
 }
 
 #[derive(Debug, Deserialize)]
