@@ -94,22 +94,20 @@ impl<'a> SearchRepository<'a> {
                 vec![user.into()],
             ))
             .await?;
-        let (dept, allowed): (Option<Uuid>, Vec<Uuid>) = info
-            .map(|r| {
-                Ok((
-                    r.try_get("", "department_id")?,
-                    r.try_get::<Option<Vec<Uuid>>>("", "allowed_department_ids")?
-                        .unwrap_or_default(),
-                ))
-            })
-            .transpose()?
-            .unwrap_or((None, vec![]));
+        let (dept, allowed): (Option<Uuid>, Vec<Uuid>) = match info {
+            Some(r) => (
+                r.try_get("", "department_id")?,
+                r.try_get::<Option<Vec<Uuid>>>("", "allowed_department_ids")?
+                    .unwrap_or_default(),
+            ),
+            None => (None, vec![]),
+        };
         let files = if super_admin {
             self.file_rows("SELECT id,name,parent_path,tenant_id,is_directory FROM files_metadata WHERE LOWER(name) LIKE $1 AND is_deleted=false ORDER BY name LIMIT $2",vec![pattern.into(),limit.into()]).await?
         } else if admin {
             self.file_rows("SELECT id,name,parent_path,tenant_id,is_directory FROM files_metadata WHERE tenant_id=$1 AND LOWER(name) LIKE $2 AND is_deleted=false ORDER BY name LIMIT $3",vec![t.into(),pattern.into(),limit.into()]).await?
         } else {
-            self.file_rows("SELECT f.id,f.name,f.parent_path,f.tenant_id,f.is_directory FROM files_metadata f WHERE f.tenant_id=$1 AND LOWER(f.name) LIKE $2 AND f.is_deleted=false AND (f.department_id IS NULL OR f.department_id=$3 OR f.department_id=ANY($4) OR f.owner_id=$5) AND (f.visibility!='private' OR f.owner_id=$5) AND (f.is_locked=false OR f.locked_by=$5 OR f.owner_id=$5 OR $6=true) ORDER BY f.name LIMIT $7",vec![t.into(),pattern.into(),dept.into(),allowed.into(),user.into(),manager.into(),limit.into()]).await?
+            self.file_rows("SELECT f.id,f.name,f.parent_path,f.tenant_id,f.is_directory FROM files_metadata f WHERE f.tenant_id=$1 AND LOWER(f.name) LIKE $2 AND f.is_deleted=false AND (f.department_id IS NULL OR f.department_id=$3 OR f.department_id=ANY($4) OR f.owner_id=$5) AND (f.visibility!='private' OR f.owner_id=$5) AND (f.is_locked=false OR f.locked_by=$5 OR f.owner_id=$5 OR $6=true) ORDER BY f.name LIMIT $7",vec![t.into(),pattern.into(),dept.into(),allowed.clone().into(),user.into(),manager.into(),limit.into()]).await?
         };
         let groups = if super_admin {
             self.group_rows("SELECT id,name,description,parent_path,tenant_id,department_id,visibility,owner_id,is_locked FROM file_groups WHERE LOWER(name) LIKE $1 ORDER BY name LIMIT $2",vec![pattern.into(),limit.into()]).await?
