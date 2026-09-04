@@ -248,7 +248,9 @@ export function Layout() {
         )}
 
         <Main>
-          <Outlet />
+          <React.Suspense fallback={null}>
+            <Outlet />
+          </React.Suspense>
         </Main>
       </SidebarInset>
     </SidebarProvider>

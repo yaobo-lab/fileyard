@@ -10,41 +10,43 @@ import { SsoCallback } from './pages/SsoCallback';
 import { PublicUpload } from './pages/PublicUpload';
 import { PublicDownload } from './pages/PublicDownload';
 
-// Lazy load heavy page components for code splitting
-const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
-const Companies = lazy(() => import('./pages/Companies').then(m => ({ default: m.Companies })));
-const CompanyDetails = lazy(() => import('./pages/CompanyDetails').then(m => ({ default: m.CompanyDetails })));
-const Users = lazy(() => import('./pages/Users').then(m => ({ default: m.Users })));
-const RolesPage = lazy(() => import('./pages/Roles').then(m => ({ default: m.RolesPage })));
-const AuditLogsPage = lazy(() => import('./pages/AuditLogs').then(m => ({ default: m.AuditLogsPage })));
-const Security = lazy(() => import('./pages/Security').then(m => ({ default: m.Security })));
-const FileBrowser = lazy(() => import('./pages/FileBrowser').then(m => ({ default: m.FileBrowser })));
-const FileRequests = lazy(() => import('./pages/FileRequests').then(m => ({ default: m.FileRequests })));
-const Approvals = lazy(() => import('./pages/Approvals').then(m => ({ default: m.Approvals })));
-const RecycleBin = lazy(() => import('./pages/RecycleBin'));
-const SharedWithMe = lazy(() => import('./pages/SharedWithMe').then(m => ({ default: m.SharedWithMe })));
-const Help = lazy(() => import('./pages/Help').then(m => ({ default: m.Help })));
-const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
-const Extensions = lazy(() => import('./pages/Extensions').then(m => ({ default: m.Extensions })));
-const ExtensionDetails = lazy(() => import('./pages/ExtensionDetails').then(m => ({ default: m.ExtensionDetails })));
-const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
-const TermsOfService = lazy(() => import('./pages/TermsOfService'));
-const Quickstart = lazy(() => import('./pages/Quickstart'));
-const Performance = lazy(() => import('./pages/Performance'));
+// Page components
+import { Dashboard } from './pages/Dashboard';
+import { Companies } from './pages/Companies';
+import { CompanyDetails } from './pages/CompanyDetails';
+import { Users } from './pages/Users';
+import { RolesPage } from './pages/Roles';
+import { AuditLogsPage } from './pages/AuditLogs';
+import { Security } from './pages/Security';
+import { FileBrowser } from './pages/FileBrowser';
+import { FileRequests } from './pages/FileRequests';
+import { Approvals } from './pages/Approvals';
+import RecycleBin from './pages/RecycleBin';
+import { SharedWithMe } from './pages/SharedWithMe';
+import { Help } from './pages/Help';
+import { Profile } from './pages/Profile';
+import { Extensions } from './pages/Extensions';
+import { ExtensionDetails } from './pages/ExtensionDetails';
+import { Notifications } from './pages/Notifications';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
+import Quickstart from './pages/Quickstart';
+import Performance from './pages/Performance';
 
-// Lazy load settings pages
-const SettingsLayout = lazy(() => import('./pages/settings').then(m => ({ default: m.SettingsLayout })));
-const GeneralSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.GeneralSettings })));
-const BrandingSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.BrandingSettings })));
-const PagesSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.PagesSettings })));
-const SystemSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.SystemSettings })));
-const AdminSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.AdminSettings })));
-const EmailTemplatesSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.EmailTemplatesSettings })));
-const KeyboardShortcutsSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.KeyboardShortcutsSettings })));
-const VirusScanSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.VirusScanSettings })));
-const SsoSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.SsoSettings })));
-const BackupRestoreSettings = lazy(() => import('./pages/settings').then(m => ({ default: m.BackupRestoreSettings })));
+// Settings pages
+import {
+    SettingsLayout,
+    GeneralSettings,
+    BrandingSettings,
+    PagesSettings,
+    SystemSettings,
+    AdminSettings,
+    EmailTemplatesSettings,
+    KeyboardShortcutsSettings,
+    VirusScanSettings,
+    SsoSettings,
+    BackupRestoreSettings,
+} from './pages/settings';
 
 import { AuthProvider } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
