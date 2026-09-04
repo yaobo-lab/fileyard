@@ -27,8 +27,6 @@ use crate::sso_common::{
 use crate::AppState;
 use clovalink_auth::{require_super_admin, AuthUser};
 use clovalink_core::models::User;
-use clovalink_entity::repositories::{NewSamlProvider, SamlProviderPatch};
-
 // ==================== Models ====================
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

@@ -5,7 +5,6 @@ import { AppSidebar } from '@/components/layout/AppSidebar'
 import { Header } from '@/components/layout/Header'
 import { Main } from '@/components/layout/Main'
 import { SearchDialog } from '@/components/layout/SearchDialog'
-import { Footer } from '@/components/Footer'
 import { ExtensionPanel } from '@/components/ExtensionPanel'
 import { useAuth, useAuthFetch } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
@@ -251,8 +250,6 @@ export function Layout() {
         <Main>
           <Outlet />
         </Main>
-
-        <Footer />
       </SidebarInset>
     </SidebarProvider>
   )

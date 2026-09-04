@@ -13,7 +13,7 @@ const startServer = async () => {
     const app = express();
 
     // 1. Proxy API requests to the Rust backend service
-    const backendUrl = process.env.BACKEND_URL || 'http://192.168.3.42:8001';
+    const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:3000';
     app.use('/api', createProxyMiddleware({
         target: backendUrl,
         changeOrigin: true,

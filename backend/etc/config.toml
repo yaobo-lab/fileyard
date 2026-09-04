@@ -8,7 +8,7 @@ request_timeout_secs = 300
 base_url = "http://localhost:3000"
 
 [database]
-url = "postgres://postgres:postgres@localhost:5432/clovalink"
+url = "postgres://root:123456@127.0.0.1:5432/filedb"
 max_connections = 50
 min_connections = 5
 acquire_timeout_secs = 3
@@ -22,7 +22,7 @@ encryption_key = ""
 s3_bucket = "clovalink-bucket"
 
 [redis]
-url = "redis://localhost:6379"
+url = "redis://:123456@127.0.0.1:6001"
 
 [extensions]
 webhook_timeout_ms = 5000
@@ -95,18 +95,28 @@ allowed_origins = [
 ]
 
 
-# 日志配置
+[log]
 # 日志级别(1:error,2:warn,3:info,4:debug,5:Trace)
-log.level = 4
-#大小切割(单位M)
-log.size_mb = 5
+level = 4
+# 大小切割(单位M)
+size_mb = 5
 # 保留天数
 # keep_day = 3
 # 打印风格 Default,Line,Module,Full
-log.style = "Line"
+style = "Line"
 # 日志目录
-log.dir="./logs"
+dir = "./logs"
 # 是否打印到控制台
-log.console = true
-#过滤的模块
-log.filters = ["h2","ureq","rumqttc","network","tracing","rustls","hyper","reqwest","downloader-http-rs"]
+console = true
+# 过滤的模块
+filters = [
+    "h2",
+    "ureq",
+    "rumqttc",
+    "network",
+    "tracing",
+    "rustls",
+    "hyper",
+    "reqwest",
+    "downloader-http-rs",
+]
