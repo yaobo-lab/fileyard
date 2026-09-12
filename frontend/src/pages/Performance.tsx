@@ -25,6 +25,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 import {
   AreaChart,
@@ -193,6 +194,7 @@ function formatNumber(num: number): string {
 }
 
 export default function Performance() {
+  const t = useTranslations('Performance');
   const authFetch = useAuthFetch();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -358,10 +360,10 @@ export default function Performance() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Activity className="w-7 h-7 text-primary-600" />
-            Performance Dashboard
+            {t('title')}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            System health and API usage monitoring
+            {t('description')}
           </p>
         </div>
         
@@ -408,7 +410,7 @@ export default function Performance() {
                 )} />
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Database</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('database')}</p>
                 <p className="font-semibold text-gray-900 dark:text-white">
                   {health?.database.connected ? 'Connected' : 'Disconnected'}
                 </p>
@@ -452,7 +454,7 @@ export default function Performance() {
                 )} />
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Redis Cache</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('redis')}</p>
                 <p className="font-semibold text-gray-900 dark:text-white">
                   {health?.redis.connected ? 'Connected' : 'Disconnected'}
                 </p>
@@ -482,7 +484,7 @@ export default function Performance() {
                 <HardDrive className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Storage</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('storage')}</p>
                 <p className="font-semibold text-gray-900 dark:text-white capitalize">
                   {health?.storage.connected ? 'Connected' : 'Disconnected'}
                 </p>
@@ -537,7 +539,7 @@ export default function Performance() {
               <Server className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Server Uptime</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('uptime')}</p>
               <p className="font-semibold text-gray-900 dark:text-white">
                 {health?.uptime_formatted || '—'}
               </p>
@@ -550,7 +552,7 @@ export default function Performance() {
             </div>
             {health?.memory.rss_mb && (
               <div className="flex justify-between mt-1">
-                <span>Memory:</span>
+                <span>{t('memoryUsage')}:</span>
                 <span className="font-medium">{health.memory.rss_mb.toFixed(1)} MB</span>
               </div>
             )}
@@ -575,7 +577,7 @@ export default function Performance() {
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Virus Scanning</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('virusScan')}</p>
                 <p className="font-semibold text-gray-900 dark:text-white">
                   {!virusScanMetrics?.enabled ? 'Disabled' :
                    virusScanMetrics?.clamd_connected ? 'Active' : 'Disconnected'}
@@ -624,7 +626,7 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <BarChart3 className="w-4 h-4" />
-            Total Requests
+            {t('totalRequests')}
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {formatNumber(summary?.total_requests || 0)}
@@ -647,7 +649,7 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <Clock className="w-4 h-4" />
-            Avg Response
+            {t('avgLatency')}
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {(summary?.avg_response_time_ms || 0).toFixed(0)}ms

@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
+import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface SecurityAlert {
     id: string;
@@ -104,6 +106,8 @@ const alertTypeConfig: Record<string, { icon: typeof Shield; label: string }> = 
 const ITEMS_PER_PAGE = 20;
 
 export function Security() {
+    const t = useTranslations('Security');
+    const { formatDateTime } = useGlobalSettings();
     const { user } = useAuth();
     const authFetch = useAuthFetch();
     const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
@@ -125,6 +129,30 @@ export function Security() {
 
     const isSuperAdmin = user?.role === 'SuperAdmin';
     const totalPages = Math.ceil(totalAlerts / ITEMS_PER_PAGE);
+
+    const getSeverityLabel = (severity: string) => {
+        switch (severity) {
+            case 'critical': return t('critical');
+            case 'high': return t('high');
+            case 'medium': return t('medium');
+            case 'low': return t('low');
+            default: return severity;
+        }
+    };
+
+    const getAlertTypeName = (type: string) => {
+        switch (type) {
+            case 'failed_login_spike': return t('alertFailedLogin');
+            case 'new_ip_login': return t('alertNewIp');
+            case 'permission_escalation': return t('alertPermissionEscalation');
+            case 'suspended_access_attempt': return t('alertSuspendedAccess');
+            case 'bulk_download': return t('alertBulkDownload');
+            case 'blocked_extension_attempt': return t('alertBlockedExtension');
+            case 'excessive_sharing': return t('alertExcessiveSharing');
+            case 'account_lockout': return t('alertAccountLockout');
+            default: return alertTypeConfig[type]?.label || type.replace(/_/g, ' ');
+        }
+    };
 
     const fetchAlerts = useCallback(async () => {
         try {
@@ -315,10 +343,10 @@ export function Security() {
                     <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600" />
                     <div>
                         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                            Security Alerts
+                            {t('title')}
                         </h1>
                         <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                            {isSuperAdmin ? 'Monitor security events across all companies' : 'Monitor security events for your company'}
+                            {t('description')}
                         </p>
                     </div>
                 </div>
@@ -328,7 +356,7 @@ export function Security() {
                     className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 self-start sm:self-auto"
                 >
                     <RefreshCw className={clsx('w-4 h-4', refreshing && 'animate-spin')} />
-                    <span className="hidden sm:inline">Refresh</span>
+                    <span className="hidden sm:inline">{t('refresh')}</span>
                 </button>
             </div>
 
@@ -337,7 +365,7 @@ export function Security() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                         <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
+                            <span className="text-sm text-gray-500 dark:text-gray-400">{t('totalAlerts')}</span>
                             <Shield className="w-5 h-5 text-gray-400" />
                         </div>
                         <div className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">
@@ -346,7 +374,7 @@ export function Security() {
                     </div>
                     <div className={clsx('rounded-xl p-4 border', severityConfig.critical.bg, severityConfig.critical.border)}>
                         <div className="flex items-center justify-between">
-                            <span className={clsx('text-sm', severityConfig.critical.color)}>Critical</span>
+                            <span className={clsx('text-sm', severityConfig.critical.color)}>{t('critical')}</span>
                             <AlertOctagon className={clsx('w-5 h-5', severityConfig.critical.color)} />
                         </div>
                         <div className={clsx('mt-2 text-2xl font-bold', severityConfig.critical.color)}>
@@ -355,7 +383,7 @@ export function Security() {
                     </div>
                     <div className={clsx('rounded-xl p-4 border', severityConfig.high.bg, severityConfig.high.border)}>
                         <div className="flex items-center justify-between">
-                            <span className={clsx('text-sm', severityConfig.high.color)}>High</span>
+                            <span className={clsx('text-sm', severityConfig.high.color)}>{t('high')}</span>
                             <AlertTriangle className={clsx('w-5 h-5', severityConfig.high.color)} />
                         </div>
                         <div className={clsx('mt-2 text-2xl font-bold', severityConfig.high.color)}>
@@ -364,7 +392,7 @@ export function Security() {
                     </div>
                     <div className={clsx('rounded-xl p-4 border', severityConfig.medium.bg, severityConfig.medium.border)}>
                         <div className="flex items-center justify-between">
-                            <span className={clsx('text-sm', severityConfig.medium.color)}>Medium</span>
+                            <span className={clsx('text-sm', severityConfig.medium.color)}>{t('medium')}</span>
                             <AlertCircle className={clsx('w-5 h-5', severityConfig.medium.color)} />
                         </div>
                         <div className={clsx('mt-2 text-2xl font-bold', severityConfig.medium.color)}>
@@ -373,7 +401,7 @@ export function Security() {
                     </div>
                     <div className={clsx('rounded-xl p-4 border', severityConfig.low.bg, severityConfig.low.border)}>
                         <div className="flex items-center justify-between">
-                            <span className={clsx('text-sm', severityConfig.low.color)}>Low</span>
+                            <span className={clsx('text-sm', severityConfig.low.color)}>{t('low')}</span>
                             <Info className={clsx('w-5 h-5', severityConfig.low.color)} />
                         </div>
                         <div className={clsx('mt-2 text-2xl font-bold', severityConfig.low.color)}>
@@ -387,7 +415,7 @@ export function Security() {
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-3">
                     <Filter className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filters</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('filters')}</span>
                 </div>
                 <div className="flex flex-wrap gap-3">
                     <select
@@ -395,20 +423,20 @@ export function Security() {
                         onChange={(e) => setFilterSeverity(e.target.value)}
                         className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     >
-                        <option value="">All Severities</option>
-                        <option value="critical">Critical</option>
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low">Low</option>
+                        <option value="">{t('filterSeverity')}</option>
+                        <option value="critical">{t('critical')}</option>
+                        <option value="high">{t('high')}</option>
+                        <option value="medium">{t('medium')}</option>
+                        <option value="low">{t('low')}</option>
                     </select>
                     <select
                         value={filterType}
                         onChange={(e) => setFilterType(e.target.value)}
                         className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     >
-                        <option value="">All Types</option>
-                        {Object.entries(alertTypeConfig).map(([type, config]) => (
-                            <option key={type} value={type}>{config.label}</option>
+                        <option value="">{t('filterType')}</option>
+                        {Object.entries(alertTypeConfig).map(([type]) => (
+                            <option key={type} value={type}>{getAlertTypeName(type)}</option>
                         ))}
                     </select>
                     <select
@@ -416,9 +444,9 @@ export function Security() {
                         onChange={(e) => setFilterResolved(e.target.value === '' ? null : e.target.value === 'true')}
                         className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     >
-                        <option value="">All Status</option>
-                        <option value="false">Unresolved</option>
-                        <option value="true">Resolved</option>
+                        <option value="">{t('colStatus')}</option>
+                        <option value="false">{t('unresolvedStatus')}</option>
+                        <option value="true">{t('resolved')}</option>
                     </select>
                     {(filterSeverity || filterType || filterResolved !== null) && (
                         <button
@@ -429,7 +457,7 @@ export function Security() {
                             }}
                             className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                         >
-                            Clear Filters
+                            {t('unresolved')}
                         </button>
                     )}
                 </div>
@@ -439,7 +467,7 @@ export function Security() {
             {selectedIds.size > 0 && (
                 <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-xl p-4 flex items-center justify-between">
                     <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
-                        {selectedIds.size} alert{selectedIds.size !== 1 ? 's' : ''} selected
+                        {t('resolveSelected').replace('{count}', String(selectedIds.size))}
                     </span>
                     <div className="flex items-center gap-2">
                         <button
@@ -448,7 +476,7 @@ export function Security() {
                             className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
                         >
                             <CheckCircle className="w-4 h-4" />
-                            Resolve Selected
+                            {t('markResolved')}
                         </button>
                         <button
                             onClick={() => handleBulkAction('dismiss')}
@@ -456,13 +484,13 @@ export function Security() {
                             className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
                         >
                             <Trash2 className="w-4 h-4" />
-                            Dismiss Selected
+                            {t('colActions')}
                         </button>
                         <button
                             onClick={() => setSelectedIds(new Set())}
                             className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                         >
-                            Clear Selection
+                            Deselect All
                         </button>
                     </div>
                 </div>
@@ -473,7 +501,7 @@ export function Security() {
                 {alerts.length === 0 ? (
                     <div className="p-8 text-center">
                         <Shield className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-                        <p className="text-gray-500 dark:text-gray-400">No security alerts found</p>
+                        <p className="text-gray-500 dark:text-gray-400">{t('noAlerts')}</p>
                     </div>
                 ) : (
                     <>
@@ -534,16 +562,16 @@ export function Security() {
                                                         'px-2 py-0.5 rounded text-xs font-medium',
                                                         sevConfig.bg, sevConfig.color
                                                     )}>
-                                                        {sevConfig.label}
+                                                        {getSeverityLabel(alert.severity)}
                                                     </span>
                                                     <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                                                         <TypeIcon className="w-3 h-3" />
-                                                        {typeInfo.label}
+                                                        {getAlertTypeName(alert.alert_type)}
                                                     </span>
                                                     {alert.resolved && (
                                                         <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                                                             <CheckCircle className="w-3 h-3" />
-                                                            Resolved
+                                                            {t('resolved')}
                                                         </span>
                                                     )}
                                                 </div>
@@ -556,7 +584,7 @@ export function Security() {
                                                 <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 dark:text-gray-500">
                                                     <span className="flex items-center gap-1">
                                                         <Clock className="w-3 h-3" />
-                                                        {formatDate(alert.created_at)}
+                                                        {formatDateTime(alert.created_at)}
                                                     </span>
                                                     {alert.user_email && (
                                                         <span className="flex items-center gap-1">

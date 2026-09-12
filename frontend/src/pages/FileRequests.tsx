@@ -19,6 +19,8 @@ import {
     TableRow,
 } from '@/components/ui/table';
 
+import { useTranslations } from '../context/I18nContext';
+
 interface FileRequest {
     id: string;
     name: string;
@@ -32,13 +34,9 @@ interface FileRequest {
     visibility?: 'department' | 'private';
 }
 
-const statusFilterOptions = [
-    { label: 'Active', value: 'active' },
-    { label: 'Expired', value: 'expired' },
-    { label: 'Revoked', value: 'revoked' },
-];
-
 export function FileRequests() {
+    const t = useTranslations('FileRequests');
+    const tCommon = useTranslations('Common');
     const [requests, setRequests] = useState<FileRequest[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -158,12 +156,25 @@ export function FileRequests() {
         req.destination.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const statusFilterOptions = [
+        { label: t('statusActive'), value: 'active' },
+        { label: t('statusExpired'), value: 'expired' },
+        { label: t('statusRevoked'), value: 'revoked' },
+    ];
+
+    const getStatusText = (status: string) => {
+        if (status === 'active') return t('statusActive');
+        if (status === 'expired') return t('statusExpired');
+        if (status === 'revoked') return t('statusRevoked');
+        return status;
+    };
+
     return (
         <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">File Requests</h1>
-                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 sm:mt-1">Manage active upload links and view submission history.</p>
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 sm:mt-1">{t('description')}</p>
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-3">
                     {/* View Mode Switcher */}
@@ -175,9 +186,9 @@ export function FileRequests() {
                             className="h-9 gap-1.5"
                         >
                             {fileViewMode === 'department' ? (
-                                <><Users className="w-4 h-4 text-primary" /><span className="hidden sm:inline">Department Requests</span></>
+                                <><Users className="w-4 h-4 text-primary" /><span className="hidden sm:inline">{t('departmentRequests')}</span></>
                             ) : (
-                                <><EyeOff className="w-4 h-4 text-purple-500" /><span className="hidden sm:inline">My Private Requests</span></>
+                                <><EyeOff className="w-4 h-4 text-purple-500" /><span className="hidden sm:inline">{t('privateRequests')}</span></>
                             )}
                             <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/60" />
                         </Button>
@@ -191,7 +202,7 @@ export function FileRequests() {
                                     )}
                                 >
                                     <Users className="w-4 h-4 mr-3 text-primary" />
-                                    Department Requests
+                                    {t('departmentRequests')}
                                     {fileViewMode === 'department' && <span className="ml-auto text-primary">✓</span>}
                                 </button>
                                 <button
@@ -202,7 +213,7 @@ export function FileRequests() {
                                     )}
                                 >
                                     <EyeOff className="w-4 h-4 mr-3 text-purple-500" />
-                                    My Private Requests
+                                    {t('privateRequests')}
                                     {fileViewMode === 'private' && <span className="ml-auto text-primary">✓</span>}
                                 </button>
                             </div>
@@ -214,7 +225,7 @@ export function FileRequests() {
                         className="h-9 gap-1.5"
                     >
                         <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">New Request</span>
+                        <span className="hidden sm:inline">{t('newRequest')}</span>
                     </Button>
                 </div>
             </div>
@@ -229,7 +240,7 @@ export function FileRequests() {
                         <Input
                             type="text"
                             className="pl-9 h-9 text-sm"
-                            placeholder="Search requests..."
+                            placeholder={t('searchPlaceholder')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -241,7 +252,7 @@ export function FileRequests() {
                         className="h-9 gap-1.5 shrink-0"
                     >
                         <Filter className="w-4 h-4 text-muted-foreground" />
-                        <span>Filters</span>
+                        <span>{t('filters')}</span>
                         {(filters.status || filters.dateFrom || filters.dateTo) && (
                             <span className="ml-1 w-2 h-2 bg-primary rounded-full"></span>
                         )}
@@ -251,9 +262,9 @@ export function FileRequests() {
                 {/* Table */}
                 <div className="overflow-x-auto">
                     {isLoading ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>
+                        <div className="p-8 text-center text-muted-foreground text-sm">{t('loading')}</div>
                     ) : filteredRequests.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">No file requests found</div>
+                        <div className="p-8 text-center text-muted-foreground text-sm">{t('noRequests')}</div>
                     ) : (
                         <>
                             {/* Mobile: Card view */}
@@ -286,7 +297,7 @@ export function FileRequests() {
                                                                 req.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                                             )}
                                                         >
-                                                            {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                                                            {getStatusText(req.status)}
                                                         </Badge>
                                                     </div>
                                                 </div>
@@ -306,7 +317,7 @@ export function FileRequests() {
                                                         size="icon"
                                                         onClick={() => handleDelete(req.id)}
                                                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                        title="Revoke Link"
+                                                        title={t('delete')}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -316,7 +327,7 @@ export function FileRequests() {
                                                         size="icon"
                                                         onClick={() => handlePermanentDelete(req.id)}
                                                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                        title="Permanently Delete"
+                                                        title={t('delete')}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -331,12 +342,12 @@ export function FileRequests() {
                             <Table className="hidden sm:table">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Request Name</TableHead>
-                                        <TableHead>Destination</TableHead>
-                                        <TableHead>Uploads</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Expires</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
+                                        <TableHead>{t('colName')}</TableHead>
+                                        <TableHead>{t('colDestination')}</TableHead>
+                                        <TableHead>{t('colUploads')}</TableHead>
+                                        <TableHead>{t('colStatus')}</TableHead>
+                                        <TableHead>{t('colExpires')}</TableHead>
+                                        <TableHead className="text-right">{t('colActions')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -355,9 +366,9 @@ export function FileRequests() {
                                                                 className="flex items-center hover:text-foreground transition-colors cursor-pointer"
                                                             >
                                                                 {copiedId === req.id ? (
-                                                                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center">Copied <Check className="w-3 h-3 ml-1" /></span>
+                                                                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center">{tCommon('copied')} <Check className="w-3 h-3 ml-1" /></span>
                                                                 ) : (
-                                                                    <span className="flex items-center">Copy Link <Copy className="w-3 h-3 ml-1" /></span>
+                                                                    <span className="flex items-center">{t('copyLink')} <Copy className="w-3 h-3 ml-1" /></span>
                                                                 )}
                                                             </button>
                                                         </div>
@@ -380,7 +391,7 @@ export function FileRequests() {
                                                         req.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                                     )}
                                                 >
-                                                    {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                                                    {getStatusText(req.status)}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground">
@@ -399,7 +410,7 @@ export function FileRequests() {
                                                             setIsDetailsModalOpen(true);
                                                         }}
                                                         className="h-8 w-8 text-muted-foreground"
-                                                        title="View Details"
+                                                        title={t('viewDetails')}
                                                     >
                                                         <Eye className="w-4 h-4" />
                                                     </Button>
@@ -409,7 +420,7 @@ export function FileRequests() {
                                                             size="icon"
                                                             onClick={() => handleDelete(req.id)}
                                                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                            title="Revoke Link"
+                                                            title={t('delete')}
                                                         >
                                                             <Trash2 className="w-4 h-4" />
                                                         </Button>
@@ -419,7 +430,7 @@ export function FileRequests() {
                                                             size="icon"
                                                             onClick={() => handlePermanentDelete(req.id)}
                                                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                            title="Permanently Delete"
+                                                            title={t('delete')}
                                                         >
                                                             <Trash2 className="w-4 h-4" />
                                                         </Button>

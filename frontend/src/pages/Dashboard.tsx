@@ -17,6 +17,7 @@ import {
 import { Building2, Users, HardDrive, ShieldCheck, FileText, FolderOpen, Settings2, AlertTriangle, X, RotateCcw } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -56,6 +57,8 @@ interface DashboardStats {
 }
 
 export function Dashboard() {
+    const t = useTranslations('Dashboard');
+    const tCommon = useTranslations('Common');
     const { complianceMode } = useSettings();
     const { user, refreshUser, tenant } = useAuth();
     const authFetch = useAuthFetch();
@@ -218,21 +221,21 @@ export function Dashboard() {
     const widgets: Record<string, React.ReactNode> = useMemo(() => ({
         'stats-1': (
             <StatCard
-                title="Total Companies"
+                title={t('totalCompanies')}
                 value={stats.companies.toString()}
                 icon={Building2}
             />
         ),
         'stats-2': (
             <StatCard
-                title="Active Users"
+                title={t('activeUsers')}
                 value={stats.users.toString()}
                 icon={Users}
             />
         ),
         'stats-3': (
             <StatCard
-                title="Storage Used"
+                title={t('storageUsed')}
                 value={stats.storage_quota_formatted 
                     ? `${stats.storage_used_formatted} / ${stats.storage_quota_formatted}`
                     : stats.storage_used_formatted}
@@ -241,7 +244,7 @@ export function Dashboard() {
         ),
         'stats-4': (
             <StatCard
-                title="Files & Folders"
+                title={t('filesAndFolders')}
                 value={stats.files.toString()}
                 icon={FileText}
             />
@@ -253,8 +256,8 @@ export function Dashboard() {
         'departments': (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full overflow-auto">
                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Departments</h3>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{departments.length} Total</span>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('departments')}</h3>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{t('departmentsTotal', { count: departments.length })}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {departments.slice(0, maxDepartments).map((dept) => (
@@ -264,12 +267,12 @@ export function Dashboard() {
                             </div>
                             <div>
                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{dept.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{t('active')}</p>
                             </div>
                         </div>
                     ))}
                     {departments.length === 0 && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 col-span-2 text-center py-4">No departments found</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 col-span-2 text-center py-4">{t('noDepartments')}</p>
                     )}
                 </div>
             </div>
@@ -327,13 +330,13 @@ export function Dashboard() {
                                 onClick={() => dismissTenantNotice(false)}
                                 className="text-xs text-amber-700 dark:text-amber-300 hover:underline"
                             >
-                                Dismiss
+                                {t('dismiss')}
                             </button>
                             <button 
                                 onClick={() => dismissTenantNotice(true)}
                                 className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
                             >
-                                Don't show again
+                                {t('dontShowAgain')}
                             </button>
                         </div>
                     </div>
@@ -348,9 +351,9 @@ export function Dashboard() {
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
                 <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">Dashboard</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">{t('title')}</h1>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
-                        {complianceMode === 'None' || complianceMode === 'Standard' ? 'System Overview' : `${complianceMode} Compliance Monitoring`}
+                        {complianceMode === 'None' || complianceMode === 'Standard' ? t('systemOverview') : t('complianceMonitoring', { mode: complianceMode })}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -360,7 +363,7 @@ export function Dashboard() {
                             className="gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                         >
                             <ShieldCheck className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">{complianceMode} Compliant</span>
+                            <span className="hidden sm:inline">{t('compliant', { mode: complianceMode })}</span>
                         </Badge>
                     )}
                     <Button
@@ -368,20 +371,20 @@ export function Dashboard() {
                         size="sm"
                         onClick={handleResetLayout}
                         className="h-9 gap-1.5"
-                        title="Reset Layout"
+                        title={t('resetLayout')}
                     >
                         <RotateCcw className="w-4 h-4 text-muted-foreground" />
-                        <span className="hidden sm:inline">Reset Layout</span>
+                        <span className="hidden sm:inline">{t('resetLayout')}</span>
                     </Button>
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setIsSettingsOpen(true)}
                         className="h-9 gap-1.5"
-                        title="Customize"
+                        title={t('customize')}
                     >
                         <Settings2 className="w-4 h-4 text-muted-foreground" />
-                        <span className="hidden sm:inline">Customize</span>
+                        <span className="hidden sm:inline">{t('customize')}</span>
                     </Button>
                 </div>
             </div>

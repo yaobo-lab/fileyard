@@ -4,6 +4,8 @@ import { Share2, Download, FileText, Image, Film, Music, Folder, ChevronLeft, Ch
 import { format } from 'date-fns';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
+import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 import { FilePreviewModal } from '../components/FilePreviewModal';
 import { FileGlyphVisual, FileSystemFolderGlyph } from '../components/FileGlyphs';
 
@@ -49,7 +51,9 @@ const formatBytes = (bytes: number): string => {
 };
 
 export function SharedWithMe() {
+    const t = useTranslations('SharedWithMe');
     const authFetch = useAuthFetch();
+    const { formatDate } = useGlobalSettings();
     const navigate = useNavigate();
     
     const [files, setFiles] = useState<SharedFile[]>([]);
@@ -177,9 +181,9 @@ export function SharedWithMe() {
                                 <Share2 className="w-6 h-6 text-primary-600 dark:text-primary-400" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Shared with Me</h1>
+                                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    Files and folders others have shared with you
+                                    {t('description')}
                                 </p>
                             </div>
                         </div>
@@ -188,7 +192,7 @@ export function SharedWithMe() {
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                         >
                             <FileSystemFolderGlyph size="xs" className="h-4 w-auto" />
-                            My Files
+                            {t('myFiles')}
                         </button>
                     </div>
                 </div>
@@ -222,9 +226,9 @@ export function SharedWithMe() {
                 {!loading && !error && files.length === 0 && (
                     <div className="text-center py-12">
                         <Share2 className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No shared files</h3>
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">{t('noSharedFiles')}</h3>
                         <p className="text-gray-500 dark:text-gray-400">
-                            When someone shares a file with you, it will appear here.
+                            {t('noSharedFilesDesc')}
                         </p>
                     </div>
                 )}
@@ -234,11 +238,11 @@ export function SharedWithMe() {
                     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                         {/* Table Header */}
                         <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                            <div className="col-span-5">Name</div>
-                            <div className="col-span-2">Shared By</div>
-                            <div className="col-span-2">Shared On</div>
-                            <div className="col-span-1">Size</div>
-                            <div className="col-span-2 text-right">Actions</div>
+                            <div className="col-span-5">{t('colName')}</div>
+                            <div className="col-span-2">{t('colSharedBy')}</div>
+                            <div className="col-span-2">{t('colSharedOn')}</div>
+                            <div className="col-span-1">{t('colSize')}</div>
+                            <div className="col-span-2 text-right">{t('colActions')}</div>
                         </div>
 
                         {/* File Rows */}
@@ -279,7 +283,7 @@ export function SharedWithMe() {
                                     {/* Shared Date */}
                                     <div className="col-span-2 flex items-center">
                                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                                            {format(new Date(file.shared_at), 'MMM d, yyyy')}
+                                            {formatDate(file.shared_at)}
                                         </span>
                                     </div>
 
@@ -309,7 +313,7 @@ export function SharedWithMe() {
                                                     : "text-gray-500 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20",
                                                 savingFileId === file.id && "opacity-50 cursor-wait"
                                             )}
-                                            title={savedFileIds.has(file.id) ? "Saved to your files" : "Save to My Files"}
+                                            title={savedFileIds.has(file.id) ? t('saved') : t('saveToMyFiles')}
                                         >
                                             {savingFileId === file.id ? (
                                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -322,7 +326,7 @@ export function SharedWithMe() {
                                         <button
                                             onClick={(e) => handleDownload(file, e)}
                                             className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
-                                            title="Download"
+                                            title={t('download')}
                                         >
                                             <Download className="w-4 h-4" />
                                         </button>

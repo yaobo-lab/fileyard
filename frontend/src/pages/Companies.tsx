@@ -3,6 +3,7 @@ import { Plus, Search, Filter, Building2, CheckCircle, XCircle, Shield, HelpCirc
 import clsx from 'clsx';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { FilterModal } from '../components/FilterModal';
 import { AddCompanyModal, CompanyData } from '../components/AddCompanyModal';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
@@ -32,13 +33,8 @@ interface Company {
     storage_quota_bytes?: number;
 }
 
-const statusFilterOptions = [
-    { label: 'Active', value: 'active' },
-    { label: 'Suspended', value: 'suspended' },
-    { label: 'Trial', value: 'trial' },
-];
-
 export function Companies() {
+    const t = useTranslations('Companies');
     const [companies, setCompanies] = useState<Company[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -141,15 +137,25 @@ export function Companies() {
         );
     }
 
+    const statusFilterOptions = [
+        { label: t('statusActive'), value: 'active' },
+        { label: t('statusSuspended'), value: 'suspended' },
+        { label: t('statusTrial'), value: 'trial' },
+    ];
+
+    const getStatusLabel = (status: string) => {
+        if (status === 'active') return t('statusActive');
+        if (status === 'suspended') return t('statusSuspended');
+        return t('statusTrial');
+    };
+
     return (
         <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">Companies</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">{t('title')}</h1>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
-                        {isSuperAdmin 
-                            ? 'Manage all companies and tenant organizations.' 
-                            : 'Manage companies you have access to.'}
+                        {t('description')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
@@ -169,7 +175,7 @@ export function Companies() {
                             className="h-9 gap-1.5"
                         >
                             <Plus className="w-4 h-4" />
-                            <span className="hidden sm:inline">Add Company</span>
+                            <span className="hidden sm:inline">{t('addCompany')}</span>
                         </Button>
                     )}
                 </div>
@@ -184,7 +190,7 @@ export function Companies() {
                         <Input
                             type="text"
                             className="pl-9 h-9 text-sm"
-                            placeholder="Search companies..."
+                            placeholder={t('searchPlaceholder')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -196,7 +202,7 @@ export function Companies() {
                         className="h-9 gap-1.5 shrink-0"
                     >
                         <Filter className="w-4 h-4 text-muted-foreground" />
-                        <span className="hidden sm:inline">Filters</span>
+                        <span className="hidden sm:inline">{t('filters')}</span>
                         {filters.status && <span className="ml-1 w-2 h-2 bg-primary rounded-full"></span>}
                     </Button>
                 </div>
@@ -205,12 +211,12 @@ export function Companies() {
                     {isLoading ? (
                         <div className="p-12 text-center">
                             <div className="animate-spin rounded-full h-6 w-6 border-2 border-foreground border-t-transparent mx-auto mb-4"></div>
-                            <p className="text-sm text-muted-foreground">Loading companies...</p>
+                            <p className="text-sm text-muted-foreground">{t('loading')}</p>
                         </div>
                     ) : filteredCompanies.length === 0 ? (
                         <div className="p-12 text-center text-muted-foreground">
                             <Building2 className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                            <p className="text-sm">No companies found</p>
+                            <p className="text-sm">{t('noCompanies')}</p>
                         </div>
                     ) : (
                         <>
@@ -250,7 +256,7 @@ export function Companies() {
                                                 )}
                                             >
                                                 {company.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                                                {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
+                                                {getStatusLabel(company.status)}
                                             </Badge>
                                         </div>
                                         <Button
@@ -263,7 +269,7 @@ export function Companies() {
                                             }}
                                             className="mt-3 w-full h-8 text-xs"
                                         >
-                                            Add User
+                                            {t('inviteAdmin')}
                                         </Button>
                                     </div>
                                 ))}
@@ -273,11 +279,11 @@ export function Companies() {
                             <Table className="hidden sm:table">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Company</TableHead>
-                                        <TableHead>Compliance</TableHead>
-                                        <TableHead>Users</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
+                                        <TableHead>{t('colCompany')}</TableHead>
+                                        <TableHead>{t('colCompliance')}</TableHead>
+                                        <TableHead>{t('colUsers')}</TableHead>
+                                        <TableHead>{t('colStatus')}</TableHead>
+                                        <TableHead className="text-right">{t('colActions')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -324,7 +330,7 @@ export function Companies() {
                                                     )}
                                                 >
                                                     {company.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                                                    {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
+                                                    {getStatusLabel(company.status)}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-right">
@@ -339,7 +345,7 @@ export function Companies() {
                                                         }}
                                                         className="h-8 px-2.5 text-xs font-semibold"
                                                     >
-                                                        Add User
+                                                        {t('inviteAdmin')}
                                                     </Button>
                                                     <ChevronRight className="w-4 h-4 text-muted-foreground/60 group-hover:text-foreground transition-colors" />
                                                 </div>

@@ -3,6 +3,7 @@ import { Plus, Search, Filter, Mail, CheckCircle, XCircle, Ban, Settings, Buildi
 import clsx from 'clsx';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 import { FilterModal } from '../components/FilterModal';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
 import { UserDetailsModal } from '../components/UserDetailsModal';
@@ -36,19 +37,6 @@ interface User {
     suspension_reason?: string | null;
 }
 
-const roleFilterOptions = [
-    { label: 'Super Admin', value: 'SuperAdmin' },
-    { label: 'Admin', value: 'Admin' },
-    { label: 'Manager', value: 'Manager' },
-    { label: 'Employee', value: 'Employee' },
-];
-
-const statusFilterOptions = [
-    { label: 'Active', value: 'active' },
-    { label: 'Inactive', value: 'inactive' },
-    { label: 'Suspended', value: 'suspended' },
-];
-
 // Helper to check if current user can manage a target user based on role hierarchy
 const canManageUser = (currentRole: string, targetRole: string): boolean => {
     const roleHierarchy: Record<string, number> = {
@@ -76,6 +64,7 @@ const canDeleteUser = (currentRole: string, targetRole: string): boolean => {
 };
 
 export function Users() {
+    const t = useTranslations('Users');
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -95,6 +84,38 @@ export function Users() {
     const { tenant, user: currentUser } = useAuth();
     const authFetch = useAuthFetch();
     const { formatDate, formatDateTime } = useGlobalSettings();
+
+    const getRoleLabel = (role: string) => {
+        switch (role) {
+            case 'SuperAdmin': return t('roleSuperAdmin');
+            case 'Admin': return t('roleAdmin');
+            case 'Manager': return t('roleManager');
+            case 'Employee': return t('roleEmployee');
+            default: return role;
+        }
+    };
+
+    const getStatusLabel = (status: string) => {
+        switch (status) {
+            case 'active': return t('statusActive');
+            case 'inactive': return t('statusInactive');
+            case 'suspended': return t('statusSuspended');
+            default: return status;
+        }
+    };
+
+    const roleFilterOptions = [
+        { label: t('roleSuperAdmin'), value: 'SuperAdmin' },
+        { label: t('roleAdmin'), value: 'Admin' },
+        { label: t('roleManager'), value: 'Manager' },
+        { label: t('roleEmployee'), value: 'Employee' },
+    ];
+
+    const statusFilterOptions = [
+        { label: t('statusActive'), value: 'active' },
+        { label: t('statusInactive'), value: 'inactive' },
+        { label: t('statusSuspended'), value: 'suspended' },
+    ];
     
     const isManager = currentUser?.role === 'Manager';
     const isAdminOrAbove = currentUser?.role === 'SuperAdmin' || currentUser?.role === 'Admin';
@@ -364,8 +385,8 @@ export function Users() {
 
     // Format suspension info for display
     const getSuspensionInfo = (user: User): string => {
-        if (!user.suspended_until) return 'Indefinitely';
-        return `Until ${formatDateTime(user.suspended_until)}`;
+        if (!user.suspended_until) return t('suspendedIndefinitely');
+        return t('suspendedUntil').replace('{time}', formatDateTime(user.suspended_until));
     };
 
     const filteredUsers = searchTerm
@@ -373,17 +394,17 @@ export function Users() {
         : users;
 
     const getSelectedDepartmentName = () => {
-        if (!selectedDepartment) return 'All Departments';
+        if (!selectedDepartment) return t('allDepartments');
         const dept = accessibleDepartments.find(d => d.id === selectedDepartment);
-        return dept ? dept.name : 'All Departments';
+        return dept ? dept.name : t('allDepartments');
     };
 
     return (
         <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">Users</h1>
-                    <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">Manage user access and permissions.</p>
+                    <h1 className="text-xl sm:text-2xl font-bold text-foreground">{t('title')}</h1>
+                    <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">{t('description')}</p>
                 </div>
                 <div className="flex items-center space-x-2 sm:space-x-3">
                     {/* Department Switcher - always show for Managers and Admins */}
@@ -409,7 +430,7 @@ export function Users() {
                                                 !selectedDepartment ? "bg-muted font-medium text-foreground" : "text-foreground hover:bg-muted"
                                             )}
                                         >
-                                            All Departments
+                                            {t('allDepartments')}
                                         </button>
                                     )}
                                     {accessibleDepartments.map((dept) => (
@@ -438,7 +459,7 @@ export function Users() {
                         className="h-9 gap-1.5"
                     >
                         <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">Invite User</span>
+                        <span className="hidden sm:inline">{t('inviteUser')}</span>
                     </Button>
                 </div>
             </div>
@@ -452,7 +473,7 @@ export function Users() {
                         <Input
                             type="text"
                             className="pl-9 h-9 text-sm"
-                            placeholder="Search users..."
+                            placeholder={t('searchPlaceholder')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -464,16 +485,16 @@ export function Users() {
                         className="h-9 gap-1.5 shrink-0"
                     >
                         <Filter className="w-4 h-4 text-muted-foreground" />
-                        <span>Filters</span>
+                        <span>{t('filters')}</span>
                         {(filters.role || filters.status) && <span className="ml-1 w-2 h-2 bg-primary rounded-full"></span>}
                     </Button>
                 </div>
 
                 <div className="overflow-x-auto">
                     {isLoading ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>
+                        <div className="p-8 text-center text-muted-foreground text-sm">{t('loading')}</div>
                     ) : filteredUsers.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">No users found</div>
+                        <div className="p-8 text-center text-muted-foreground text-sm">{t('noUsers')}</div>
                     ) : (
                         <>
                             {/* Mobile: Card view */}
@@ -503,12 +524,12 @@ export function Users() {
                                                     </p>
                                                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                                         <Badge variant="secondary">
-                                                            {user.role}
+                                                            {getRoleLabel(user.role)}
                                                         </Badge>
                                                         {isUserSuspended(user) ? (
                                                             <Badge variant="destructive" className="gap-1">
                                                                 <Ban className="w-3 h-3" />
-                                                                Suspended
+                                                                {t('statusSuspended')}
                                                             </Badge>
                                                         ) : (
                                                             <Badge
@@ -519,7 +540,7 @@ export function Users() {
                                                                 )}
                                                             >
                                                                 {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                                                                {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                                                                {getStatusLabel(user.status)}
                                                             </Badge>
                                                         )}
                                                     </div>
@@ -534,7 +555,7 @@ export function Users() {
                                                         onClick={() => handleEdit(user)}
                                                         className="h-8 px-2 text-xs"
                                                     >
-                                                        Edit
+                                                        {t('edit')}
                                                     </Button>
                                                 )}
                                                 {currentUser && currentUser.id !== user.id && canManageUser(currentUser.role, user.role) && (
@@ -546,6 +567,7 @@ export function Users() {
                                                             setIsManageModalOpen(true);
                                                         }}
                                                         className="h-8 w-8 text-muted-foreground"
+                                                        title={t('manage')}
                                                     >
                                                         <Settings className="w-4 h-4" />
                                                     </Button>
@@ -560,12 +582,12 @@ export function Users() {
                             <Table className="hidden sm:table">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>User</TableHead>
-                                        <TableHead>Role</TableHead>
-                                        <TableHead>Department</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Last Active</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
+                                        <TableHead>{t('colUser')}</TableHead>
+                                        <TableHead>{t('colRole')}</TableHead>
+                                        <TableHead>{t('colDepartment')}</TableHead>
+                                        <TableHead>{t('colStatus')}</TableHead>
+                                        <TableHead>{t('colLastActive')}</TableHead>
+                                        <TableHead className="text-right">{t('colActions')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -597,7 +619,7 @@ export function Users() {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary">
-                                                    {user.role}
+                                                    {getRoleLabel(user.role)}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
@@ -608,7 +630,7 @@ export function Users() {
                                                     <div>
                                                         <Badge variant="destructive" className="gap-1">
                                                             <Ban className="w-3 h-3" />
-                                                            Suspended
+                                                            {t('statusSuspended')}
                                                         </Badge>
                                                         <p className="text-xs text-muted-foreground mt-0.5">
                                                             {getSuspensionInfo(user)}
@@ -619,16 +641,16 @@ export function Users() {
                                                         variant={user.status === 'active' ? 'outline' : 'secondary'}
                                                         className={clsx(
                                                             "gap-1",
-                                                            user.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                             user.status === 'active' && "text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                                         )}
                                                     >
                                                         {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                                                        {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                                                        {getStatusLabel(user.status)}
                                                     </Badge>
                                                 )}
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {user.last_active_at ? formatDate(user.last_active_at) : 'Never'}
+                                                {user.last_active_at ? formatDate(user.last_active_at) : '-'}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-1">
@@ -639,7 +661,7 @@ export function Users() {
                                                             onClick={() => handleEdit(user)}
                                                             className="h-8 px-2.5 text-xs"
                                                         >
-                                                            Edit
+                                                            {t('edit')}
                                                         </Button>
                                                     )}
                                                     {currentUser && currentUser.id !== user.id && canManageUser(currentUser.role, user.role) && (
@@ -651,7 +673,7 @@ export function Users() {
                                                                 setIsManageModalOpen(true);
                                                             }}
                                                             className="h-8 w-8 text-muted-foreground"
-                                                            title="Manage User"
+                                                            title={t('manage')}
                                                         >
                                                             <Settings className="w-4 h-4" />
                                                         </Button>
