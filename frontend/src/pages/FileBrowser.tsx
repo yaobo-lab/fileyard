@@ -2269,56 +2269,255 @@ export function FileBrowser() {
     return (
         <div className="h-full flex flex-col space-y-3 sm:space-y-4">
             <FileSystemIconSpriteSheet />
-            {/* Header & Actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-1 sm:mb-2">
-                <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Files</h1>
-                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 sm:mt-1">Manage your company documents and assets</p>
-                </div>
-                <div className="flex space-x-3">
-                    {/* View Mode Switcher */}
+            {/* Unified Header Toolbar: Operations */}
+            <div className="flex items-center justify-between gap-2 mb-1 py-0.5 relative z-30">
+                {/* Left: Breadcrumbs only shown when inside subfolders */}
+                {currentPath.length > 1 ? (
+                    <div className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-300 overflow-x-auto py-0.5 scrollbar-hide flex-shrink-0">
+                        <button
+                            onClick={() => {
+                                const newPath = currentPath.slice(0, -1);
+                                setCurrentPath(newPath);
+                                if (newPath.length <= 1) {
+                                    setIsInsideCompanyFolder(false);
+                                }
+                            }}
+                            className="flex items-center gap-0.5 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 font-medium px-2 py-1 rounded-md bg-primary-50 dark:bg-primary-900/20 mr-1 transition-colors"
+                            title="返回上一级"
+                        >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                            <span>返回</span>
+                        </button>
+                        {currentPath.map((folder, index) => (
+                            <div key={index} className="flex items-center flex-shrink-0">
+                                {index > 0 && <span className="mx-1 text-gray-400">/</span>}
+                                <span
+                                    className={clsx(
+                                        "hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer px-1.5 py-0.5 rounded text-xs transition-colors", 
+                                        index === currentPath.length - 1 
+                                            ? "font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700" 
+                                            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800",
+                                        index === 0 && dropTargetId === 'home' && "bg-primary-100 dark:bg-primary-900/30 ring-2 ring-primary-400"
+                                    )}
+                                    onClick={() => {
+                                        if (index === 0 && currentGroup) {
+                                            handleExitGroup();
+                                            setIsInsideCompanyFolder(false);
+                                        } else {
+                                            const newPath = currentPath.slice(0, index + 1);
+                                            setCurrentPath(newPath);
+                                            if (index === 0) {
+                                                setIsInsideCompanyFolder(false);
+                                            }
+                                        }
+                                    }}
+                                    onDragOver={(e) => {
+                                        if (index === 0 && draggedFile) {
+                                            e.preventDefault();
+                                            handleDragOver(e, 'home');
+                                        }
+                                    }}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => {
+                                        if (index === 0 && draggedFile) {
+                                            handleMoveFileDrop(e, null);
+                                        }
+                                    }}
+                                >
+                                    {folder}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div />
+                )}
+
+                {/* Right: Search, Filter, Sort, View, Departments & Actions */}
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
+                    {/* Search files */}
+                    <div className="relative group w-40 sm:w-48">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-primary-500 transition-colors" />
+                        <input
+                            type="text"
+                            placeholder="Search files..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 shadow-sm transition-shadow"
+                        />
+                    </div>
+
+                    {/* Sort dropdown */}
+                    <div className="relative" ref={sortMenuRef}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            title="Sort files"
+                        >
+                            <ArrowUpDown className="w-3.5 h-3.5 text-gray-500" />
+                            <span className="hidden sm:inline">
+                                {sortBy === 'name' ? 'Name' : sortBy === 'size' ? 'Size' : 'Modified'}
+                            </span>
+                            <span className="text-[10px] text-gray-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                        </button>
+                        {isSortMenuOpen && (
+                            <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
+                                <button
+                                    onClick={() => { handleSort('name'); setIsSortMenuOpen(false); }}
+                                    className={clsx(
+                                        "w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
+                                        sortBy === 'name' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
+                                    )}
+                                >
+                                    Name
+                                    {sortBy === 'name' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
+                                </button>
+                                <button
+                                    onClick={() => { handleSort('size'); setIsSortMenuOpen(false); }}
+                                    className={clsx(
+                                        "w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
+                                        sortBy === 'size' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
+                                    )}
+                                >
+                                    Size
+                                    {sortBy === 'size' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
+                                </button>
+                                <button
+                                    onClick={() => { handleSort('modified'); setIsSortMenuOpen(false); }}
+                                    className={clsx(
+                                        "w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
+                                        sortBy === 'modified' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
+                                    )}
+                                >
+                                    Modified
+                                    {sortBy === 'modified' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Items per page */}
+                    <div className="relative" ref={perPageMenuRef}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setIsPerPageMenuOpen(!isPerPageMenuOpen); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            title="Items per page"
+                        >
+                            <Rows3 className="w-3.5 h-3.5 text-gray-500" />
+                            <span className="hidden sm:inline">
+                                {itemsPerPageOverride ?? 'Auto'}
+                            </span>
+                        </button>
+                        {isPerPageMenuOpen && (
+                            <div className="absolute right-0 mt-1 w-28 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
+                                {([null, 10, 25, 50, 100] as (number | null)[]).map((count) => (
+                                    <button
+                                        key={count ?? 'auto'}
+                                        onClick={() => {
+                                            setItemsPerPageOverride(count);
+                                            if (count) {
+                                                localStorage.setItem(perPageKey, String(count));
+                                            } else {
+                                                localStorage.removeItem(perPageKey);
+                                            }
+                                            setCurrentPage(1);
+                                            setIsPerPageMenuOpen(false);
+                                        }}
+                                        className={clsx(
+                                            "w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700",
+                                            (count === itemsPerPageOverride || (count === null && !itemsPerPageOverride))
+                                                ? "text-primary-600 dark:text-primary-400 font-medium"
+                                                : "text-gray-700 dark:text-gray-300"
+                                        )}
+                                    >
+                                        {count ?? 'Auto'}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Density toggle (list view only) */}
+                    {viewMode === 'list' && (
+                        <button
+                            onClick={() => {
+                                const next = density === 'compact' ? 'default' : density === 'default' ? 'comfortable' : 'compact';
+                                setDensity(next);
+                                localStorage.setItem(densityKey, next);
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            title={`Density: ${density}`}
+                        >
+                            <span className="hidden md:inline text-xs capitalize">{density === 'default' ? 'Normal' : density}</span>
+                            <div className="flex flex-col gap-px">
+                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
+                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
+                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
+                            </div>
+                        </button>
+                    )}
+
+                    {/* Grid / List switch */}
+                    <div className="flex space-x-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <button
+                            onClick={() => { setViewMode('grid'); localStorage.setItem(viewModeKey, 'grid'); }}
+                            className={clsx("p-1 rounded-md transition-all", viewMode === 'grid' ? "bg-white dark:bg-gray-700 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
+                            title="Grid View"
+                        >
+                            <Grid className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                            onClick={() => { setViewMode('list'); localStorage.setItem(viewModeKey, 'list'); }}
+                            className={clsx("p-1 rounded-md transition-all", viewMode === 'list' ? "bg-white dark:bg-gray-700 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
+                            title="List View"
+                        >
+                            <List className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+
+                    <div className="border-l border-gray-300 dark:border-gray-700 h-5 hidden sm:block mx-0.5" />
+
+                    {/* View Mode Switcher (All Departments / Private) */}
                     <div className="relative" ref={viewModeRef}>
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsViewModeOpen(!isViewModeOpen); }}
-                            className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                            className="flex items-center px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
                         >
                             {fileViewMode === 'private' ? (
-                                <><EyeOff className="w-4 h-4 mr-2 text-purple-500" />My Private Files</>
+                                <><EyeOff className="w-3.5 h-3.5 mr-1.5 text-purple-500" />My Private Files</>
                             ) : selectedDepartment ? (
-                                <><Building2 className="w-4 h-4 mr-2 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || 'Department'}</>
+                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || 'Department'}</>
                             ) : (user?.role === 'SuperAdmin' || user?.role === 'Admin') ? (
-                                <><Users className="w-4 h-4 mr-2 text-blue-500" />All Departments</>
+                                <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />All Departments</>
                             ) : departments.length === 1 ? (
-                                <><Building2 className="w-4 h-4 mr-2 text-green-500" />{departments[0].name}</>
+                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments[0].name}</>
                             ) : (
-                                <><Building2 className="w-4 h-4 mr-2 text-green-500" />My Department</>
+                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />My Department</>
                             )}
-                            <ChevronDown className="w-4 h-4 ml-2 text-gray-400" />
+                            <ChevronDown className="w-3 h-3 ml-1 text-gray-400" />
                         </button>
                         {isViewModeOpen && (
-                            <div className="absolute left-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
-                                {/* All Departments option - only for admins */}
+                            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
                                 {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
                                     <button
                                         onClick={() => { setFileViewMode('department'); setSelectedDepartment(null); setIsViewModeOpen(false); }}
                                         className={clsx(
-                                            "flex items-center w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
+                                            "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
                                             fileViewMode === 'department' && !selectedDepartment && "bg-gray-50 dark:bg-gray-700 font-medium"
                                         )}
                                     >
-                                        <Users className="w-4 h-4 mr-3 text-blue-500" />
+                                        <Users className="w-3.5 h-3.5 mr-2 text-blue-500" />
                                         All Departments
                                         {fileViewMode === 'department' && !selectedDepartment && <span className="ml-auto text-primary-500">✓</span>}
                                     </button>
                                 )}
                                 
-                                {/* Department options - admins see filter section, non-admins see their department(s) as main options */}
                                 {departments.length > 0 && (
                                     <>
                                         {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
                                             <>
                                                 <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
-                                                <div className="px-4 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                                <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
                                                     Filter by Department
                                                 </div>
                                             </>
@@ -2328,11 +2527,11 @@ export function FileBrowser() {
                                                 key={dept.id}
                                                 onClick={() => { setFileViewMode('department'); setSelectedDepartment(dept.id); setIsViewModeOpen(false); }}
                                                 className={clsx(
-                                                    "flex items-center w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
+                                                    "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
                                                     fileViewMode === 'department' && selectedDepartment === dept.id && "bg-gray-50 dark:bg-gray-700 font-medium"
                                                 )}
                                             >
-                                                <Building2 className="w-4 h-4 mr-3 text-green-500" />
+                                                <Building2 className="w-3.5 h-3.5 mr-2 text-green-500" />
                                                 {dept.name}
                                                 {fileViewMode === 'department' && selectedDepartment === dept.id && <span className="ml-auto text-primary-500">✓</span>}
                                             </button>
@@ -2344,20 +2543,20 @@ export function FileBrowser() {
                                 <button
                                     onClick={() => { setFileViewMode('private'); setSelectedDepartment(null); setIsViewModeOpen(false); }}
                                     className={clsx(
-                                        "flex items-center w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
+                                        "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
                                         fileViewMode === 'private' && "bg-gray-50 dark:bg-gray-700 font-medium"
                                     )}
                                 >
-                                    <EyeOff className="w-4 h-4 mr-3 text-purple-500" />
+                                    <EyeOff className="w-3.5 h-3.5 mr-2 text-purple-500" />
                                     My Private Files
                                     {fileViewMode === 'private' && <span className="ml-auto text-primary-500">✓</span>}
                                 </button>
                             </div>
                         )}
                     </div>
-                    {/* Desktop: Individual icon buttons */}
-                    <div className="hidden sm:flex items-center space-x-2">
-                        {/* Select Mode Toggle */}
+
+                    {/* Desktop: Action buttons */}
+                    <div className="hidden sm:flex items-center space-x-1">
                         <button
                             onClick={() => {
                                 if (isSelectionMode) {
@@ -2368,44 +2567,44 @@ export function FileBrowser() {
                             }}
                             title={isSelectionMode ? 'Cancel selection' : 'Select files'}
                             className={clsx(
-                                "p-2.5 border rounded-lg shadow-sm transition-colors",
+                                "p-1.5 border rounded-lg shadow-sm transition-colors",
                                 isSelectionMode 
                                     ? "bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300" 
                                     : "bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
                             )}
                         >
-                            {isSelectionMode ? <X className="w-5 h-5" /> : <CheckSquare className="w-5 h-5" />}
+                            {isSelectionMode ? <X className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
                         </button>
                         <Link
                             to="/recycle-bin"
                             title="Recycle Bin"
-                            className="p-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                         >
-                            <Trash2 className="w-5 h-5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                         </Link>
                         <button
                             onClick={() => setIsRequestModalOpen(true)}
                             title="Request Files"
-                            className="p-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                         >
-                            <LinkIcon className="w-5 h-5" />
+                            <LinkIcon className="w-3.5 h-3.5" />
                         </button>
                         {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                             <button
                                 onClick={() => setIsNewFolderOpen(true)}
                                 title="New Folder"
-                                className="p-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                                className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                             >
-                                <FolderPlus className="w-5 h-5" />
+                                <FolderPlus className="w-3.5 h-3.5" />
                             </button>
                         )}
                         {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                             <button
                                 onClick={() => setIsCreateGroupOpen(true)}
                                 title="New Group"
-                                className="p-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                                className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                             >
-                                <Layers className="w-5 h-5" />
+                                <Layers className="w-3.5 h-3.5" />
                             </button>
                         )}
                         {clipboardFile && (
@@ -2414,14 +2613,14 @@ export function FileBrowser() {
                                 disabled={isPasting}
                                 title={`Paste "${clipboardFile.name}" here`}
                                 className={clsx(
-                                    "px-3 py-2 border rounded-lg shadow-sm transition-colors flex items-center gap-1.5",
+                                    "px-2 py-1 border rounded-lg shadow-sm transition-colors flex items-center gap-1 text-xs",
                                     isPasting
                                         ? "bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 cursor-not-allowed"
                                         : "bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40"
                                 )}
                             >
-                                <Clipboard className="w-4 h-4" />
-                                <span className="text-sm font-medium">Paste</span>
+                                <Clipboard className="w-3.5 h-3.5" />
+                                <span>Paste</span>
                             </button>
                         )}
                     </div>
@@ -2430,12 +2629,12 @@ export function FileBrowser() {
                     <div className="sm:hidden relative" ref={mobileMenuRef}>
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen); }}
-                            className="p-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
+                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                         >
-                            <MoreHorizontal className="w-5 h-5" />
+                            <MoreHorizontal className="w-3.5 h-3.5" />
                         </button>
                         {isMobileMenuOpen && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
+                            <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
                                 <button
                                     onClick={() => {
                                         if (isSelectionMode) {
@@ -2445,41 +2644,41 @@ export function FileBrowser() {
                                         }
                                         setIsMobileMenuOpen(false);
                                     }}
-                                    className="flex items-center w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                    className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
-                                    {isSelectionMode ? <X className="w-5 h-5 mr-3" /> : <CheckSquare className="w-5 h-5 mr-3" />}
+                                    {isSelectionMode ? <X className="w-3.5 h-3.5 mr-2" /> : <CheckSquare className="w-3.5 h-3.5 mr-2" />}
                                     {isSelectionMode ? 'Cancel Selection' : 'Select Files'}
                                 </button>
                                 <Link
                                     to="/recycle-bin"
                                     onClick={() => setIsMobileMenuOpen(false)}
-                                    className="flex items-center w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                    className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
-                                    <Trash2 className="w-5 h-5 mr-3" />
+                                    <Trash2 className="w-3.5 h-3.5 mr-2" />
                                     Recycle Bin
                                 </Link>
                                 <button
                                     onClick={() => { setIsRequestModalOpen(true); setIsMobileMenuOpen(false); }}
-                                    className="flex items-center w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                    className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
-                                    <LinkIcon className="w-5 h-5 mr-3" />
+                                    <LinkIcon className="w-3.5 h-3.5 mr-2" />
                                     Request Files
                                 </button>
                                 {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                                     <button
                                         onClick={() => { setIsNewFolderOpen(true); setIsMobileMenuOpen(false); }}
-                                        className="flex items-center w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                     >
-                                        <FolderPlus className="w-5 h-5 mr-3" />
+                                        <FolderPlus className="w-3.5 h-3.5 mr-2" />
                                         New Folder
                                     </button>
                                 )}
                                 {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                                     <button
                                         onClick={() => { setIsCreateGroupOpen(true); setIsMobileMenuOpen(false); }}
-                                        className="flex items-center w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                     >
-                                        <Layers className="w-5 h-5 mr-3" />
+                                        <Layers className="w-3.5 h-3.5 mr-2" />
                                         New Group
                                     </button>
                                 )}
@@ -2487,11 +2686,11 @@ export function FileBrowser() {
                                     <button
                                         onClick={() => { handlePaste(); setIsMobileMenuOpen(false); }}
                                         disabled={isPasting}
-                                        className="flex items-center w-full px-4 py-3 text-sm text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20"
+                                        className="flex items-center w-full px-3 py-2 text-xs text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20"
                                     >
-                                        <Clipboard className="w-5 h-5 mr-3" />
+                                        <Clipboard className="w-3.5 h-3.5 mr-2" />
                                         Paste
-                                        <span className="ml-1 text-xs text-green-500 truncate max-w-32">({clipboardFile.name})</span>
+                                        <span className="ml-1 text-[10px] text-green-500 truncate max-w-28">({clipboardFile.name})</span>
                                     </button>
                                 )}
                             </div>
@@ -2505,18 +2704,20 @@ export function FileBrowser() {
                         multiple
                         onChange={handleFileInput}
                     />
-                    {/* Hide upload button for non-admins in company folders */}
+                    {/* Compact Upload button */}
                     {(!isInsideCompanyFolder || isAdminOrHigher) && (
                         <button
                             onClick={() => fileInputRef.current?.click()}
-                            className="flex items-center px-3 sm:px-4 py-2 bg-primary-600 rounded-lg text-sm font-medium text-white hover:bg-primary-700 shadow-sm"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-primary-600 rounded-lg text-xs font-medium text-white hover:bg-primary-700 shadow-sm transition-colors flex-shrink-0"
+                            title="Upload File"
                         >
-                            <Upload className="w-4 h-4 sm:mr-2" />
-                            <span className="hidden sm:inline">Upload File</span>
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload</span>
                         </button>
                     )}
                 </div>
             </div>
+
 
             {/* Bulk Action Bar */}
             {selectedFiles.size > 0 && (
@@ -2834,7 +3035,7 @@ export function FileBrowser() {
 
             <div
                 className={clsx(
-                    "bg-white dark:bg-gray-800 border rounded-lg shadow-sm flex-1 flex flex-col transition-colors mt-4",
+                    "bg-white dark:bg-gray-800 border rounded-lg shadow-sm flex-1 flex flex-col transition-colors mt-2",
                     isDragging ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 border-2 border-dashed" : "border-gray-200 dark:border-gray-700"
                 )}
                 onDragEnter={handleDrag}
@@ -2842,196 +3043,6 @@ export function FileBrowser() {
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
             >
-                {/* Toolbar */}
-                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between bg-gray-50 dark:bg-gray-900/50 bg-opacity-50 gap-3">
-                    {/* Breadcrumbs */}
-                    <div className="flex items-center space-x-2 text-sm text-gray-600 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
-                        <Clock className="w-4 h-4 flex-shrink-0 text-gray-400" />
-                        {currentPath.map((folder, index) => (
-                            <div key={index} className="flex items-center flex-shrink-0">
-                                {index > 0 && <span className="mx-1 text-gray-400">/</span>}
-                                <span
-                                    className={clsx(
-                                        "hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer px-1 py-0.5 rounded transition-colors", 
-                                        index === currentPath.length - 1 && "font-semibold text-gray-900 dark:text-white",
-                                        index === 0 && dropTargetId === 'home' && "bg-primary-100 dark:bg-primary-900/30 ring-2 ring-primary-400"
-                                    )}
-                                    onClick={() => {
-                                        // Navigate to this path
-                                        if (index === 0 && currentGroup) {
-                                            // Exiting from a group - go back to root
-                                            handleExitGroup();
-                                            setIsInsideCompanyFolder(false);
-                                        } else {
-                                            const newPath = currentPath.slice(0, index + 1);
-                                            setCurrentPath(newPath);
-                                            // Reset company folder status when going back to root
-                                            if (index === 0) {
-                                                setIsInsideCompanyFolder(false);
-                                            }
-                                        }
-                                    }}
-                                    onDragOver={(e) => {
-                                        if (index === 0 && draggedFile) {
-                                            e.preventDefault();
-                                            handleDragOver(e, 'home');
-                                        }
-                                    }}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => {
-                                        if (index === 0 && draggedFile) {
-                                            handleMoveFileDrop(e, null); // null = move to root
-                                        }
-                                    }}
-                                >
-                                    {index === 0 && <Home className="w-3 h-3 inline mr-1" />}
-                                    {folder}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Search & View Toggle */}
-                    <div className="flex items-center space-x-3 w-full sm:w-auto">
-                        <div className="relative flex-1 sm:flex-none group">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-primary-500 transition-colors" />
-                            <input
-                                type="text"
-                                placeholder="Search files..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full sm:w-64 pl-9 pr-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 transition-shadow"
-                            />
-                        </div>
-                        
-                        {/* Sort dropdown */}
-                        <div className="relative" ref={sortMenuRef}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-                                title="Sort files"
-                            >
-                                <ArrowUpDown className="w-4 h-4" />
-                                <span className="hidden sm:inline">
-                                    {sortBy === 'name' ? 'Name' : sortBy === 'size' ? 'Size' : 'Modified'}
-                                </span>
-                                <span className="text-xs text-gray-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>
-                            </button>
-                            {isSortMenuOpen && (
-                                <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
-                                    <button
-                                        onClick={() => { handleSort('name'); setIsSortMenuOpen(false); }}
-                                        className={clsx(
-                                            "w-full px-4 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
-                                            sortBy === 'name' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
-                                        )}
-                                    >
-                                        Name
-                                        {sortBy === 'name' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
-                                    </button>
-                                    <button
-                                        onClick={() => { handleSort('size'); setIsSortMenuOpen(false); }}
-                                        className={clsx(
-                                            "w-full px-4 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
-                                            sortBy === 'size' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
-                                        )}
-                                    >
-                                        Size
-                                        {sortBy === 'size' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
-                                    </button>
-                                    <button
-                                        onClick={() => { handleSort('modified'); setIsSortMenuOpen(false); }}
-                                        className={clsx(
-                                            "w-full px-4 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700",
-                                            sortBy === 'modified' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
-                                        )}
-                                    >
-                                        Modified
-                                        {sortBy === 'modified' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                        
-                        {/* Items per page */}
-                        <div className="relative" ref={perPageMenuRef}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setIsPerPageMenuOpen(!isPerPageMenuOpen); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-                                title="Items per page"
-                            >
-                                <Rows3 className="w-4 h-4" />
-                                <span className="hidden sm:inline">
-                                    {itemsPerPageOverride ?? 'Auto'}
-                                </span>
-                            </button>
-                            {isPerPageMenuOpen && (
-                                <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
-                                    {([null, 10, 25, 50, 100] as (number | null)[]).map((count) => (
-                                        <button
-                                            key={count ?? 'auto'}
-                                            onClick={() => {
-                                                setItemsPerPageOverride(count);
-                                                if (count) {
-                                                    localStorage.setItem(perPageKey, String(count));
-                                                } else {
-                                                    localStorage.removeItem(perPageKey);
-                                                }
-                                                setCurrentPage(1);
-                                                setIsPerPageMenuOpen(false);
-                                            }}
-                                            className={clsx(
-                                                "w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700",
-                                                (count === itemsPerPageOverride || (count === null && !itemsPerPageOverride))
-                                                    ? "text-primary-600 dark:text-primary-400 font-medium"
-                                                    : "text-gray-700 dark:text-gray-300"
-                                            )}
-                                        >
-                                            {count ?? 'Auto'}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Density toggle (list view only) */}
-                        {viewMode === 'list' && (
-                            <button
-                                onClick={() => {
-                                    const next = density === 'compact' ? 'default' : density === 'default' ? 'comfortable' : 'compact';
-                                    setDensity(next);
-                                    localStorage.setItem(densityKey, next);
-                                }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-                                title={`Density: ${density} (click to cycle)`}
-                            >
-                                <span className="hidden sm:inline text-xs capitalize">{density === 'default' ? 'Normal' : density}</span>
-                                <div className="flex flex-col gap-px">
-                                    <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3.5 h-px" : density === 'default' ? "w-3.5 h-0.5" : "w-3.5 h-1")} />
-                                    <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3.5 h-px" : density === 'default' ? "w-3.5 h-0.5" : "w-3.5 h-1")} />
-                                    <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3.5 h-px" : density === 'default' ? "w-3.5 h-0.5" : "w-3.5 h-1")} />
-                                </div>
-                            </button>
-                        )}
-
-                        <div className="border-l border-gray-300 dark:border-gray-600 h-6 hidden sm:block" />
-                        <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
-                            <button
-                                onClick={() => { setViewMode('grid'); localStorage.setItem(viewModeKey, 'grid'); }}
-                                className={clsx("p-1.5 rounded-md transition-all", viewMode === 'grid' ? "bg-white dark:bg-gray-600 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
-                            >
-                                <Grid className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={() => { setViewMode('list'); localStorage.setItem(viewModeKey, 'list'); }}
-                                className={clsx("p-1.5 rounded-md transition-all", viewMode === 'list' ? "bg-white dark:bg-gray-600 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
-                            >
-                                <List className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
                 {/* File Area */}
                 <div className="p-4 relative flex flex-col flex-1 min-h-[400px]">
                     {isDragging && !draggedFile && (
@@ -3183,40 +3194,24 @@ export function FileBrowser() {
                                             <span className="line-clamp-2">{file.name}</span>
                                         </span>
 
-                                        {/* Hover badges and Action Menu */}
-                                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-0.5 z-20">
-                                            {file.visibility === 'private' && (
-                                                <span title="Private - only visible to you">
-                                                    <EyeOff className="w-3.5 h-3.5 text-purple-500" />
-                                                </span>
-                                            )}
-                                            {file.is_locked && (
-                                                <span title="Locked">
-                                                    <Lock className="w-3.5 h-3.5 text-orange-500" />
-                                                </span>
-                                            )}
-                                            {file.is_starred && (
-                                                <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
-                                            )}
-                                            <button
-                                                ref={(el) => {
-                                                    if (el) menuButtonRefs.current.set(`grid-${file.id}`, el);
-                                                }}
-                                                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                    setSelectedFiles(new Set([file.id]));
-                                                    setContextMenuTarget({
-                                                        x: rect.left,
-                                                        y: rect.bottom + 4,
-                                                        file,
-                                                    });
-                                                }}
-                                            >
-                                                <MoreVertical className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-                                            </button>
-                                        </div>
+                                        {/* Status badges */}
+                                        {(file.visibility === 'private' || file.is_locked || file.is_starred) && (
+                                            <div className="absolute top-1 right-1 flex items-center space-x-0.5 z-20 pointer-events-none">
+                                                {file.visibility === 'private' && (
+                                                    <span title="Private - only visible to you">
+                                                        <EyeOff className="w-3.5 h-3.5 text-purple-500" />
+                                                    </span>
+                                                )}
+                                                {file.is_locked && (
+                                                    <span title="Locked">
+                                                        <Lock className="w-3.5 h-3.5 text-orange-500" />
+                                                    </span>
+                                                )}
+                                                {file.is_starred && (
+                                                    <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                                                )}
+                                            </div>
+                                        )}
 
                                         {/* Group Context Menu */}
                                         {isGroup && activeGroupMenu === file.id && (

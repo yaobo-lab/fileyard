@@ -49,27 +49,6 @@ export function FileContextMenu({
   canShare = false,
 }: FileContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  useLayoutEffect(() => {
-    if (!target || !menuRef.current) return;
-
-    const rect = menuRef.current.getBoundingClientRect();
-    let nextX = target.x;
-    let nextY = target.y;
-
-    const padding = 8;
-    // Prevent overflowing viewport horizontally
-    if (nextX + rect.width > window.innerWidth - padding) {
-      nextX = Math.max(padding, window.innerWidth - rect.width - padding);
-    }
-    // Prevent overflowing viewport vertically
-    if (nextY + rect.height > window.innerHeight - padding) {
-      nextY = Math.max(padding, window.innerHeight - rect.height - padding);
-    }
-
-    setCoords({ x: nextX, y: nextY });
-  }, [target]);
 
   useEffect(() => {
     if (!target) return;
@@ -107,13 +86,24 @@ export function FileContextMenu({
   const { file } = target;
   const isFolder = file.type === 'folder' || file.kind === 'folder';
 
+  // Synchronously calculate boundary-safe coordinates on render without jump or float
+  const menuWidth = 160;
+  const menuHeight = 240;
+  const padding = 8;
+  const left = target.x + menuWidth > window.innerWidth - padding
+    ? Math.max(padding, window.innerWidth - menuWidth - padding)
+    : target.x;
+  const top = target.y + menuHeight > window.innerHeight - padding
+    ? Math.max(padding, window.innerHeight - menuHeight - padding)
+    : target.y;
+
   return createPortal(
     <div
       ref={menuRef}
       role="menu"
       aria-orientation="vertical"
-      className="fixed z-[99999] min-w-[156px] rounded-xl border border-gray-100 dark:border-gray-700/80 bg-white/95 dark:bg-gray-800/95 p-1 shadow-xl backdrop-blur-md text-xs select-none animate-in fade-in zoom-in-95 duration-75"
-      style={{ left: coords.x, top: coords.y }}
+      className="fixed z-[99999] min-w-[156px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 shadow-lg text-xs select-none"
+      style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >

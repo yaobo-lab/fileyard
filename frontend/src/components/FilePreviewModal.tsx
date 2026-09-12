@@ -15,6 +15,7 @@ import clsx from 'clsx';
 import { CodeViewer, CodeViewerHandle } from './viewers/CodeViewer';
 import { DocxViewer } from './viewers/DocxViewer';
 import { XlsxViewer } from './viewers/XlsxViewer';
+import { PptxViewer } from './viewers/PptxViewer';
 import { DrawioViewer } from './viewers/DrawioViewer';
 import { FileGlyphVisual } from './FileGlyphs';
 
@@ -36,6 +37,7 @@ export type SupportedKind =
   | 'pdf'
   | 'docx'
   | 'xlsx'
+  | 'pptx'
   | 'drawio'
   | 'image'
   | 'video'
@@ -46,11 +48,13 @@ export function detectFileKind(fileName: string, type?: string): SupportedKind {
   const lower = fileName.toLowerCase();
 
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) return 'docx';
+  if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) return 'pptx';
   if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.xlsm') || lower.endsWith('.csv')) {
     // Note: CSV can be viewed as spreadsheet or code, default to xlsx if requested, but CSV works in CodeViewer too
     if (lower.endsWith('.csv')) return 'text';
     return 'xlsx';
   }
+
   if (lower.endsWith('.pdf')) return 'pdf';
   if (lower.endsWith('.drawio') || lower.endsWith('.dio')) return 'drawio';
 
@@ -78,6 +82,7 @@ const MODAL_SIZES: Record<SupportedKind, string> = {
   text: 'w-[min(96vw,84rem)] h-[86vh]',
   pdf: 'w-[min(96vw,72rem)] h-[88vh]',
   docx: 'w-[min(96vw,72rem)] h-[88vh]',
+  pptx: 'w-[min(96vw,84rem)] h-[88vh]',
   xlsx: 'w-[min(96vw,98rem)] h-[88vh]',
   drawio: 'w-[min(96vw,86rem)] h-[88vh]',
   image: 'w-auto max-w-[min(96vw,72rem)] max-h-[88vh]',
@@ -283,6 +288,8 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
           ) : blobUrl ? (
             kind === 'docx' ? (
               <DocxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+            ) : kind === 'pptx' ? (
+              <PptxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
             ) : kind === 'xlsx' ? (
               <XlsxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
             ) : kind === 'text' ? (
