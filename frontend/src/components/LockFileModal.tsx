@@ -70,7 +70,7 @@ export function LockFileModal({ isOpen, onClose, onLock, fileName, isLocking }: 
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex items-center justify-center min-h-screen px-4">
-                <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={handleClose} />
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={handleClose} />
                 
                 <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -275,7 +275,7 @@ export function UnlockFileModal({
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex items-center justify-center min-h-screen px-4">
-                <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={handleClose} />
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={handleClose} />
                 
                 <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6">
                     <div className="flex items-center justify-between mb-4">

@@ -510,7 +510,7 @@ export function RolesPage() {
 
             {/* Create Role Modal */}
             {showCreateModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-opacity animate-in fade-in duration-100">
                     <div className="bg-popover rounded-xl shadow-xl border border-border max-w-md w-full">
                         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
                             <h3 className="text-base font-semibold text-foreground">

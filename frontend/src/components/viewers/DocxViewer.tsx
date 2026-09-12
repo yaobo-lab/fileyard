@@ -61,22 +61,25 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Clean wrapper styling helper to eliminate the ugly gray frame
+  // Clean wrapper styling helper to eliminate any gray frame or wrapper padding
   const applyCleanStyles = (root: HTMLElement) => {
-    const wrappers = root.querySelectorAll<HTMLElement>('.docx-wrapper');
-    wrappers.forEach((wrapper) => {
+    const allWrappers = root.querySelectorAll<HTMLElement>(
+      '.docx-rendered-document-wrapper, .docx-wrapper, [class*="-wrapper"], div:has(> section)'
+    );
+    allWrappers.forEach((wrapper) => {
       wrapper.style.setProperty('background', 'transparent', 'important');
       wrapper.style.setProperty('padding', '0', 'important');
       wrapper.style.setProperty('margin', '0', 'important');
       wrapper.style.setProperty('box-shadow', 'none', 'important');
       wrapper.style.setProperty('border', 'none', 'important');
+      wrapper.style.setProperty('outline', 'none', 'important');
       wrapper.style.setProperty('display', 'flex', 'important');
       wrapper.style.setProperty('flex-direction', 'column', 'important');
       wrapper.style.setProperty('align-items', 'center', 'important');
     });
 
     const sections = root.querySelectorAll<HTMLElement>(
-      '.docx-wrapper > section, section.docx-rendered-document, section.docx, section'
+      'section, .docx-wrapper > section, section.docx-rendered-document, section.docx'
     );
     sections.forEach((section) => {
       section.style.setProperty('background', 'white', 'important');
@@ -112,10 +115,10 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
 
         containerRef.current.innerHTML = '';
         try {
-          // ignoreLastRenderedPageBreak: false ensures Word's authentic pagination (14 pages) is parsed
+          // inWrapper: false prevents docx-preview from wrapping pages into gray-padded wrapper divs
           await docx.renderAsync(blob, containerRef.current, undefined, {
             className: 'docx-rendered-document',
-            inWrapper: true,
+            inWrapper: false,
             ignoreWidth: false,
             ignoreHeight: false,
             breakPages: true,
@@ -130,13 +133,13 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
 
           if (cancelled || !containerRef.current) return;
 
-          // Strip any gray wrapper backgrounds and frames
+          // Strip any remaining gray wrapper backgrounds and frames
           applyCleanStyles(containerRef.current);
 
           // Collect all rendered page sections
           const sections = Array.from(
             containerRef.current.querySelectorAll<HTMLElement>(
-              '.docx-wrapper > section, section.docx-rendered-document, section.docx, section'
+              'section, section.docx-rendered-document, section.docx'
             )
           );
 
@@ -508,8 +511,12 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
 
       {/* Global Style overrides to completely eradicate the gray frame and match 1:1 with storageui */}
       <style>{`
+        .docx-preview-root .docx-rendered-document-wrapper,
         .docx-preview-root .docx-wrapper,
-        .docx-wrapper {
+        .docx-preview-root [class*="-wrapper"],
+        .docx-rendered-document-wrapper,
+        .docx-wrapper,
+        [class*="docx"][class*="wrapper"] {
           background: transparent !important;
           padding: 0 !important;
           margin: 0 !important;
@@ -519,20 +526,21 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
           flex-direction: column !important;
           align-items: center !important;
         }
-        .docx-preview-root .docx-wrapper > section.docx-rendered-document,
-        .docx-preview-root .docx-wrapper > section.docx,
-        .docx-preview-root .docx-wrapper > section,
-        .docx-wrapper > section {
+        .docx-preview-root section,
+        .docx-rendered-document-wrapper > section,
+        .docx-wrapper > section,
+        section.docx-rendered-document,
+        section.docx {
           margin-bottom: 24px !important;
-          margin-left: 0 !important;
-          margin-right: 0 !important;
+          margin-left: auto !important;
+          margin-right: auto !important;
           margin-top: 0 !important;
           border: none !important;
           outline: none !important;
           box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
           background-color: white !important;
         }
-        .docx-night-render .docx-wrapper > section.docx-rendered-document,
+        .docx-night-render section,
         .docx-night-render .docx-wrapper > section {
           filter: invert(0.9) hue-rotate(180deg);
         }

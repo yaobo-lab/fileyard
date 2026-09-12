@@ -168,7 +168,7 @@ export function FileActivityModal({ isOpen, onClose, fileId, fileName }: FileAct
             <div className="flex min-h-full items-center justify-center p-4">
                 {/* Backdrop */}
                 <div 
-                    className="fixed inset-0 bg-black/50 transition-opacity" 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" 
                     onClick={onClose}
                 />
 

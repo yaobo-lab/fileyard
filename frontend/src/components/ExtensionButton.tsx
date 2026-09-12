@@ -47,7 +47,7 @@ export function ExtensionButton({ button, variant = 'default', className = '' }:
                 <div className="fixed inset-0 z-50 overflow-y-auto">
                     <div className="flex min-h-full items-center justify-center p-4">
                         <div 
-                            className="fixed inset-0 bg-black/50" 
+                            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" 
                             onClick={() => setIsOpen(false)} 
                         />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">

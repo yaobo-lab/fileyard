@@ -120,7 +120,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
-                <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={onClose} />
                 
                 <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
                     {/* Header */}
