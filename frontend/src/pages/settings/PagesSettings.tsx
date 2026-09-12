@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Check, Loader2, FileText, Shield, HelpCircle, Eye, RotateCcw } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
+import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
 
 type PageType = 'tos' | 'privacy' | 'help';
@@ -190,7 +191,33 @@ const PAGES = [
 ];
 
 export function PagesSettings() {
+    const t = useTranslations('SettingsPages');
+    const tCommon = useTranslations('Common');
     const { settings, updateSettings } = useGlobalSettings();
+
+    const PAGES = [
+        { 
+            id: 'tos' as PageType, 
+            label: t('tos'), 
+            icon: FileText,
+            description: t('tosDesc'),
+            settingKey: 'tos_content' as const,
+        },
+        { 
+            id: 'privacy' as PageType, 
+            label: t('privacy'), 
+            icon: Shield,
+            description: t('privacyDesc'),
+            settingKey: 'privacy_content' as const,
+        },
+        { 
+            id: 'help' as PageType, 
+            label: t('help'), 
+            icon: HelpCircle,
+            description: t('helpDesc'),
+            settingKey: 'help_content' as const,
+        },
+    ];
     
     const [activePage, setActivePage] = useState<PageType>('tos');
     const [tosContent, setTosContent] = useState('');
@@ -261,14 +288,14 @@ export function PagesSettings() {
         }
     };
 
-    const activePageInfo = PAGES.find(p => p.id === activePage)!;
+    const activePageInfo = PAGES.find(p => p.id === activePage) || PAGES[0];
 
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Page Content</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Edit the content of legal and help pages</p>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('description')}</p>
                 </div>
                 <button
                     onClick={handleSave}
@@ -287,7 +314,7 @@ export function PagesSettings() {
                     ) : (
                         <Save className="w-4 h-4 mr-2" />
                     )}
-                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save All'}
+                    {isSaving ? tCommon('saving') : saveSuccess ? tCommon('saved') : t('savePage')}
                 </button>
             </div>
 
@@ -328,10 +355,10 @@ export function PagesSettings() {
                             <button
                                 onClick={() => resetToDefault(activePage)}
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                                title="Reset to default content"
+                                title={t('resetDefault')}
                             >
                                 <RotateCcw className="w-4 h-4" />
-                                Reset
+                                {t('resetDefault')}
                             </button>
                         )}
                         <button
@@ -344,7 +371,7 @@ export function PagesSettings() {
                             )}
                         >
                             <Eye className="w-4 h-4" />
-                            {showPreview ? 'Edit' : 'Preview'}
+                            {showPreview ? t('edit') : t('preview')}
                         </button>
                     </div>
                 </div>
@@ -362,11 +389,11 @@ export function PagesSettings() {
                                 value={getContent(activePage)}
                                 onChange={(e) => setContent(activePage, e.target.value)}
                                 rows={20}
-                                placeholder={`Enter ${activePageInfo.label} content here...\n\nYou can use HTML for formatting:\n<h2>Heading</h2>\n<p>Paragraph text</p>\n<ul><li>List item</li></ul>`}
+                                placeholder={`Enter ${activePageInfo.label} content here...`}
                                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
                             />
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Use HTML tags for formatting. Click "Preview" to see how it will look.
+                                {t('markdownHint')}
                             </p>
                         </div>
                     )}

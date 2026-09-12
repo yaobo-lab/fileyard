@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Check, Loader2, Calendar, Globe } from 'lucide-react';
+import { Save, Check, Loader2, Globe } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
 import { useI18n, useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
@@ -241,20 +241,6 @@ export function GeneralSettings() {
                         </label>
                     ))}
                 </div>
-            </div>
-
-            {/* Live Preview Card */}
-            <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl p-6 text-white">
-                <div className="flex items-center gap-2 mb-3 opacity-90">
-                    <Calendar className="w-4 h-4" />
-                    <span className="text-sm font-medium">{tSettings('dateTimePreview')}</span>
-                </div>
-                <div className="text-3xl font-bold tracking-tight">
-                    {formatPreviewDate(dateFormat)} {formatPreviewTime(timeFormat)}
-                </div>
-                <p className="mt-2 text-sm opacity-75">
-                    {tSettings('dateTimePreviewDesc')}
-                </p>
             </div>
 
             {/* Date Format */}

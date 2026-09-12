@@ -1,14 +1,16 @@
 import { useNavigate } from 'react-router-dom';
 import { Shield, Puzzle, ChevronRight } from 'lucide-react';
+import { useTranslations } from '../../context/I18nContext';
 
 export function AdminSettings() {
     const navigate = useNavigate();
+    const t = useTranslations('SettingsAdmin');
 
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Administration</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Access advanced administrative features</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('description')}</p>
             </div>
 
             <div className="grid gap-4">
@@ -21,8 +23,8 @@ export function AdminSettings() {
                             <Shield className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                         </div>
                         <div className="text-left">
-                            <p className="font-medium text-gray-900 dark:text-white">Roles & Permissions</p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Manage user roles and access control</p>
+                            <p className="font-medium text-gray-900 dark:text-white">{t('rolesTitle')}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{t('rolesDesc')}</p>
                         </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:translate-x-1 transition-all" />
@@ -37,8 +39,8 @@ export function AdminSettings() {
                             <Puzzle className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                         </div>
                         <div className="text-left">
-                            <p className="font-medium text-gray-900 dark:text-white">Extensions</p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Manage installed extensions and integrations</p>
+                            <p className="font-medium text-gray-900 dark:text-white">{t('extensionsTitle')}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{t('extensionsDesc')}</p>
                         </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:translate-x-1 transition-all" />

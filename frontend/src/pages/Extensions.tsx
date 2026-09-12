@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { 
     Puzzle, Plus, Settings, Trash2, Power, PowerOff, 
     ExternalLink, Clock, FileCode, Zap, RefreshCw,
@@ -11,28 +10,31 @@ import { useExtensions, InstalledExtension, Extension } from '../hooks/useExtens
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 
-// Permission descriptions
-const PERMISSION_LABELS: Record<string, { label: string; description: string }> = {
-    'read:files': { label: 'Read Files', description: 'Access file metadata and contents' },
-    'write:files': { label: 'Write Files', description: 'Upload, modify, and delete files' },
-    'read:company': { label: 'Read Company', description: 'Access company information' },
-    'read:employees': { label: 'Read Employees', description: 'Access employee data' },
-    'automation:run': { label: 'Run Automation', description: 'Execute scheduled tasks' },
-    'file_processor:run': { label: 'Process Files', description: 'Process uploaded files' },
+// Permission keys mapping
+const PERMISSION_CONFIG: Record<string, { labelKey: string; descKey: string }> = {
+    'read:files': { labelKey: 'permReadFiles', descKey: 'permReadFilesDesc' },
+    'write:files': { labelKey: 'permWriteFiles', descKey: 'permWriteFilesDesc' },
+    'read:company': { labelKey: 'permReadCompany', descKey: 'permReadCompanyDesc' },
+    'read:employees': { labelKey: 'permReadEmployees', descKey: 'permReadEmployeesDesc' },
+    'automation:run': { labelKey: 'permRunAutomation', descKey: 'permRunAutomationDesc' },
+    'file_processor:run': { labelKey: 'permFileProcessor', descKey: 'permFileProcessorDesc' },
 };
 
 // Extension type icons and colors
-const TYPE_CONFIG: Record<string, { icon: typeof Puzzle; color: string; label: string }> = {
-    ui: { icon: Puzzle, color: 'text-blue-500 bg-blue-100 dark:bg-blue-900/30', label: 'UI Extension' },
-    file_processor: { icon: FileCode, color: 'text-green-500 bg-green-100 dark:bg-green-900/30', label: 'File Processor' },
-    automation: { icon: Zap, color: 'text-amber-500 bg-amber-100 dark:bg-amber-900/30', label: 'Automation' },
+const TYPE_CONFIG: Record<string, { icon: typeof Puzzle; color: string; labelKey: string }> = {
+    ui: { icon: Puzzle, color: 'text-blue-500 bg-blue-100 dark:bg-blue-900/30', labelKey: 'typeUi' },
+    file_processor: { icon: FileCode, color: 'text-green-500 bg-green-100 dark:bg-green-900/30', labelKey: 'typeProcessor' },
+    automation: { icon: Zap, color: 'text-amber-500 bg-amber-100 dark:bg-amber-900/30', labelKey: 'typeAutomation' },
 };
 
 export function Extensions() {
     const { user } = useAuth();
     const { companies } = useTenant();
     const { formatDate } = useGlobalSettings();
+    const t = useTranslations('Extensions');
+    const tCommon = useTranslations('Common');
     const {
         extensions,
         installedExtensions,
@@ -54,10 +56,10 @@ export function Extensions() {
                 <div className="text-center bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8">
                     <ShieldX className="h-16 w-16 mx-auto text-red-400" />
                     <h2 className="mt-4 text-xl font-semibold text-gray-900 dark:text-white">
-                        Access Denied
+                        {t('accessDeniedTitle')}
                     </h2>
                     <p className="mt-2 text-gray-500 dark:text-gray-400">
-                        Only SuperAdmins can manage extensions.
+                        {t('accessDeniedDesc')}
                     </p>
                 </div>
             </div>
@@ -143,7 +145,7 @@ export function Extensions() {
 
     // Handle uninstall
     const handleUninstall = async (extensionId: string) => {
-        if (!confirm('Are you sure you want to uninstall this extension?')) return;
+        if (!confirm(t('confirmUninstall'))) return;
         await uninstallExtension(extensionId);
     };
 
@@ -164,16 +166,16 @@ export function Extensions() {
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Extensions</h1>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        Manage third-party integrations and automations
+                        {t('description')}
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => refreshExtensions()}
                         className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                        title="Refresh"
+                        title={t('refresh')}
                     >
                         <RefreshCw className={clsx("h-5 w-5", loading && "animate-spin")} />
                     </button>
@@ -182,7 +184,7 @@ export function Extensions() {
                         className="inline-flex items-center px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
                     >
                         <Plus className="h-4 w-4 mr-2" />
-                        Register Extension
+                        {t('register')}
                     </button>
                 </div>
             </div>
@@ -209,7 +211,7 @@ export function Extensions() {
                                 : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300"
                         )}
                     >
-                        Installed ({installedExtensions.length})
+                        {t('tabInstalled', { count: installedExtensions.length })}
                     </button>
                     <button
                         onClick={() => setActiveTab('available')}
@@ -220,7 +222,7 @@ export function Extensions() {
                                 : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300"
                         )}
                     >
-                        Available ({availableExtensions.length})
+                        {t('tabAvailable', { count: availableExtensions.length })}
                     </button>
                 </nav>
             </div>
@@ -231,9 +233,9 @@ export function Extensions() {
                     {installedExtensions.length === 0 ? (
                         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                             <Puzzle className="h-12 w-12 mx-auto text-gray-400 dark:text-gray-500" />
-                            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">No extensions installed</h3>
+                            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">{t('noInstalledTitle')}</h3>
                             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                                Register and install extensions to enhance your workflow
+                                {t('noInstalledDesc')}
                             </p>
                         </div>
                     ) : (
@@ -252,9 +254,9 @@ export function Extensions() {
                     {availableExtensions.length === 0 ? (
                         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                             <CheckCircle className="h-12 w-12 mx-auto text-green-400" />
-                            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">All extensions installed</h3>
+                            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">{t('allInstalledTitle')}</h3>
                             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                                Register a new extension to add more functionality
+                                {t('allInstalledDesc')}
                             </p>
                         </div>
                     ) : (
@@ -277,46 +279,46 @@ export function Extensions() {
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                                Register New Extension
+                                {t('registerTitle')}
                             </h2>
                             
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Manifest URL
+                                        {t('manifestUrl')}
                                     </label>
                                     <input
                                         type="url"
                                         value={manifestUrl}
                                         onChange={(e) => setManifestUrl(e.target.value)}
-                                        placeholder="https://example.com/extension/manifest.json"
+                                        placeholder={t('manifestUrlPlaceholder')}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                     />
                                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                        URL to the extension's manifest.json file
+                                        {t('manifestUrlHint')}
                                     </p>
                                 </div>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Signature Algorithm
+                                        {t('signatureAlgorithm')}
                                     </label>
                                     <select
                                         value={signatureAlgorithm}
                                         onChange={(e) => setSignatureAlgorithm(e.target.value as 'hmac_sha256' | 'ed25519')}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                     >
-                                        <option value="hmac_sha256">HMAC-SHA256 (Recommended)</option>
+                                        <option value="hmac_sha256">{t('hmacRecommended')}</option>
                                         <option value="ed25519">Ed25519</option>
                                     </select>
                                 </div>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Companies with Access
+                                        {t('companiesWithAccess')}
                                     </label>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                        Select which companies can install this extension. Leave empty for only your company.
+                                        {t('companiesWithAccessHint')}
                                     </p>
                                     <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg">
                                         {companies.filter(c => c.status === 'active').map((company) => (
@@ -357,14 +359,14 @@ export function Extensions() {
                                     onClick={() => setShowRegisterModal(false)}
                                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                                 >
-                                    Cancel
+                                    {tCommon('cancel')}
                                 </button>
                                 <button
                                     onClick={handleRegister}
                                     disabled={!manifestUrl.trim() || validatingManifest}
                                     className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {validatingManifest ? 'Validating...' : 'Register Extension'}
+                                    {validatingManifest ? t('validating') : t('registerBtn')}
                                 </button>
                             </div>
                         </div>
@@ -379,17 +381,17 @@ export function Extensions() {
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                                Install {selectedExtension.name}
+                                {t('installTitle', { name: selectedExtension.name })}
                             </h2>
 
                             <div className="space-y-4">
                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                    {selectedExtension.description || 'No description provided'}
+                                    {selectedExtension.description || t('noDesc')}
                                 </p>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        Requested Permissions
+                                        {t('requestedPermissions')}
                                     </label>
                                     <div className="space-y-2">
                                         {(selectedExtension.manifest?.permissions || []).map((perm) => (
@@ -408,10 +410,10 @@ export function Extensions() {
                                                 />
                                                 <div>
                                                     <div className="font-medium text-gray-900 dark:text-white text-sm">
-                                                        {PERMISSION_LABELS[perm]?.label || perm}
+                                                        {PERMISSION_CONFIG[perm] ? t(PERMISSION_CONFIG[perm].labelKey) : perm}
                                                     </div>
                                                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {PERMISSION_LABELS[perm]?.description || ''}
+                                                        {PERMISSION_CONFIG[perm] ? t(PERMISSION_CONFIG[perm].descKey) : ''}
                                                     </div>
                                                 </div>
                                             </label>
@@ -425,13 +427,13 @@ export function Extensions() {
                                     onClick={() => setShowInstallModal(false)}
                                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                                 >
-                                    Cancel
+                                    {tCommon('cancel')}
                                 </button>
                                 <button
                                     onClick={handleInstall}
                                     className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg"
                                 >
-                                    Install Extension
+                                    {t('installBtn')}
                                 </button>
                             </div>
                         </div>
@@ -446,10 +448,10 @@ export function Extensions() {
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                                Manage Company Access
+                                {t('manageAccessTitle')}
                             </h2>
                             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                                Select which companies can install <strong>{selectedExtension.name}</strong>
+                                {t('manageAccessDesc', { name: selectedExtension.name })}
                             </p>
 
                             <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg">
@@ -478,8 +480,8 @@ export function Extensions() {
 
                             <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                                 {selectedCompanies.length === 0 
-                                    ? 'No companies selected - only your company will have access'
-                                    : `${selectedCompanies.length} companies will have access`}
+                                    ? t('noCompaniesSelectedHint')
+                                    : t('companiesSelectedHint', { count: selectedCompanies.length })}
                             </p>
 
                             <div className="mt-6 flex justify-end gap-3">
@@ -487,13 +489,13 @@ export function Extensions() {
                                     onClick={() => setShowAccessModal(false)}
                                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                                 >
-                                    Cancel
+                                    {tCommon('cancel')}
                                 </button>
                                 <button
                                     onClick={handleUpdateAccess}
                                     className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg"
                                 >
-                                    Save Access
+                                    {t('saveAccessBtn')}
                                 </button>
                             </div>
                         </div>
@@ -515,6 +517,7 @@ function InstalledExtensionCard({
     onUninstall: () => void;
 }) {
     const { formatDate } = useGlobalSettings();
+    const t = useTranslations('Extensions');
     const typeConfig = TYPE_CONFIG[extension.type] || TYPE_CONFIG.ui;
     const TypeIcon = typeConfig.icon;
 
@@ -533,23 +536,23 @@ function InstalledExtensionCard({
                             </span>
                             {extension.enabled ? (
                                 <span className="px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">
-                                    Active
+                                    {t('active')}
                                 </span>
                             ) : (
                                 <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                                    Disabled
+                                    {t('disabled')}
                                 </span>
                             )}
                         </div>
                         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                            {extension.description || 'No description'}
+                            {extension.description || t('noDesc')}
                         </p>
                         <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                             <span className="flex items-center gap-1">
                                 <Clock className="h-3.5 w-3.5" />
-                                Installed {formatDate(extension.installed_at)}
+                                {t('installedAt', { date: formatDate(extension.installed_at) })}
                             </span>
-                            <span>{extension.permissions.length} permissions</span>
+                            <span>{t('permissionsCount', { count: extension.permissions.length })}</span>
                         </div>
                     </div>
                 </div>
@@ -563,14 +566,14 @@ function InstalledExtensionCard({
                                 ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
                                 : "text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                         )}
-                        title={extension.enabled ? 'Disable' : 'Enable'}
+                        title={extension.enabled ? t('disable') : t('enable')}
                     >
                         {extension.enabled ? <Power className="h-5 w-5" /> : <PowerOff className="h-5 w-5" />}
                     </button>
                     <button
                         onClick={onUninstall}
                         className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                        title="Uninstall"
+                        title={t('uninstall')}
                     >
                         <Trash2 className="h-5 w-5" />
                     </button>
@@ -590,6 +593,7 @@ function AvailableExtensionCard({
     onInstall: () => void;
     onManageAccess?: () => void;
 }) {
+    const t = useTranslations('Extensions');
     const typeConfig = TYPE_CONFIG[extension.type] || TYPE_CONFIG.ui;
     const TypeIcon = typeConfig.icon;
 
@@ -612,17 +616,17 @@ function AvailableExtensionCard({
                                 "px-2 py-0.5 text-xs font-medium rounded",
                                 typeConfig.color
                             )}>
-                                {typeConfig.label}
+                                {t(typeConfig.labelKey)}
                             </span>
                             {extension.is_owner && (
                                 <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded flex items-center gap-1">
                                     <Crown className="h-3 w-3" />
-                                    Owner
+                                    {t('owner')}
                                 </span>
                             )}
                         </div>
                         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                            {extension.description || 'No description'}
+                            {extension.description || t('noDesc')}
                         </p>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                             {extension.manifest?.permissions && extension.manifest.permissions.length > 0 && (
@@ -632,12 +636,12 @@ function AvailableExtensionCard({
                                             key={perm}
                                             className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
                                         >
-                                            {PERMISSION_LABELS[perm]?.label || perm}
+                                            {PERMISSION_CONFIG[perm] ? t(PERMISSION_CONFIG[perm].labelKey) : perm}
                                         </span>
                                     ))}
                                     {extension.manifest.permissions.length > 3 && (
                                         <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                                            +{extension.manifest.permissions.length - 3} more
+                                            {t('morePerms', { count: extension.manifest.permissions.length - 3 })}
                                         </span>
                                     )}
                                 </>
@@ -645,7 +649,7 @@ function AvailableExtensionCard({
                             {extension.allowed_tenant_ids && extension.allowed_tenant_ids.length > 0 && (
                                 <span className="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded flex items-center gap-1">
                                     <Users className="h-3 w-3" />
-                                    {extension.allowed_tenant_ids.length} companies
+                                    {t('companiesCount', { count: extension.allowed_tenant_ids.length })}
                                 </span>
                             )}
                         </div>
@@ -657,7 +661,7 @@ function AvailableExtensionCard({
                         <button
                             onClick={onManageAccess}
                             className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                            title="Manage company access"
+                            title={t('manageAccess')}
                         >
                             <Users className="h-4 w-4" />
                         </button>
@@ -666,7 +670,7 @@ function AvailableExtensionCard({
                         onClick={onInstall}
                         className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
                     >
-                        Install
+                        {t('install')}
                         <ChevronRight className="h-4 w-4 ml-1" />
                     </button>
                 </div>
@@ -676,4 +680,5 @@ function AvailableExtensionCard({
 }
 
 export default Extensions;
+
 

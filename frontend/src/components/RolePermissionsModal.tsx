@@ -15,6 +15,7 @@ import {
     Info
 } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface Role {
@@ -43,68 +44,69 @@ interface RolePermissionsModalProps {
 // Permission categories for grouping
 const PERMISSION_CATEGORIES = {
     files: {
-        label: 'Files',
+        labelKey: 'catFiles',
         icon: File,
         permissions: ['files.view', 'files.upload', 'files.download', 'files.delete', 'files.share'],
     },
     requests: {
-        label: 'File Requests',
+        labelKey: 'catRequests',
         icon: File,
         permissions: ['requests.create', 'requests.view'],
     },
     users: {
-        label: 'Users',
+        labelKey: 'catUsers',
         icon: Users,
         permissions: ['users.view', 'users.invite', 'users.edit', 'users.delete'],
     },
     roles: {
-        label: 'Roles',
+        labelKey: 'catRoles',
         icon: Shield,
         permissions: ['roles.view', 'roles.manage'],
     },
     audit: {
-        label: 'Audit',
+        labelKey: 'catAudit',
         icon: Activity,
         permissions: ['audit.view', 'audit.export'],
     },
     settings: {
-        label: 'Settings',
+        labelKey: 'catSettings',
         icon: Settings,
         permissions: ['settings.view', 'settings.edit'],
     },
     tenants: {
-        label: 'Companies',
+        labelKey: 'catTenants',
         icon: Building2,
         permissions: ['tenants.manage'],
     },
     approvals: {
-        label: 'Approvals',
+        labelKey: 'catApprovals',
         icon: CheckCircle,
         permissions: ['approvals.view', 'approvals.manage'],
     },
 };
 
-const PERMISSION_LABELS: Record<string, string> = {
-    'files.view': 'View Files',
-    'files.upload': 'Upload Files',
-    'files.download': 'Download Files',
-    'files.delete': 'Delete Files',
-    'files.share': 'Share Files',
-    'requests.create': 'Create Requests',
-    'requests.view': 'View Requests',
-    'users.view': 'View Users',
-    'users.invite': 'Invite Users',
-    'users.edit': 'Edit Users',
-    'users.delete': 'Delete Users',
-    'roles.view': 'View Roles',
-    'roles.manage': 'Manage Roles',
-    'audit.view': 'View Audit Logs',
-    'audit.export': 'Export Audit Logs',
-    'settings.view': 'View Settings',
-    'settings.edit': 'Edit Settings',
-    'tenants.manage': 'Manage Companies',
-    'approvals.view': 'View Approvals',
-    'approvals.manage': 'Manage Approvals',
+const PERMISSION_LABEL_KEYS: Record<string, string> = {
+    'files.view': 'permFilesView',
+    'files.upload': 'permFilesUpload',
+    'files.download': 'permFilesDownload',
+    'files.delete': 'permFilesDelete',
+    'files.share': 'permFilesShare',
+    'requests.create': 'permRequestsCreate',
+    'requests.view': 'permRequestsView',
+    'users.view': 'permUsersView',
+    'users.invite': 'permUsersInvite',
+    'users.edit': 'permUsersEdit',
+    'users.delete': 'permUsersDelete',
+    'roles.view': 'permRolesView',
+    'roles.manage': 'permRolesManage',
+    'audit.view': 'permAuditView',
+    'audit.export': 'permAuditExport',
+    'settings.view': 'permSettingsView',
+    'settings.edit': 'permSettingsEdit',
+    'tenants.manage': 'permTenantsManage',
+    'approvals.view': 'permApprovalsView',
+    'approvals.manage': 'permApprovalsDecide',
+    'approvals.decide': 'permApprovalsDecide',
 };
 
 export function RolePermissionsModal({
@@ -115,6 +117,8 @@ export function RolePermissionsModal({
     canEdit,
 }: RolePermissionsModalProps) {
     const authFetch = useAuthFetch();
+    const t = useTranslations('Roles');
+    const tCommon = useTranslations('Common');
     const [permissions, setPermissions] = useState<Permission[]>([]);
     const [allPermissions, setAllPermissions] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -193,14 +197,14 @@ export function RolePermissionsModal({
                     <div>
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Shield className="w-5 h-5 text-primary-600" />
-                            {role.name} Permissions
+                            {t('permModalTitle', { name: role.name })}
                         </h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                            Base level: <span className="font-medium">{role.base_role}</span>
+                            {t('thBaseLevel')}: <span className="font-medium">{role.base_role}</span>
                             {role.is_system && (
                                 <span className="ml-2 inline-flex items-center text-amber-600 dark:text-amber-400">
                                     <Lock className="w-3 h-3 mr-1" />
-                                    System Role
+                                    {t('systemRoles')}
                                 </span>
                             )}
                         </p>
@@ -225,15 +229,15 @@ export function RolePermissionsModal({
                             <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg">
                                 <span className="flex items-center gap-1">
                                     <div className="w-3 h-3 rounded bg-emerald-500"></div>
-                                    Granted
+                                    {t('permModalGranted')}
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <div className="w-3 h-3 rounded bg-gray-300 dark:bg-gray-600"></div>
-                                    Not Granted
+                                    {t('permModalDenied')}
                                 </span>
                                 <span className="flex items-center gap-1">
                                     <Lock className="w-3 h-3" />
-                                    Inherited from base role
+                                    {t('permModalInherited')}
                                 </span>
                             </div>
 
@@ -251,7 +255,7 @@ export function RolePermissionsModal({
                                         <div className="bg-gray-50 dark:bg-gray-900/50 px-4 py-3 flex items-center gap-2">
                                             <CategoryIcon className="w-4 h-4 text-gray-500" />
                                             <h4 className="font-medium text-gray-900 dark:text-white text-sm">
-                                                {category.label}
+                                                {t(category.labelKey)}
                                             </h4>
                                         </div>
                                         <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
@@ -266,7 +270,7 @@ export function RolePermissionsModal({
                                                 >
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-sm text-gray-700 dark:text-gray-300">
-                                                            {PERMISSION_LABELS[perm.permission] || perm.permission}
+                                                            {PERMISSION_LABEL_KEYS[perm.permission] ? t(PERMISSION_LABEL_KEYS[perm.permission]) : perm.permission}
                                                         </span>
                                                         {perm.inherited && (
                                                             <Lock className="w-3 h-3 text-gray-400" />
@@ -295,7 +299,7 @@ export function RolePermissionsModal({
                                                             <button
                                                                 type="button"
                                                                 className={clsx(
-                                                                    "w-10 h-6 rounded-full flex items-center px-0.5 transition-colors",
+                                                                  "w-10 h-6 rounded-full flex items-center px-0.5 transition-colors",
                                                                     perm.granted
                                                                         ? "bg-emerald-500"
                                                                         : "bg-gray-200 dark:bg-gray-700"
@@ -322,9 +326,9 @@ export function RolePermissionsModal({
                                 <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                                     <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="text-sm text-amber-800 dark:text-amber-200">
-                                        <p className="font-medium">View Only</p>
+                                        <p className="font-medium">{t('viewOnly')}</p>
                                         <p className="mt-0.5">
-                                            You don't have permission to modify this role.
+                                            {t('viewOnlyDesc')}
                                         </p>
                                     </div>
                                 </div>
@@ -335,9 +339,9 @@ export function RolePermissionsModal({
                                 <div className="flex items-start gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
                                     <Shield className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
                                     <div className="text-sm text-purple-800 dark:text-purple-200">
-                                        <p className="font-medium">SuperAdmin Role</p>
+                                        <p className="font-medium">{t('superAdminRole')}</p>
                                         <p className="mt-0.5">
-                                            This role has all permissions by default. SuperAdmin is the highest privilege level.
+                                            {t('superAdminRoleDesc')}
                                         </p>
                                     </div>
                                 </div>
@@ -351,7 +355,7 @@ export function RolePermissionsModal({
                     <div className="text-sm text-gray-500 dark:text-gray-400">
                         {hasChanges && (
                             <span className="text-amber-600 dark:text-amber-400">
-                                You have unsaved changes
+                                {t('unsavedChanges')}
                             </span>
                         )}
                     </div>
@@ -360,7 +364,7 @@ export function RolePermissionsModal({
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                         >
-                            {canEdit ? 'Cancel' : 'Close'}
+                            {canEdit ? tCommon('cancel') : tCommon('close')}
                         </button>
                         {canEdit && (
                             <button
@@ -369,7 +373,7 @@ export function RolePermissionsModal({
                                 className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium disabled:opacity-50 transition-colors"
                             >
                                 <Save className="w-4 h-4 mr-2" />
-                                {isSaving ? 'Saving...' : 'Save Changes'}
+                                {isSaving ? tCommon('saving') : t('saveChanges')}
                             </button>
                         )}
                     </div>
@@ -378,4 +382,5 @@ export function RolePermissionsModal({
         </div>
     );
 }
+
 

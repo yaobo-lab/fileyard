@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Check, CheckCheck, Trash2, AlertCircle, Upload, Clock, UserPlus, Shield, HardDrive, Share, Settings, Filter, Mail, BellRing } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,7 +41,18 @@ interface PreferenceLabel {
     description: string;
 }
 
+const EVENT_I18N_KEYS: Record<string, { label: string; desc: string }> = {
+    file_upload: { label: 'eventFileUpload', desc: 'eventFileUploadDesc' },
+    request_expiring: { label: 'eventRequestExpiring', desc: 'eventRequestExpiringDesc' },
+    user_action: { label: 'eventUserAction', desc: 'eventUserActionDesc' },
+    compliance_alert: { label: 'eventComplianceAlert', desc: 'eventComplianceAlertDesc' },
+    storage_warning: { label: 'eventStorageWarning', desc: 'eventStorageWarningDesc' },
+    file_shared: { label: 'eventFileShared', desc: 'eventFileSharedDesc' },
+    approval: { label: 'eventApproval', desc: 'eventApprovalDesc' }
+};
+
 export function Notifications() {
+    const t = useTranslations('Notifications');
     const { user } = useAuth();
     const authFetch = useAuthFetch();
     const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'preferences'>('all');
@@ -201,9 +213,9 @@ export function Notifications() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-foreground">Notifications</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('title')}</h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        Manage your notifications, alerts and preferences
+                        {t('description')}
                     </p>
                 </div>
                 {activeTab !== 'preferences' && unreadCount > 0 && (
@@ -214,7 +226,7 @@ export function Notifications() {
                         className="gap-1.5 h-9"
                     >
                         <CheckCheck className="w-4 h-4 text-primary" />
-                        <span>Mark all as read</span>
+                        <span>{t('markAllRead')}</span>
                     </Button>
                 )}
             </div>
@@ -232,7 +244,7 @@ export function Notifications() {
                         )}
                     >
                         <Bell className="w-4 h-4" />
-                        <span>All Notifications</span>
+                        <span>{t('tabAll')}</span>
                     </button>
                     <button
                         onClick={() => { setActiveTab('unread'); setPage(1); }}
@@ -244,7 +256,7 @@ export function Notifications() {
                         )}
                     >
                         <Filter className="w-4 h-4" />
-                        <span>Unread</span>
+                        <span>{t('tabUnread')}</span>
                         {unreadCount > 0 && (
                             <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-[11px] h-4">
                                 {unreadCount}
@@ -261,7 +273,7 @@ export function Notifications() {
                         )}
                     >
                         <Settings className="w-4 h-4" />
-                        <span>Preferences</span>
+                        <span>{t('tabPreferences')}</span>
                     </button>
                 </nav>
             </div>
@@ -270,9 +282,9 @@ export function Notifications() {
             {activeTab === 'preferences' ? (
                 <Card className="shadow-xs">
                     <CardHeader className="pb-4">
-                        <CardTitle className="text-lg">Notification Preferences</CardTitle>
+                        <CardTitle className="text-lg">{t('prefTitle')}</CardTitle>
                         <CardDescription>
-                            Choose how you want to be notified about different workspace events
+                            {t('prefDesc')}
                         </CardDescription>
                     </CardHeader>
                     
@@ -297,14 +309,17 @@ export function Notifications() {
                                 {preferenceLabels.map((label) => {
                                     const pref = preferences.find(p => p.event_type === label.event_type);
                                     const canAccess = canAccessPreference(label.event_type);
+                                    const i18nConfig = EVENT_I18N_KEYS[label.event_type];
+                                    const eventLabel = i18nConfig ? t(i18nConfig.label as any) : label.label;
+                                    const eventDesc = i18nConfig ? t(i18nConfig.desc as any) : label.description;
                                     
                                     if (!canAccess) return null;
                                     
                                     return (
                                         <div key={label.event_type} className="p-5 flex items-center justify-between gap-4">
                                             <div className="flex-1">
-                                                <h3 className="text-sm font-medium text-foreground">{label.label}</h3>
-                                                <p className="text-xs text-muted-foreground mt-0.5">{label.description}</p>
+                                                <h3 className="text-sm font-medium text-foreground">{eventLabel}</h3>
+                                                <p className="text-xs text-muted-foreground mt-0.5">{eventDesc}</p>
                                             </div>
                                             <div className="flex items-center space-x-6 shrink-0">
                                                 <div className="flex items-center space-x-2">
@@ -314,7 +329,7 @@ export function Notifications() {
                                                         disabled={savingPrefs}
                                                     />
                                                     <BellRing className="w-4 h-4 text-muted-foreground" />
-                                                    <span className="text-xs text-muted-foreground">In-app</span>
+                                                    <span className="text-xs text-muted-foreground">{t('inApp')}</span>
                                                 </div>
                                                 <div className="flex items-center space-x-2">
                                                     <Switch
@@ -323,7 +338,7 @@ export function Notifications() {
                                                         disabled={savingPrefs}
                                                     />
                                                     <Mail className="w-4 h-4 text-muted-foreground" />
-                                                    <span className="text-xs text-muted-foreground">Email</span>
+                                                    <span className="text-xs text-muted-foreground">{t('email')}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -352,12 +367,12 @@ export function Notifications() {
                         <Card className="p-12 text-center shadow-xs">
                             <Bell className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
                             <h3 className="text-base font-semibold text-foreground mb-1">
-                                {activeTab === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+                                {activeTab === 'unread' ? t('noUnreadTitle') : t('noNotificationsTitle')}
                             </h3>
                             <p className="text-xs text-muted-foreground">
                                 {activeTab === 'unread' 
-                                    ? 'You are all caught up!' 
-                                    : 'Notifications about important events will appear here.'}
+                                    ? t('noUnreadDesc') 
+                                    : t('noNotificationsDesc')}
                             </p>
                         </Card>
                     ) : (
@@ -397,7 +412,7 @@ export function Notifications() {
                                                             size="icon"
                                                             onClick={() => markAsRead(notification.id)}
                                                             className="h-8 w-8 text-muted-foreground hover:text-emerald-500"
-                                                            title="Mark as read"
+                                                            title={t('markAsRead')}
                                                         >
                                                             <Check className="w-4 h-4" />
                                                         </Button>
@@ -407,7 +422,7 @@ export function Notifications() {
                                                         size="icon"
                                                         onClick={() => deleteNotification(notification.id)}
                                                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                        title="Delete"
+                                                        title={t('delete')}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -424,7 +439,7 @@ export function Notifications() {
                     {totalPages > 1 && (
                         <div className="flex items-center justify-between pt-4">
                             <p className="text-xs text-muted-foreground">
-                                Showing {((page - 1) * 20) + 1} to {Math.min(page * 20, total)} of {total} notifications
+                                {t('showing', { start: ((page - 1) * 20) + 1, end: Math.min(page * 20, total), total })}
                             </p>
                             <div className="flex items-center space-x-2">
                                 <Button
@@ -434,10 +449,10 @@ export function Notifications() {
                                     disabled={page === 1}
                                     className="h-8"
                                 >
-                                    Previous
+                                    {t('previous')}
                                 </Button>
                                 <span className="text-xs text-muted-foreground">
-                                    Page {page} of {totalPages}
+                                    {t('pageOf', { page, total: totalPages })}
                                 </span>
                                 <Button
                                     variant="outline"
@@ -446,7 +461,7 @@ export function Notifications() {
                                     disabled={page === totalPages}
                                     className="h-8"
                                 >
-                                    Next
+                                    {t('next')}
                                 </Button>
                             </div>
                         </div>

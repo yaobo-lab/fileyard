@@ -23,6 +23,7 @@ import {
   Folder,
 } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
 
 interface TenantScanSettings {
@@ -83,6 +84,8 @@ interface QuarantineResponse {
 export function VirusScanSettings() {
   const authFetch = useAuthFetch();
   const { user } = useAuth();
+  const t = useTranslations('VirusScanSettings');
+  const tCommon = useTranslations('Common');
   const isSuperAdmin = user?.role === 'SuperAdmin';
 
   // Settings state
@@ -282,7 +285,7 @@ export function VirusScanSettings() {
   };
 
   const handleDeleteQuarantined = async (id: string) => {
-    if (!confirm('Are you sure you want to permanently delete this file? This action cannot be undone.')) {
+    if (!confirm(t('confirmDeleteQuarantine'))) {
       return;
     }
 
@@ -320,9 +323,9 @@ export function VirusScanSettings() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Virus Scanning</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Configure ClamAV virus scanning for uploaded files
+            {t('description')}
           </p>
         </div>
         {activeTab === 'settings' && (
@@ -343,7 +346,7 @@ export function VirusScanSettings() {
             ) : (
               <Save className="w-4 h-4 mr-2" />
             )}
-            {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+            {isSaving ? tCommon('saving') : saveSuccess ? t('saveSuccess') : tCommon('save')}
           </button>
         )}
       </div>
@@ -388,17 +391,17 @@ export function VirusScanSettings() {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">
                 {!metrics?.enabled
-                  ? 'Virus Scanning Disabled'
+                  ? t('statusDisabled')
                   : metrics?.clamd_connected
-                  ? 'ClamAV Connected'
-                  : 'ClamAV Disconnected'}
+                  ? t('statusConnected')
+                  : t('statusDisconnected')}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {!metrics?.enabled
-                  ? 'Enable scanning in your environment configuration'
+                  ? t('statusDisabledHint')
                   : metrics?.clamd_version
-                  ? `Version: ${metrics.clamd_version}`
-                  : 'Waiting for ClamAV daemon...'}
+                  ? t('statusVersion', { version: metrics.clamd_version })
+                  : t('statusWaiting')}
               </p>
             </div>
           </div>
@@ -414,11 +417,11 @@ export function VirusScanSettings() {
         {metrics?.enabled && (
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Scans (1h)</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('metricScans')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">{metrics.scans_last_hour}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Threats (1h)</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('metricThreats')}</p>
               <p
                 className={clsx(
                   'text-xl font-bold',
@@ -429,11 +432,11 @@ export function VirusScanSettings() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('metricPending')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">{metrics.pending_jobs}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Avg Time</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('metricAvgTime')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
                 {metrics.avg_scan_duration_ms ? `${Math.round(metrics.avg_scan_duration_ms)}ms` : '—'}
               </p>
@@ -446,9 +449,9 @@ export function VirusScanSettings() {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-4">
           {[
-            { id: 'settings', label: 'Settings', icon: Shield },
-            { id: 'history', label: 'Scan History', icon: Activity },
-            { id: 'quarantine', label: 'Quarantine', icon: FileWarning },
+            { id: 'settings', label: t('tabSettings'), icon: Shield },
+            { id: 'history', label: t('tabHistory'), icon: Activity },
+            { id: 'quarantine', label: t('tabQuarantine'), icon: FileWarning },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -474,9 +477,9 @@ export function VirusScanSettings() {
             {/* Enable Toggle */}
             <div className="flex items-center justify-between">
               <div>
-                <label className="font-medium text-gray-900 dark:text-white">Enable Virus Scanning</label>
+                <label className="font-medium text-gray-900 dark:text-white">{t('enableScan')}</label>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Automatically scan uploaded files for malware
+                  {t('enableScanDesc')}
                 </p>
               </div>
               <button
@@ -505,9 +508,9 @@ export function VirusScanSettings() {
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-medium">ClamAV is not enabled</p>
+                    <p className="font-medium">{t('clamavNotEnabled')}</p>
                     <p className="mt-1 text-yellow-600 dark:text-yellow-400">
-                      To enable virus scanning, set <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 rounded">CLAMAV_ENABLED=true</code> in your environment configuration.
+                      {t('clamavNotEnabledDesc')}
                     </p>
                   </div>
                 </div>
@@ -517,24 +520,24 @@ export function VirusScanSettings() {
             {/* File Types */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                File Types to Scan
+                {t('fileTypesLabel')}
               </label>
               <input
                 type="text"
                 value={fileTypes}
                 onChange={(e) => setFileTypes(e.target.value)}
-                placeholder="pdf, doc, docx, xls, xlsx, zip (leave empty to scan all)"
+                placeholder={t('fileTypesPlaceholder')}
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
               />
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Comma-separated list of file extensions. Leave empty to scan all file types.
+                {t('fileTypesHint')}
               </p>
             </div>
 
             {/* Max File Size */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Maximum File Size (MB)
+                {t('maxFileSizeLabel')}
               </label>
               <input
                 type="number"
@@ -545,20 +548,20 @@ export function VirusScanSettings() {
                 className="w-32 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
               />
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Files larger than this will skip scanning.
+                {t('maxFileSizeHint')}
               </p>
             </div>
 
             {/* Action on Detect */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Action on Threat Detection
+                {t('actionLabel')}
               </label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {[
-                  { value: 'flag', label: 'Flag Only', desc: 'Mark file as infected but keep it accessible', icon: AlertTriangle },
-                  { value: 'quarantine', label: 'Quarantine', desc: 'Move to quarantine folder, block access', icon: FileWarning },
-                  { value: 'delete', label: 'Delete', desc: 'Permanently delete the infected file', icon: Trash2 },
+                  { value: 'flag', label: t('actionFlag'), desc: t('actionFlagDesc'), icon: AlertTriangle },
+                  { value: 'quarantine', label: t('actionQuarantine'), desc: t('actionQuarantineDesc'), icon: FileWarning },
+                  { value: 'delete', label: t('actionDelete'), desc: t('actionDeleteDesc'), icon: Trash2 },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -592,7 +595,7 @@ export function VirusScanSettings() {
 
             {/* Notifications */}
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <h4 className="font-medium text-gray-900 dark:text-white mb-4">Notifications</h4>
+              <h4 className="font-medium text-gray-900 dark:text-white mb-4">{t('notificationsTitle')}</h4>
               <div className="space-y-4">
                 <label className="flex items-center gap-3">
                   <input
@@ -602,9 +605,9 @@ export function VirusScanSettings() {
                     className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                   />
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">Notify Administrators</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{t('notifyAdmins')}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Send email alerts to admins when threats are detected
+                      {t('notifyAdminsDesc')}
                     </p>
                   </div>
                 </label>
@@ -616,9 +619,9 @@ export function VirusScanSettings() {
                     className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                   />
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">Notify File Uploader</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{t('notifyUploader')}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Inform the user who uploaded the file about the detection
+                      {t('notifyUploaderDesc')}
                     </p>
                   </div>
                 </label>
@@ -627,7 +630,7 @@ export function VirusScanSettings() {
 
             {/* Auto-Suspend Section */}
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <h4 className="font-medium text-gray-900 dark:text-white mb-4">User Suspension</h4>
+              <h4 className="font-medium text-gray-900 dark:text-white mb-4">{t('userSuspensionTitle')}</h4>
               <div className="space-y-4">
                 <label className="flex items-center gap-3">
                   <input
@@ -637,9 +640,9 @@ export function VirusScanSettings() {
                     className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                   />
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">Auto-Suspend Uploaders</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{t('autoSuspend')}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Automatically suspend users who upload infected files
+                      {t('autoSuspendDesc')}
                     </p>
                   </div>
                 </label>
@@ -648,7 +651,7 @@ export function VirusScanSettings() {
                   <div className="ml-7 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Suspension Threshold
+                        {t('thresholdLabel')}
                       </label>
                       <div className="flex items-center gap-3">
                         <input
@@ -661,16 +664,15 @@ export function VirusScanSettings() {
                         />
                         <span className="text-sm text-gray-600 dark:text-gray-400">
                           {suspendThreshold === 1 
-                            ? 'Suspend immediately on first offense' 
-                            : `Suspend after ${suspendThreshold} infected uploads`}
+                            ? t('thresholdOnce') 
+                            : t('thresholdMultiple', { count: suspendThreshold })}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
                       <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
                       <p className="text-xs text-amber-700 dark:text-amber-300">
-                        <strong>Note:</strong> Admins and SuperAdmins are exempt from auto-suspension.
-                        Suspended users will be unable to log in until manually reinstated.
+                        {t('suspendNote')}
                       </p>
                     </div>
                   </div>
@@ -685,7 +687,7 @@ export function VirusScanSettings() {
       {activeTab === 'history' && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="font-medium text-gray-900 dark:text-white">Recent Scans</h3>
+            <h3 className="font-medium text-gray-900 dark:text-white">{t('recentScansTitle')}</h3>
             <button
               onClick={() => fetchHistory(true)}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -698,19 +700,19 @@ export function VirusScanSettings() {
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    File
+                    {t('thFile')}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Status
+                    {t('thStatus')}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Threat
+                    {t('thThreat')}
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Duration
+                    {t('thDuration')}
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Scanned
+                    {t('thScanned')}
                   </th>
                 </tr>
               </thead>
@@ -734,7 +736,7 @@ export function VirusScanSettings() {
                         >
                           {result.scan_status === 'clean' && <CheckCircle className="w-3 h-3" />}
                           {result.scan_status === 'infected' && <XCircle className="w-3 h-3" />}
-                          {result.scan_status}
+                          {result.scan_status === 'clean' ? t('statusClean') : result.scan_status === 'infected' ? t('statusInfected') : result.scan_status}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
@@ -757,7 +759,7 @@ export function VirusScanSettings() {
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      No scan history available
+                      {t('noHistory')}
                     </td>
                   </tr>
                 )}
@@ -769,7 +771,7 @@ export function VirusScanSettings() {
           {scanResults.length > 0 && (
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Showing {scanResults.length} of {historyTotal} scans
+                {t('showingScans', { count: scanResults.length, total: historyTotal })}
               </span>
               {hasMoreHistory && (
                 <button
@@ -780,12 +782,12 @@ export function VirusScanSettings() {
                   {loadingMoreHistory ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Loading...
+                      {t('loadingMore')}
                     </>
                   ) : (
                     <>
                       <ChevronDown className="w-4 h-4" />
-                      Load More
+                      {t('loadMore')}
                     </>
                   )}
                 </button>
@@ -800,9 +802,9 @@ export function VirusScanSettings() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div>
-              <h3 className="font-medium text-gray-900 dark:text-white">Quarantined Files</h3>
+              <h3 className="font-medium text-gray-900 dark:text-white">{t('quarantinedTitle')}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Files detected as malicious and moved to quarantine
+                {t('quarantinedDesc')}
               </p>
             </div>
             <button
@@ -817,19 +819,19 @@ export function VirusScanSettings() {
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
                   <th className="w-[25%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    File
+                    {t('thFile')}
                   </th>
                   <th className="w-[22%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Uploader
+                    {t('thUploader')}
                   </th>
                   <th className="w-[20%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Threat
+                    {t('thThreat')}
                   </th>
                   <th className="w-[10%] px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Size
+                    {t('thSize')}
                   </th>
                   <th className="w-[15%] px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Date
+                    {t('thDate')}
                   </th>
                   <th className="w-[8%] px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     
@@ -861,7 +863,7 @@ export function VirusScanSettings() {
                             </div>
                             <div className="flex flex-col min-w-0">
                               <span className="text-sm text-gray-900 dark:text-white truncate" title={file.uploader_name || ''}>
-                                {file.uploader_name || 'Unknown'}
+                                {file.uploader_name || t('unknown')}
                               </span>
                               <span className="text-xs text-gray-500 dark:text-gray-400 truncate" title={file.uploader_email}>
                                 {file.uploader_email}
@@ -869,7 +871,7 @@ export function VirusScanSettings() {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-sm text-gray-400 dark:text-gray-500 italic">Unknown</span>
+                          <span className="text-sm text-gray-400 dark:text-gray-500 italic">{t('unknown')}</span>
                         )}
                       </td>
                       <td className="px-3 py-3">
@@ -891,7 +893,7 @@ export function VirusScanSettings() {
                         <button
                           onClick={() => handleDeleteQuarantined(file.id)}
                           className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-                          title="Delete permanently"
+                          title={t('deletePermanently')}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -902,7 +904,7 @@ export function VirusScanSettings() {
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <ShieldCheck className="w-8 h-8 mx-auto mb-2 text-green-500" />
-                      No files in quarantine
+                      {t('noQuarantined')}
                     </td>
                   </tr>
                 )}
@@ -914,7 +916,7 @@ export function VirusScanSettings() {
           {quarantinedFiles.length > 0 && (
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Showing {quarantinedFiles.length} of {quarantineTotal} files
+                {t('showingQuarantine', { count: quarantinedFiles.length, total: quarantineTotal })}
               </span>
               {hasMoreQuarantine && (
                 <button
@@ -925,12 +927,12 @@ export function VirusScanSettings() {
                   {loadingMoreQuarantine ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Loading...
+                      {t('loadingMore')}
                     </>
                   ) : (
                     <>
                       <ChevronDown className="w-4 h-4" />
-                      Load More
+                      {t('loadMore')}
                     </>
                   )}
                 </button>

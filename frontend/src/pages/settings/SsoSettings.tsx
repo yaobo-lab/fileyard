@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../../context/AuthContext';
 import { SsoAttributeMappings } from '../../components/SsoAttributeMappings';
+import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -246,6 +247,7 @@ function ProviderCard({ provider, isAdmin, onToggle, onTest, onEdit, onDelete, t
     setDeleteConfirm: (v: string | null) => void;
     subtitle: string;
 }) {
+    const t = useTranslations('SettingsSso');
     return (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
             <div className="flex items-start justify-between">
@@ -263,10 +265,10 @@ function ProviderCard({ provider, isAdmin, onToggle, onTest, onEdit, onDelete, t
                 </div>
                 <div className="flex items-center gap-2">
                     <span className={clsx('px-2 py-0.5 rounded-full text-xs font-medium', provider.enabled ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400')}>
-                        {provider.enabled ? 'Active' : 'Disabled'}
+                        {provider.enabled ? t('active') : t('disabled')}
                     </span>
                     {provider.auto_provision && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Auto-Provision</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">{t('autoProvision')}</span>
                     )}
                 </div>
             </div>
@@ -274,18 +276,18 @@ function ProviderCard({ provider, isAdmin, onToggle, onTest, onEdit, onDelete, t
                 <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <button onClick={onToggle} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
                         {provider.enabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-                        {provider.enabled ? 'Disable' : 'Enable'}
+                        {provider.enabled ? t('disable') : t('enable')}
                     </button>
                     <button onClick={onTest} disabled={testingId === provider.id} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors">
                         {testingId === provider.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TestTube className="w-3.5 h-3.5" />}
-                        Test
+                        {t('test')}
                     </button>
                     <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                        Edit
+                        {t('edit')}
                     </button>
                     {deleteConfirm === provider.id ? (
                         <div className="flex items-center gap-1 ml-auto">
-                            <span className="text-xs text-red-600 dark:text-red-400 mr-1">Delete?</span>
+                            <span className="text-xs text-red-600 dark:text-red-400 mr-1">{t('deleteConfirm')}</span>
                             <button onClick={onDelete} className="p-1.5 text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100">
                                 <Check className="w-3.5 h-3.5" />
                             </button>
@@ -296,7 +298,7 @@ function ProviderCard({ provider, isAdmin, onToggle, onTest, onEdit, onDelete, t
                     ) : (
                         <button onClick={() => setDeleteConfirm(provider.id)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors ml-auto">
                             <Trash2 className="w-3.5 h-3.5" />
-                            Delete
+                            {t('delete')}
                         </button>
                     )}
                 </div>
@@ -310,6 +312,8 @@ function ProviderCard({ provider, isAdmin, onToggle, onTest, onEdit, onDelete, t
 export function SsoSettings() {
     const authFetch = useAuthFetch();
     const { user } = useAuth();
+    const t = useTranslations('SettingsSso');
+    const tCommon = useTranslations('Common');
     const [activeTab, setActiveTab] = useState<Tab>('oidc');
 
     // OIDC state
@@ -597,9 +601,9 @@ export function SsoSettings() {
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Single Sign-On (SSO)</h2>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Configure OIDC and SAML identity providers for SSO login
+                    {t('description')}
                 </p>
             </div>
 
@@ -607,9 +611,9 @@ export function SsoSettings() {
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex gap-6">
                     {([
-                        { key: 'oidc' as Tab, label: 'OIDC Providers', count: oidcProviders.length },
-                        { key: 'saml' as Tab, label: 'SAML Providers', count: samlProviders.length },
-                        { key: 'mappings' as Tab, label: 'Attribute Mappings' },
+                        { key: 'oidc' as Tab, label: t('tabOidc'), count: oidcProviders.length },
+                        { key: 'saml' as Tab, label: t('tabSaml'), count: samlProviders.length },
+                        { key: 'mappings' as Tab, label: t('tabMappings') },
                     ]).map(tab => (
                         <button
                             key={tab.key}
@@ -628,7 +632,7 @@ export function SsoSettings() {
                                     activeTab === tab.key
                                         ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                                         : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                                )}>
+                                    )}>
                                     {tab.count}
                                 </span>
                             )}
@@ -646,7 +650,7 @@ export function SsoSettings() {
                         {testResult.success ? <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" /> : <XCircle className="w-5 h-5 text-red-500 mt-0.5" />}
                         <div>
                             <p className={clsx('text-sm font-medium', testResult.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')}>
-                                {testResult.success ? 'Connection Successful' : 'Connection Failed'}
+                                {testResult.success ? t('connSuccess') : t('connFailed')}
                             </p>
                             <p className={clsx('text-xs mt-1', testResult.success ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500')}>
                                 {testResult.message}
@@ -667,7 +671,7 @@ export function SsoSettings() {
                                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium"
                             >
                                 <Plus className="w-4 h-4" />
-                                Add OIDC Provider
+                                {t('addOidc')}
                             </button>
                         </div>
                     )}
@@ -675,34 +679,34 @@ export function SsoSettings() {
                     {showOidcForm && (
                         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
                             <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">
-                                {oidcEditingId ? 'Edit OIDC Provider' : 'Add OIDC Provider'}
+                                {oidcEditingId ? t('editOidc') : t('addOidc')}
                             </h3>
                             <form onSubmit={handleOidcSubmit} className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider Type</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('providerType')}</label>
                                         <select value={oidcForm.provider_type} onChange={(e) => handleOidcProviderTypeChange(e.target.value)} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             {OIDC_PROVIDER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')} *</label>
                                         <input type="text" required value={oidcForm.name} onChange={(e) => setOidcForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Google Workspace" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slug *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('slug')} *</label>
                                         <input type="text" required value={oidcForm.slug} onChange={(e) => setOidcForm(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} placeholder="e.g. google" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Issuer URL *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('issuerUrl')} *</label>
                                         <input type="url" required value={oidcForm.issuer_url} onChange={(e) => setOidcForm(prev => ({ ...prev, issuer_url: e.target.value }))} placeholder="https://accounts.google.com" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('clientId')} *</label>
                                         <input type="text" required value={oidcForm.client_id} onChange={(e) => setOidcForm(prev => ({ ...prev, client_id: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Client Secret {oidcEditingId ? '(leave blank to keep)' : '*'}</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{oidcEditingId ? t('clientSecretKeep') : `${t('clientSecret')} *`}</label>
                                         <div className="relative">
                                             <input type={showSecret ? 'text' : 'password'} required={!oidcEditingId} value={oidcForm.client_secret} onChange={(e) => setOidcForm(prev => ({ ...prev, client_secret: e.target.value }))} className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                             <button type="button" onClick={() => setShowSecret(!showSecret)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -711,12 +715,12 @@ export function SsoSettings() {
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Domains</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('emailDomains')}</label>
                                         <input type="text" value={oidcForm.email_domains} onChange={(e) => setOidcForm(prev => ({ ...prev, email_domains: e.target.value }))} placeholder="acme.com, example.org" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Comma-separated. Used to auto-discover SSO on login page.</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('emailDomainsHint')}</p>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Default Role</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('defaultRole')}</label>
                                         <select value={oidcForm.default_role} onChange={(e) => setOidcForm(prev => ({ ...prev, default_role: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             <option value="Employee">Employee</option>
                                             <option value="Manager">Manager</option>
@@ -725,23 +729,23 @@ export function SsoSettings() {
                                     </div>
                                 </div>
                                 <div className="space-y-3 pt-2">
-                                    <ToggleField label="Auto-Provision Users" description="Automatically create accounts for new SSO users." value={oidcForm.auto_provision} onChange={() => setOidcForm(prev => ({ ...prev, auto_provision: !prev.auto_provision }))} />
+                                    <ToggleField label={t('autoProvision')} description={t('autoProvisionDesc')} value={oidcForm.auto_provision} onChange={() => setOidcForm(prev => ({ ...prev, auto_provision: !prev.auto_provision }))} />
                                     {oidcForm.auto_provision && (
                                         <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
                                             <div className="flex items-center gap-2">
                                                 <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                                <p className="text-xs text-amber-700 dark:text-amber-400">Anyone with a valid identity from this provider can create an account.</p>
+                                                <p className="text-xs text-amber-700 dark:text-amber-400">{t('autoProvisionWarning')}</p>
                                             </div>
                                         </div>
                                     )}
-                                    <ToggleField label="Trust IdP MFA" description="Skip ClovaLink 2FA for users authenticated via this provider." value={oidcForm.trust_idp_mfa} onChange={() => setOidcForm(prev => ({ ...prev, trust_idp_mfa: !prev.trust_idp_mfa }))} />
-                                    <ToggleField label="Enabled" description="Enable or disable this provider." value={oidcForm.enabled} onChange={() => setOidcForm(prev => ({ ...prev, enabled: !prev.enabled }))} />
+                                    <ToggleField label={t('trustIdpMfa')} description={t('trustIdpMfaDesc')} value={oidcForm.trust_idp_mfa} onChange={() => setOidcForm(prev => ({ ...prev, trust_idp_mfa: !prev.trust_idp_mfa }))} />
+                                    <ToggleField label={t('enabledField')} description={t('enabledFieldDesc')} value={oidcForm.enabled} onChange={() => setOidcForm(prev => ({ ...prev, enabled: !prev.enabled }))} />
                                 </div>
                                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                                    <button type="button" onClick={() => { setShowOidcForm(false); setOidcEditingId(null); setOidcForm(EMPTY_OIDC_FORM); }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">Cancel</button>
+                                    <button type="button" onClick={() => { setShowOidcForm(false); setOidcEditingId(null); setOidcForm(EMPTY_OIDC_FORM); }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">{tCommon('cancel')}</button>
                                     <button type="submit" disabled={oidcSaving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors">
                                         {oidcSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                        {oidcEditingId ? 'Update' : 'Create'} Provider
+                                        {oidcEditingId ? t('updateProvider') : t('createProvider')}
                                     </button>
                                 </div>
                             </form>
@@ -751,8 +755,8 @@ export function SsoSettings() {
                     {oidcProviders.length === 0 && !showOidcForm ? (
                         <div className="text-center py-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
                             <Globe className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-                            <h3 className="text-sm font-medium text-gray-900 dark:text-white">No OIDC Providers</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add an OIDC provider to enable OpenID Connect SSO.</p>
+                            <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('noOidcProviders')}</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('noOidcDesc')}</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -786,7 +790,7 @@ export function SsoSettings() {
                                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium"
                             >
                                 <Plus className="w-4 h-4" />
-                                Add SAML Provider
+                                {t('addSaml')}
                             </button>
                         </div>
                     )}
@@ -794,7 +798,7 @@ export function SsoSettings() {
                     {/* SP Info Card (shown after creation) */}
                     {createdSamlProvider && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-5 space-y-3">
-                            <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300">Service Provider Info (configure in your IdP)</h4>
+                            <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300">{t('spInfoTitle')}</h4>
                             {[
                                 { label: 'SP Entity ID', value: createdSamlProvider.sp_entity_id },
                                 { label: 'ACS URL', value: `${API_URL}/api/auth/saml/acs` },
@@ -810,75 +814,75 @@ export function SsoSettings() {
                                     </button>
                                 </div>
                             ))}
-                            <button onClick={() => setCreatedSamlProvider(null)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Dismiss</button>
+                            <button onClick={() => setCreatedSamlProvider(null)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">{t('dismiss')}</button>
                         </div>
                     )}
 
                     {showSamlForm && (
                         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
                             <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">
-                                {samlEditingId ? 'Edit SAML Provider' : 'Add SAML Provider'}
+                                {samlEditingId ? t('editSaml') : t('addSaml')}
                             </h3>
                             <form onSubmit={handleSamlSubmit} className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider Type</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('providerType')}</label>
                                         <select value={samlForm.provider_type} onChange={(e) => setSamlForm(prev => ({ ...prev, provider_type: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             {SAML_PROVIDER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('displayName')} *</label>
                                         <input type="text" required value={samlForm.name} onChange={(e) => setSamlForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Okta SAML" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slug *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('slug')} *</label>
                                         <input type="text" required value={samlForm.slug} onChange={(e) => setSamlForm(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} placeholder="e.g. okta-saml" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IdP Entity ID *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('idpEntityId')} *</label>
                                         <input type="text" required value={samlForm.idp_entity_id} onChange={(e) => setSamlForm(prev => ({ ...prev, idp_entity_id: e.target.value }))} placeholder="https://idp.example.com/entity" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IdP SSO URL *</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('idpSsoUrl')} *</label>
                                         <input type="url" required value={samlForm.idp_sso_url} onChange={(e) => setSamlForm(prev => ({ ...prev, idp_sso_url: e.target.value }))} placeholder="https://idp.example.com/sso" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IdP SLO URL</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('idpSloUrl')}</label>
                                         <input type="url" value={samlForm.idp_slo_url} onChange={(e) => setSamlForm(prev => ({ ...prev, idp_slo_url: e.target.value }))} placeholder="Optional" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IdP Metadata URL</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('idpMetadataUrl')}</label>
                                         <input type="url" value={samlForm.idp_metadata_url} onChange={(e) => setSamlForm(prev => ({ ...prev, idp_metadata_url: e.target.value }))} placeholder="Optional — for metadata auto-fetch" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">NameID Format</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('nameidFormat')}</label>
                                         <select value={samlForm.nameid_format} onChange={(e) => setSamlForm(prev => ({ ...prev, nameid_format: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             {NAMEID_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SSO Binding</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('ssoBinding')}</label>
                                         <select value={samlForm.sso_binding} onChange={(e) => setSamlForm(prev => ({ ...prev, sso_binding: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             <option value="HTTP-POST">HTTP-POST</option>
                                             <option value="HTTP-Redirect">HTTP-Redirect</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Attribute Name</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('attributeEmail')}</label>
                                         <input type="text" value={samlForm.attribute_email} onChange={(e) => setSamlForm(prev => ({ ...prev, attribute_email: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name Attribute</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('attributeName')}</label>
                                         <input type="text" value={samlForm.attribute_name} onChange={(e) => setSamlForm(prev => ({ ...prev, attribute_name: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Domains</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('emailDomains')}</label>
                                         <input type="text" value={samlForm.email_domains} onChange={(e) => setSamlForm(prev => ({ ...prev, email_domains: e.target.value }))} placeholder="acme.com, example.org" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Comma-separated. Used for SSO discovery on login page.</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('emailDomainsHint')}</p>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Default Role</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('defaultRole')}</label>
                                         <select value={samlForm.default_role} onChange={(e) => setSamlForm(prev => ({ ...prev, default_role: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
                                             <option value="Employee">Employee</option>
                                             <option value="Manager">Manager</option>
@@ -890,7 +894,7 @@ export function SsoSettings() {
                                 {/* Certificate (full width) */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        IdP Signing Certificate (PEM) *
+                                        {t('idpCert')} *
                                     </label>
                                     <textarea
                                         required={!samlEditingId}
@@ -901,28 +905,28 @@ export function SsoSettings() {
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
                                     />
                                     {samlEditingId && (
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep existing certificate.</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('idpCertKeep')}</p>
                                     )}
                                 </div>
 
                                 <div className="space-y-3 pt-2">
-                                    <ToggleField label="Auto-Provision Users" description="Automatically create accounts for new SSO users." value={samlForm.auto_provision} onChange={() => setSamlForm(prev => ({ ...prev, auto_provision: !prev.auto_provision }))} />
+                                    <ToggleField label={t('autoProvision')} description={t('autoProvisionDesc')} value={samlForm.auto_provision} onChange={() => setSamlForm(prev => ({ ...prev, auto_provision: !prev.auto_provision }))} />
                                     {samlForm.auto_provision && (
                                         <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
                                             <div className="flex items-center gap-2">
                                                 <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                                <p className="text-xs text-amber-700 dark:text-amber-400">Anyone with a valid identity from this provider can create an account.</p>
+                                                <p className="text-xs text-amber-700 dark:text-amber-400">{t('autoProvisionWarning')}</p>
                                             </div>
                                         </div>
                                     )}
-                                    <ToggleField label="Trust IdP MFA" description="Skip ClovaLink 2FA for users authenticated via this provider." value={samlForm.trust_idp_mfa} onChange={() => setSamlForm(prev => ({ ...prev, trust_idp_mfa: !prev.trust_idp_mfa }))} />
-                                    <ToggleField label="Enabled" description="Enable or disable this provider." value={samlForm.enabled} onChange={() => setSamlForm(prev => ({ ...prev, enabled: !prev.enabled }))} />
+                                    <ToggleField label={t('trustIdpMfa')} description={t('trustIdpMfaDesc')} value={samlForm.trust_idp_mfa} onChange={() => setSamlForm(prev => ({ ...prev, trust_idp_mfa: !prev.trust_idp_mfa }))} />
+                                    <ToggleField label={t('enabledField')} description={t('enabledFieldDesc')} value={samlForm.enabled} onChange={() => setSamlForm(prev => ({ ...prev, enabled: !prev.enabled }))} />
                                 </div>
                                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                                    <button type="button" onClick={() => { setShowSamlForm(false); setSamlEditingId(null); setSamlForm(EMPTY_SAML_FORM); }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">Cancel</button>
+                                    <button type="button" onClick={() => { setShowSamlForm(false); setSamlEditingId(null); setSamlForm(EMPTY_SAML_FORM); }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">{tCommon('cancel')}</button>
                                     <button type="submit" disabled={samlSaving} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors">
                                         {samlSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                        {samlEditingId ? 'Update' : 'Create'} Provider
+                                        {samlEditingId ? t('updateProvider') : t('createProvider')}
                                     </button>
                                 </div>
                             </form>
@@ -932,8 +936,8 @@ export function SsoSettings() {
                     {samlProviders.length === 0 && !showSamlForm ? (
                         <div className="text-center py-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
                             <Shield className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" />
-                            <h3 className="text-sm font-medium text-gray-900 dark:text-white">No SAML Providers</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add a SAML 2.0 provider for enterprise SSO (ADFS, Okta, Azure AD).</p>
+                            <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('noSamlProviders')}</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('noSamlDesc')}</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -956,11 +960,11 @@ export function SsoSettings() {
                                         <span>SP Entity ID: <span className="font-mono">{provider.sp_entity_id}</span></span>
                                         <span>|</span>
                                         <button onClick={() => copyToClipboard(`${API_URL}/api/auth/saml/metadata/${provider.id}`)} className="hover:text-gray-600 dark:hover:text-gray-300 underline">
-                                            Copy Metadata URL
+                                            {t('copyMetadata')}
                                         </button>
                                         <span>|</span>
                                         <button onClick={() => copyToClipboard(`${API_URL}/api/auth/saml/acs`)} className="hover:text-gray-600 dark:hover:text-gray-300 underline">
-                                            Copy ACS URL
+                                            {t('copyAcs')}
                                         </button>
                                     </div>
                                 </div>

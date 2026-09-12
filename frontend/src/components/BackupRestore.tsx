@@ -6,6 +6,7 @@ import {
     Code, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { PasswordConfirmModal } from './PasswordConfirmModal';
 import clsx from 'clsx';
 
@@ -89,9 +90,73 @@ interface SavedBackup {
 }
 
 export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
+    const t = useTranslations('SettingsBackup');
     const { token, user } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isSuperAdmin = user?.role === 'SuperAdmin';
+
+    const getCategoryName = (name: string) => {
+        switch (name) {
+            case 'Organization': return t('catOrganization');
+            case 'Settings': return t('catSettings');
+            case 'Security': return t('catSecurity');
+            case 'Workflow': return t('catWorkflow');
+            case 'Global': return t('catGlobal');
+            default: return name;
+        }
+    };
+
+    const getSectionLabel = (key: string, fallback: string) => {
+        const map: Record<string, string> = {
+            users: t('secUsers'),
+            departments: t('secDepartments'),
+            roles: t('secRoles'),
+            tenant_core: t('secTenantCore'),
+            settings_audit: t('secSettingsAudit'),
+            settings_virus_scan: t('secSettingsVirusScan'),
+            settings_ai: t('secSettingsAi'),
+            settings_discord: t('secSettingsDiscord'),
+            sso_oidc: t('secSsoOidc'),
+            sso_saml: t('secSsoSaml'),
+            sso_mappings: t('secSsoMappings'),
+            sso_identities: t('secSsoIdentities'),
+            approval_policies: t('secApprovalPolicies'),
+            email_templates: t('secEmailTemplates'),
+            notification_settings: t('secNotificationSettings'),
+            global_settings: t('secGlobalSettings'),
+            global_email_templates: t('secGlobalEmailTemplates'),
+            file_metadata: t('secFileMetadata'),
+            audit_logs: t('secAuditLogs'),
+            approval_history: t('secApprovalHistory'),
+        };
+        return map[key] || fallback;
+    };
+
+    const getSectionDesc = (key: string, fallback: string) => {
+        const map: Record<string, string> = {
+            users: t('secUsersDesc'),
+            departments: t('secDepartmentsDesc'),
+            roles: t('secRolesDesc'),
+            tenant_core: t('secTenantCoreDesc'),
+            settings_audit: t('secSettingsAuditDesc'),
+            settings_virus_scan: t('secSettingsVirusScanDesc'),
+            settings_ai: t('secSettingsAiDesc'),
+            settings_discord: t('secSettingsDiscordDesc'),
+            sso_oidc: t('secSsoOidcDesc'),
+            sso_saml: t('secSsoSamlDesc'),
+            sso_mappings: t('secSsoMappingsDesc'),
+            sso_identities: t('secSsoIdentitiesDesc'),
+            approval_policies: t('secApprovalPoliciesDesc'),
+            email_templates: t('secEmailTemplatesDesc'),
+            notification_settings: t('secNotificationSettingsDesc'),
+            global_settings: t('secGlobalSettingsDesc'),
+            global_email_templates: t('secGlobalEmailTemplatesDesc'),
+            file_metadata: t('secFileMetadataDesc'),
+            audit_logs: t('secAuditLogsDesc'),
+            approval_history: t('secApprovalHistoryDesc'),
+        };
+        return map[key] || fallback;
+    };
 
     // Export state
     const [exportPassphrase, setExportPassphrase] = useState('');
@@ -323,11 +388,11 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
 
     const handleExport = async () => {
         if (exportPassphrase.length < 12) {
-            setExportError('Passphrase must be at least 12 characters');
+            setExportError(t('errPassphraseMin'));
             return;
         }
         if (!confirmPassword) {
-            setExportError('Please confirm your account password');
+            setExportError(t('errConfirmPassword'));
             return;
         }
 
@@ -353,15 +418,15 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                 });
 
                 if (!response.ok) {
-                    if (response.status === 401) throw new Error('Incorrect account password');
-                    if (response.status === 403) throw new Error('Insufficient permissions');
-                    if (response.status === 429) throw new Error('Too many concurrent operations. Try again shortly.');
-                    if (response.status === 503) throw new Error('Backup service temporarily unavailable due to errors.');
+                    if (response.status === 401) throw new Error(t('errIncorrectPassword'));
+                    if (response.status === 403) throw new Error(t('errInsufficientPermissions'));
+                    if (response.status === 429) throw new Error(t('errRateLimited'));
+                    if (response.status === 503) throw new Error(t('errServiceUnavailable'));
                     throw new Error(`Save failed (${response.status})`);
                 }
 
                 const data = await response.json();
-                if (!data.success) throw new Error('Save failed');
+                if (!data.success) throw new Error(t('errSaveFailed'));
 
                 setExportSuccess(true);
                 fetchSavedBackups(); // Refresh list
@@ -380,10 +445,10 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                 });
 
                 if (!response.ok) {
-                    if (response.status === 401) throw new Error('Incorrect account password');
-                    if (response.status === 403) throw new Error('Insufficient permissions');
-                    if (response.status === 429) throw new Error('Rate limited. Please wait before exporting again.');
-                    if (response.status === 503) throw new Error('Backup service temporarily unavailable.');
+                    if (response.status === 401) throw new Error(t('errIncorrectPassword'));
+                    if (response.status === 403) throw new Error(t('errInsufficientPermissions'));
+                    if (response.status === 429) throw new Error(t('errRateLimited'));
+                    if (response.status === 503) throw new Error(t('errServiceUnavailable'));
                     throw new Error(`Export failed (${response.status})`);
                 }
 
@@ -405,7 +470,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
 
             setTimeout(() => setExportSuccess(false), 5000);
         } catch (err) {
-            setExportError(err instanceof Error ? err.message : 'Export failed');
+            setExportError(err instanceof Error ? err.message : t('errExportFailed'));
         } finally {
             setExportPassphrase('');
             setConfirmPassword('');
@@ -429,7 +494,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
 
     const handlePreview = async () => {
         if (!importFile || !importPassphrase || !importConfirmPassword) {
-            setImportError('Please provide the backup file, passphrase, and account password');
+            setImportError(t('errImportRequired'));
             return;
         }
 
@@ -453,19 +518,19 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
             });
 
             if (!response.ok) {
-                if (response.status === 401) throw new Error('Incorrect account password');
-                if (response.status === 429) throw new Error('Too many failed attempts. Backup operations locked.');
+                if (response.status === 401) throw new Error(t('errIncorrectPassword'));
+                if (response.status === 429) throw new Error(t('errRateLimited'));
                 throw new Error(`Preview failed (${response.status})`);
             }
 
             const data = await response.json();
             if (!data.valid) {
-                throw new Error(data.errors?.[0] || 'Invalid backup file');
+                throw new Error(data.errors?.[0] || t('errPreviewFailed'));
             }
 
             setPreviewData(data);
         } catch (err) {
-            setImportError(err instanceof Error ? err.message : 'Preview failed');
+            setImportError(err instanceof Error ? err.message : t('errPreviewFailed'));
         } finally {
             setIsPreviewing(false);
         }
@@ -494,12 +559,14 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
             });
 
             if (!response.ok) {
+                if (response.status === 401) throw new Error(t('errIncorrectPassword'));
+                if (response.status === 403) throw new Error(t('errInsufficientPermissions'));
                 throw new Error(`Import failed (${response.status})`);
             }
 
             const data = await response.json();
             if (!data.success) {
-                throw new Error(data.error || 'Import failed');
+                throw new Error(data.error || t('errImportFailed'));
             }
 
             setImportSuccess(true);
@@ -508,7 +575,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
             setPreviewData(null);
             setTimeout(() => setImportSuccess(false), 5000);
         } catch (err) {
-            setImportError(err instanceof Error ? err.message : 'Import failed');
+            setImportError(err instanceof Error ? err.message : t('errImportFailed'));
         } finally {
             setImportPassphrase('');
             setImportConfirmPassword('');
@@ -517,7 +584,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
     };
 
     const handleDeleteSaved = async (id: string) => {
-        if (!confirm('Delete this saved backup? This cannot be undone.')) return;
+        if (!confirm(t('confirmDelete'))) return;
         try {
             await fetch(`/api/backup/saved/${id}`, {
                 method: 'DELETE',
@@ -598,7 +665,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                 setProfileResult(null);
             }
         } catch {
-            setProfileError('Failed to load current settings');
+            setProfileError(t('errLoadCurrentFailed'));
         }
         setProfileLoading(false);
     };
@@ -612,7 +679,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
         try {
             parsed = JSON.parse(profileJson);
         } catch {
-            setProfileError('Invalid JSON. Please check your syntax.');
+            setProfileError(t('errInvalidJson'));
             return;
         }
 
@@ -635,7 +702,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
 
             const data = await res.json();
             if (!res.ok) {
-                setProfileError(res.status === 401 ? 'Invalid password' : res.status === 403 ? 'Access denied' : `Error: ${res.statusText}`);
+                setProfileError(res.status === 401 ? t('errIncorrectPassword') : res.status === 403 ? t('errInsufficientPermissions') : `Error: ${res.statusText}`);
                 return;
             }
 
@@ -664,9 +731,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                         </div>
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Global Backup</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">{t('globalBackup')}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {globalBackupEnabled ? 'Backup operations are enabled' : 'Backup operations are disabled'}
+                                {globalBackupEnabled ? t('globalBackupEnabled') : t('globalBackupDisabled')}
                             </p>
                         </div>
                     </div>
@@ -704,18 +771,16 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 healthState === 'half_open' && "bg-yellow-500",
                                 healthState === 'open' && "bg-red-500",
                             )} />
-                            {healthState === 'closed' ? 'Healthy' : healthState === 'half_open' ? 'Degraded' : 'Paused'}
+                            {healthState === 'closed' ? t('statusHealthy') : healthState === 'half_open' ? t('statusDegraded') : t('statusPaused')}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Backup System Status</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">{t('systemStatus')}</span>
                     </div>
 
                     {/* Migration Info Banner */}
                     <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
                         <p className="text-sm text-blue-800 dark:text-blue-200">
-                            Backups preserve all metadata, settings, users, and organization structure.
-                            File content remains on your storage backend (S3/local).
-                            To migrate storage, export a backup, copy files to new storage, then import the backup on the new instance.
+                            {t('migrationNotice')}
                         </p>
                     </div>
                 </>
@@ -728,9 +793,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <Download className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                     </div>
                     <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">Export Backup</h3>
+                        <h3 className="font-medium text-gray-900 dark:text-white">{t('exportTitle')}</h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Create an encrypted backup of {type === 'global' ? 'global settings' : 'tenant data'}
+                            {type === 'global' ? t('exportDescGlobal') : t('exportDescTenant')}
                         </p>
                     </div>
                 </div>
@@ -746,7 +811,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     <div key={category.name} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                                         <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
                                             <Icon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{category.name}</span>
+                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{getCategoryName(category.name)}</span>
                                             <button
                                                 onClick={() => {
                                                     const keys = category.sections.map(s => s.key);
@@ -758,7 +823,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                 }}
                                                 className="ml-auto text-xs text-primary-600 dark:text-primary-400 hover:underline"
                                             >
-                                                {allSelected ? 'Deselect all' : 'Select all'}
+                                                {allSelected ? t('deselectAll') : t('selectAll')}
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-2 gap-0">
@@ -772,14 +837,14 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                     />
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-sm text-gray-900 dark:text-white">{section.label}</span>
+                                                            <span className="text-sm text-gray-900 dark:text-white">{getSectionLabel(section.key, section.label)}</span>
                                                             {sectionCounts[section.key] !== undefined && (
                                                                 <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs font-mono">
                                                                     {sectionCounts[section.key]}
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <span className="text-xs text-gray-500 dark:text-gray-400">{section.description}</span>
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">{getSectionDesc(section.key, section.description)}</span>
                                                     </div>
                                                 </label>
                                             ))}
@@ -792,7 +857,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                                 <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 border-b border-gray-200 dark:border-gray-700">
                                     <Database className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                                    <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Large Data (optional)</span>
+                                    <span className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('catLargeData')}</span>
                                 </div>
                                 <div className="space-y-0">
                                     {OPTIONAL_SECTIONS.map(section => (
@@ -806,14 +871,14 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                 />
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-sm text-gray-900 dark:text-white">{section.label}</span>
+                                                        <span className="text-sm text-gray-900 dark:text-white">{getSectionLabel(section.key, section.label)}</span>
                                                         {sectionCounts[section.key] !== undefined && (
                                                             <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs font-mono">
                                                                 {sectionCounts[section.key].toLocaleString()}
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <span className="text-xs text-gray-500 dark:text-gray-400">{section.description}</span>
+                                                    <span className="text-xs text-gray-500 dark:text-gray-400">{getSectionDesc(section.key, section.description)}</span>
                                                 </div>
                                             </label>
                                             {/* Pagination controls */}
@@ -821,7 +886,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                 <div className="ml-6 mt-2 mb-1">
                                                     {section.key === 'audit_logs' && (
                                                         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                                            Days to include:
+                                                            {t('daysToInclude')}
                                                             <input
                                                                 type="number"
                                                                 value={auditDays}
@@ -832,7 +897,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                     )}
                                                     {section.key === 'file_metadata' && (
                                                         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                                            Max records:
+                                                            {t('maxRecords')}
                                                             <input
                                                                 type="number"
                                                                 value={fileLimit}
@@ -843,7 +908,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                     )}
                                                     {section.key === 'approval_history' && (
                                                         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                                            Days to include:
+                                                            {t('daysToInclude')}
                                                             <input
                                                                 type="number"
                                                                 value={approvalDays}
@@ -869,8 +934,8 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
                                     />
                                     <div>
-                                        <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Include encrypted secrets</span>
-                                        <p className="text-xs text-amber-700 dark:text-amber-300">SMTP passwords, API keys, client secrets (triggers security alert)</p>
+                                        <span className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('includeSecrets')}</span>
+                                        <p className="text-xs text-amber-700 dark:text-amber-300">{t('includeSecretsDesc')}</p>
                                     </div>
                                 </div>
                             )}
@@ -885,7 +950,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     <div key={category.name} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                                         <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
                                             <Icon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{category.name}</span>
+                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{getCategoryName(category.name)}</span>
                                             <button
                                                 onClick={() => {
                                                     const keys = category.sections.map(s => s.key);
@@ -897,7 +962,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                 }}
                                                 className="ml-auto text-xs text-primary-600 dark:text-primary-400 hover:underline"
                                             >
-                                                {allSelected ? 'Deselect all' : 'Select all'}
+                                                {allSelected ? t('deselectAll') : t('selectAll')}
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-2 gap-0">
@@ -911,9 +976,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                                     />
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-sm text-gray-900 dark:text-white">{section.label}</span>
+                                                            <span className="text-sm text-gray-900 dark:text-white">{getSectionLabel(section.key, section.label)}</span>
                                                         </div>
-                                                        <span className="text-xs text-gray-500 dark:text-gray-400">{section.description}</span>
+                                                        <span className="text-xs text-gray-500 dark:text-gray-400">{getSectionDesc(section.key, section.description)}</span>
                                                     </div>
                                                 </label>
                                             ))}
@@ -927,7 +992,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                     {/* Export Destination */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Export Destination
+                            {t('exportDest')}
                         </label>
                         <div className="flex gap-3">
                             <label className={clsx(
@@ -943,7 +1008,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     className="text-primary-600"
                                 />
                                 <Download className="w-4 h-4 text-gray-500" />
-                                <span className="text-sm text-gray-900 dark:text-white">Download to Browser</span>
+                                <span className="text-sm text-gray-900 dark:text-white">{t('downloadToBrowser')}</span>
                             </label>
                             <label className={clsx(
                                 "flex-1 flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors",
@@ -958,7 +1023,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     className="text-primary-600"
                                 />
                                 <HardDrive className="w-4 h-4 text-gray-500" />
-                                <span className="text-sm text-gray-900 dark:text-white">Save to Storage Backend</span>
+                                <span className="text-sm text-gray-900 dark:text-white">{t('saveToStorage')}</span>
                             </label>
                         </div>
                     </div>
@@ -967,27 +1032,27 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 <Lock className="w-3.5 h-3.5 inline mr-1" />
-                                Backup Passphrase
+                                {t('passphrase')}
                             </label>
                             <input
                                 type="password"
                                 value={exportPassphrase}
                                 onChange={(e) => setExportPassphrase(e.target.value)}
-                                placeholder="Min 12 characters"
+                                placeholder={t('passphrasePlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                             />
-                            <p className="mt-1 text-xs text-gray-500">You'll need this to decrypt the backup</p>
+                            <p className="mt-1 text-xs text-gray-500">{t('passphraseHint')}</p>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 <Shield className="w-3.5 h-3.5 inline mr-1" />
-                                Confirm Account Password
+                                {t('confirmAccountPassword')}
                             </label>
                             <input
                                 type="password"
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
-                                placeholder="Your current password"
+                                placeholder={t('accountPasswordPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                             />
                         </div>
@@ -1003,7 +1068,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                     {exportSuccess && (
                         <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-green-700 dark:text-green-300 text-sm">
                             <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                            {exportDest === 'storage' ? 'Backup saved to storage successfully' : 'Backup exported and downloaded successfully'}
+                            {exportDest === 'storage' ? t('msgExportSuccessStorage') : t('msgExportSuccessDownload')}
                         </div>
                     )}
 
@@ -1018,7 +1083,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         )}
                     >
                         {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : exportDest === 'storage' ? <HardDrive className="w-4 h-4" /> : <Download className="w-4 h-4" />}
-                        {isExporting ? 'Exporting...' : exportDest === 'storage' ? 'Save to Storage' : 'Export Backup'}
+                        {isExporting ? t('exporting') : exportDest === 'storage' ? t('saveToStorageBtn') : t('exportBackupBtn')}
                     </button>
                 </div>
             </div>
@@ -1032,8 +1097,8 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 <HardDrive className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                             </div>
                             <div>
-                                <h3 className="font-medium text-gray-900 dark:text-white">Saved Backups</h3>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Backups stored on your storage backend</p>
+                                <h3 className="font-medium text-gray-900 dark:text-white">{t('savedBackupsTitle')}</h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">{t('savedBackupsDesc')}</p>
                             </div>
                         </div>
                         <button onClick={fetchSavedBackups} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
@@ -1043,7 +1108,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
 
                     {savedBackups.length === 0 ? (
                         <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                            No saved backups yet. Use "Save to Storage Backend" when exporting.
+                            {t('noSavedBackups')}
                         </div>
                     ) : (
                         <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1059,7 +1124,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm text-gray-900 dark:text-white truncate">{backup.filename}</span>
                                             {backup.is_auto_backup && (
-                                                <span className="px-1.5 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">auto</span>
+                                                <span className="px-1.5 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{t('tagAuto')}</span>
                                             )}
                                             <span className={clsx(
                                                 "px-1.5 py-0.5 text-xs rounded",
@@ -1078,14 +1143,14 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         <button
                                             onClick={() => handleDownloadSaved(backup.id, backup.filename)}
                                             className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 hover:text-gray-700"
-                                            title="Download"
+                                            title={t('download')}
                                         >
                                             <Download className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => handleDeleteSaved(backup.id)}
                                             className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded text-gray-400 hover:text-red-600"
-                                            title="Delete"
+                                            title={t('delete')}
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -1105,11 +1170,11 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <Calendar className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                         </div>
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Scheduled Backups</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">{t('scheduledTitle')}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
                                 {type === 'global'
-                                    ? 'Automatically back up global settings on a schedule'
-                                    : 'Automatically back up this tenant on a schedule'}
+                                    ? t('scheduledDescGlobal')
+                                    : t('scheduledDescTenant')}
                             </p>
                         </div>
                     </div>
@@ -1119,14 +1184,12 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                                 <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                                 <div>
-                                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">BACKUP_MASTER_KEY not configured</p>
+                                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('masterKeyMissingTitle')}</p>
                                     <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                                        Auto-backups require <code className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded text-xs">BACKUP_MASTER_KEY</code> to
-                                        be set in your server environment. This key encrypts the system-generated passphrase stored in the database.
-                                        Manual export/import works without it.
+                                        {t('masterKeyMissingDesc')}
                                     </p>
                                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                        Generate one with: <code className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded text-xs">openssl rand -base64 48</code>
+                                        {t('masterKeyGenHint')} <code className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded text-xs">openssl rand -base64 48</code>
                                     </p>
                                 </div>
                             </div>
@@ -1135,9 +1198,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         {/* Enable toggle */}
                         <div className="flex items-center justify-between">
                             <div>
-                                <label className="text-sm font-medium text-gray-900 dark:text-white">Enable Auto-Backup</label>
+                                <label className="text-sm font-medium text-gray-900 dark:text-white">{t('enableAutoBackup')}</label>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                    Backups run automatically and are saved to storage
+                                    {t('enableAutoBackupDesc')}
                                 </p>
                             </div>
                             <button
@@ -1166,7 +1229,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <>
                                 {/* Schedule select */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Schedule</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('schedule')}</label>
                                     <select
                                         value={autoBackupCron}
                                         onChange={async (e) => {
@@ -1180,12 +1243,12 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         }}
                                         className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
                                     >
-                                        <option value="0 2 * * *">Daily at 2:00 AM</option>
-                                        <option value="0 2 * * 0">Weekly — Sunday at 2:00 AM</option>
-                                        <option value="0 3 * * 0">Weekly — Sunday at 3:00 AM</option>
-                                        <option value="0 2 * * 1">Weekly — Monday at 2:00 AM</option>
-                                        <option value="0 2 1 * *">Monthly — 1st at 2:00 AM</option>
-                                        <option value="0 2 15 * *">Monthly — 15th at 2:00 AM</option>
+                                        <option value="0 2 * * *">{t('scheduleDaily')}</option>
+                                        <option value="0 2 * * 0">{t('scheduleWeeklySun2')}</option>
+                                        <option value="0 3 * * 0">{t('scheduleWeeklySun3')}</option>
+                                        <option value="0 2 * * 1">{t('scheduleWeeklyMon2')}</option>
+                                        <option value="0 2 1 * *">{t('scheduleMonthly1st')}</option>
+                                        <option value="0 2 15 * *">{t('scheduleMonthly15th')}</option>
                                     </select>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                         Cron: <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">{autoBackupCron}</code>
@@ -1195,7 +1258,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 {/* Retention */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Retention — keep last
+                                        {t('retention')}
                                     </label>
                                     <div className="flex items-center gap-2">
                                         <input
@@ -1219,10 +1282,10 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                             }}
                                             className="w-20 px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
                                         />
-                                        <span className="text-sm text-gray-500 dark:text-gray-400">backups</span>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">{t('retentionUnit')}</span>
                                     </div>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        Oldest auto-backups are deleted when this limit is exceeded
+                                        {t('retentionDesc')}
                                     </p>
                                 </div>
 
@@ -1231,8 +1294,8 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
                                     <span>
                                         {type === 'global'
-                                            ? 'Auto-backups include all global sections. Uses a system-generated passphrase, encrypted at rest with BACKUP_MASTER_KEY. Backups are distributed with random jitter to avoid load spikes.'
-                                            : 'Auto-backups include core sections only (no large data). Uses a system-generated passphrase, encrypted at rest with BACKUP_MASTER_KEY. Backups are distributed with random jitter to avoid load spikes.'}
+                                            ? t('autoBackupNoteGlobal')
+                                            : t('autoBackupNoteTenant')}
                                     </span>
                                 </div>
                             </>
@@ -1248,9 +1311,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <Upload className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                     </div>
                     <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">Import / Restore</h3>
+                        <h3 className="font-medium text-gray-900 dark:text-white">{t('importTitle')}</h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Restore from a previously exported backup file
+                            {t('importDesc')}
                         </p>
                     </div>
                 </div>
@@ -1284,7 +1347,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 className="w-full p-8 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-primary-400 dark:hover:border-primary-500 transition-colors text-center"
                             >
                                 <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Click to select a .clovalink.json file</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">{t('clickToUpload')}</p>
                             </button>
                         )}
                     </div>
@@ -1295,26 +1358,26 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         <Lock className="w-3.5 h-3.5 inline mr-1" />
-                                        Backup Passphrase
+                                        {t('passphrase')}
                                     </label>
                                     <input
                                         type="password"
                                         value={importPassphrase}
                                         onChange={(e) => setImportPassphrase(e.target.value)}
-                                        placeholder="Passphrase used during export"
+                                        placeholder={t('importPassphraseHint')}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                     />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         <Shield className="w-3.5 h-3.5 inline mr-1" />
-                                        Confirm Account Password
+                                        {t('confirmAccountPassword')}
                                     </label>
                                     <input
                                         type="password"
                                         value={importConfirmPassword}
                                         onChange={(e) => setImportConfirmPassword(e.target.value)}
-                                        placeholder="Your current password"
+                                        placeholder={t('accountPasswordPlaceholder')}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                     />
                                 </div>
@@ -1332,7 +1395,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     )}
                                 >
                                     {isPreviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-                                    Preview Changes
+                                    {t('previewChanges')}
                                 </button>
 
                                 {previewData && (
@@ -1347,7 +1410,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         )}
                                     >
                                         {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                                        {isImporting ? 'Importing...' : 'Apply Backup'}
+                                        {isImporting ? t('importing') : t('applyBackup')}
                                     </button>
                                 )}
                             </div>
@@ -1359,16 +1422,16 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg space-y-3">
                             <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
                                 <Eye className="w-4 h-4" />
-                                Import Preview
+                                {t('importPreview')}
                             </div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                                <p>Version: {previewData.meta?.clovalink_version} | Exported: {previewData.meta?.exported_at ? new Date(previewData.meta.exported_at).toLocaleString() : 'Unknown'}</p>
-                                {previewData.meta?.tenant_name && <p>Source tenant: {previewData.meta.tenant_name}</p>}
+                                <p>{t('version')}: {previewData.meta?.clovalink_version} | {t('exported')}: {previewData.meta?.exported_at ? new Date(previewData.meta.exported_at).toLocaleString() : t('unknown')}</p>
+                                {previewData.meta?.tenant_name && <p>{t('sourceTenant')}: {previewData.meta.tenant_name}</p>}
                             </div>
                             <div className="space-y-2">
                                 {Object.entries(previewData.sections || previewData.changes || {}).map(([key, value]: [string, any]) => (
                                     <div key={key} className="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded text-sm">
-                                        <span className="text-gray-700 dark:text-gray-300">{key}</span>
+                                        <span className="text-gray-700 dark:text-gray-300">{getSectionLabel(key, key)}</span>
                                         <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
                                             {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                                         </span>
@@ -1398,7 +1461,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                     {importSuccess && (
                         <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-green-700 dark:text-green-300 text-sm">
                             <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                            Backup imported successfully. Settings have been restored.
+                            {t('msgImportSuccess')}
                         </div>
                     )}
                 </div>
@@ -1412,9 +1475,9 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             <Code className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                         </div>
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Settings Profile</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">{t('profileTitle')}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Apply a partial JSON config — declarative merge, like NixOS
+                                {t('profileDesc')}
                             </p>
                         </div>
                     </div>
@@ -1424,9 +1487,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <div className="flex items-start gap-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-sm text-indigo-800 dark:text-indigo-200">
                             <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
                             <span>
-                                Define only the fields you want to change. This is a declarative merge —
-                                unspecified fields remain unchanged. Use "Load Current Settings" to start from your
-                                actual config. Redacted fields (***REDACTED***) are automatically skipped on apply.
+                                {t('profileNotice')}
                             </span>
                         </div>
 
@@ -1434,7 +1495,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <div>
                             <div className="flex items-center justify-between mb-1">
                                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    Profile JSON
+                                    {t('profileJson')}
                                 </label>
                                 <button
                                     onClick={loadCurrentSettings}
@@ -1442,7 +1503,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors disabled:opacity-50"
                                 >
                                     {profileLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                                    Load Current Settings
+                                    {t('loadCurrentSettings')}
                                 </button>
                             </div>
                             <textarea
@@ -1461,7 +1522,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 onClick={() => setProfileFieldsOpen(!profileFieldsOpen)}
                                 className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900/70 transition-colors"
                             >
-                                <span>Available Sections</span>
+                                <span>{t('availableSections')}</span>
                                 {profileFieldsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             </button>
                             {profileFieldsOpen && (
@@ -1473,7 +1534,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                     ).map(s => (
                                         <div key={s.key} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-900/30 rounded">
                                             <code className="text-indigo-600 dark:text-indigo-400 font-mono">{s.key}</code>
-                                            <span className="text-gray-500 dark:text-gray-400">— {s.description}</span>
+                                            <span className="text-gray-500 dark:text-gray-400">— {getSectionDesc(s.key, s.description)}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -1484,7 +1545,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                         <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[200px]">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Confirm Password
+                                    {t('confirmAccountPassword')}
                                 </label>
                                 <div className="relative">
                                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1492,7 +1553,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                         type="password"
                                         value={profilePassword}
                                         onChange={(e) => setProfilePassword(e.target.value)}
-                                        placeholder="Your account password"
+                                        placeholder={t('accountPasswordPlaceholder')}
                                         className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                     />
                                 </div>
@@ -1509,7 +1570,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 )}
                             >
                                 {profilePreviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-                                Preview
+                                {t('preview')}
                             </button>
 
                             <button
@@ -1523,7 +1584,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                                 )}
                             >
                                 {profileApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Code className="w-4 h-4" />}
-                                {profileApplying ? 'Applying...' : 'Apply Profile'}
+                                {profileApplying ? t('applying') : t('applyProfile')}
                             </button>
                         </div>
 
@@ -1537,7 +1598,7 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
                             )}>
                                 <div className="flex items-center gap-2 font-medium">
                                     <CheckCircle className="w-4 h-4" />
-                                    {profileResult.dry_run ? 'Preview — no changes applied' : 'Profile applied successfully'}
+                                    {profileResult.dry_run ? t('previewNoChanges') : t('profileSuccess')}
                                 </div>
                                 <div className="space-y-1">
                                     {Object.entries(profileResult.results || {}).map(([key, value]: [string, any]) => (

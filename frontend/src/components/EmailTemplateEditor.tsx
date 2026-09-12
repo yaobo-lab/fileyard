@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Eye, EyeOff, Code, RotateCcw, Save, AlertTriangle, Check, Variable } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface EmailTemplate {
@@ -31,6 +32,8 @@ export function EmailTemplateEditor({
     isLoading = false,
     canReset = false,
 }: EmailTemplateEditorProps) {
+    const t = useTranslations('SettingsEmail');
+    const tCommon = useTranslations('Common');
     const [subject, setSubject] = useState('');
     const [bodyHtml, setBodyHtml] = useState('');
     const [bodyText, setBodyText] = useState('');
@@ -133,13 +136,13 @@ export function EmailTemplateEditor({
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <div>
                         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            Edit: {template.name}
+                            {tCommon('edit')}: {template.name}
                         </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            Template Key: <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">{template.template_key}</code>
+                            {t('key')}: <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">{template.template_key}</code>
                             {template.is_customized && (
                                 <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                    Customized
+                                    {t('customizedBadge')}
                                 </span>
                             )}
                         </p>
@@ -159,14 +162,14 @@ export function EmailTemplateEditor({
                         {/* Subject */}
                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Email Subject
+                                {t('emailSubject')}
                             </label>
                             <input
                                 type="text"
                                 value={subject}
                                 onChange={(e) => handleSubjectChange(e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                                placeholder="Email subject line..."
+                                placeholder={t('subjectPlaceholder')}
                             />
                         </div>
 
@@ -175,7 +178,7 @@ export function EmailTemplateEditor({
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1">
                                     <Variable className="w-3 h-3" />
-                                    Variables:
+                                    {t('variables')}:
                                 </span>
                                 {template.variables.map((variable) => (
                                     <button
@@ -202,7 +205,7 @@ export function EmailTemplateEditor({
                                     )}
                                 >
                                     <Code className="w-4 h-4" />
-                                    HTML
+                                    {t('html')}
                                 </button>
                                 <button
                                     onClick={() => setShowHtml(false)}
@@ -213,7 +216,7 @@ export function EmailTemplateEditor({
                                             : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                                     )}
                                 >
-                                    Plain Text (Fallback)
+                                    {t('plainText')}
                                 </button>
                             </div>
                             <div className="flex-1 overflow-auto p-4 min-h-0">
@@ -221,7 +224,7 @@ export function EmailTemplateEditor({
                                     value={showHtml ? bodyHtml : bodyText}
                                     onChange={(e) => showHtml ? handleBodyHtmlChange(e.target.value) : setBodyText(e.target.value)}
                                     className="w-full h-full min-h-[400px] px-4 py-3 font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-y"
-                                    placeholder={showHtml ? "Enter HTML email body..." : "Enter plain text fallback..."}
+                                    placeholder={showHtml ? t('htmlPlaceholder') : t('textPlaceholder')}
                                     style={{ minHeight: '400px' }}
                                 />
                             </div>
@@ -235,12 +238,12 @@ export function EmailTemplateEditor({
                     )}>
                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
                             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                Preview (with sample data)
+                                {t('preview')}
                             </h3>
                         </div>
                         <div className="flex-1 overflow-auto bg-white">
                             <div className="p-4 text-sm text-gray-600 border-b">
-                                <strong>Subject:</strong> {renderPreview(subject)}
+                                <strong>{t('subject')}:</strong> {renderPreview(subject)}
                             </div>
                             <iframe
                                 srcDoc={renderPreview(bodyHtml)}
@@ -265,7 +268,7 @@ export function EmailTemplateEditor({
                             )}
                         >
                             {showPreview ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            {showPreview ? 'Hide Preview' : 'Show Preview'}
+                            {showPreview ? t('hidePreview') : t('showPreview')}
                         </button>
                         
                         {canReset && template.is_customized && (
@@ -275,7 +278,7 @@ export function EmailTemplateEditor({
                                 className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors disabled:opacity-50"
                             >
                                 <RotateCcw className={clsx("w-4 h-4", isResetting && "animate-spin")} />
-                                Reset to Default
+                                {t('resetDefault')}
                             </button>
                         )}
                     </div>
@@ -284,14 +287,14 @@ export function EmailTemplateEditor({
                         {hasChanges && (
                             <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400">
                                 <AlertTriangle className="w-4 h-4" />
-                                Unsaved changes
+                                {t('unsavedChanges')}
                             </span>
                         )}
                         <button
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         <button
                             onClick={handleSave}
@@ -301,12 +304,12 @@ export function EmailTemplateEditor({
                             {isSaving ? (
                                 <>
                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    Saving...
+                                    {t('saving')}
                                 </>
                             ) : (
                                 <>
                                     <Save className="w-4 h-4" />
-                                    Save Changes
+                                    {t('saveChanges')}
                                 </>
                             )}
                         </button>

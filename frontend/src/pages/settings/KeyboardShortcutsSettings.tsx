@@ -1,9 +1,11 @@
 import { Keyboard, Check } from 'lucide-react';
 import { useKeyboardShortcutsContext, formatShortcut } from '../../context/KeyboardShortcutsContext';
 import { SHORTCUT_ACTIONS, ShortcutActionId, ShortcutPresetId, resolveMod } from '../../hooks/shortcutPresets';
+import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
 
 export function KeyboardShortcutsSettings() {
+    const t = useTranslations('SettingsShortcuts');
     const { 
         currentPresetId, 
         presets, 
@@ -23,17 +25,17 @@ export function KeyboardShortcutsSettings() {
     }, {} as Record<string, Array<{ id: string; description: string; category: string }>>);
 
     const categoryLabels: Record<string, string> = {
-        navigation: 'Navigation',
-        ui: 'UI Controls',
-        files: 'File Operations',
-        selection: 'Selection',
+        navigation: t('catNavigation'),
+        ui: t('catUi'),
+        files: t('catFiles'),
+        selection: t('catSelection'),
     };
 
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Keyboard Shortcuts</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Choose a shortcut preset that matches your workflow</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('description')}</p>
             </div>
 
             {/* Preset Selection */}
@@ -41,10 +43,10 @@ export function KeyboardShortcutsSettings() {
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
                         <Keyboard className="w-5 h-5 text-gray-500" />
-                        Shortcut Preset
+                        {t('presetTitle')}
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Presets change all shortcuts to match a specific workflow style
+                        {t('presetDesc')}
                     </p>
                 </div>
                 <div className="p-4 space-y-3">
@@ -83,7 +85,7 @@ export function KeyboardShortcutsSettings() {
             {/* Shortcuts Reference */}
             <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
-                    {currentPreset.name} Preset Shortcuts
+                    {t('presetShortcuts', { name: currentPreset.name })}
                 </h3>
                 
                 {['navigation', 'ui', 'files', 'selection'].map((category) => {

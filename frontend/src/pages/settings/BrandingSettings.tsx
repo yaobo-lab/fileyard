@@ -1,11 +1,14 @@
 import { useRef, useState, useEffect } from 'react';
 import { Upload, Trash2, Loader2, Save, Check } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
+import { useTranslations } from '../../context/I18nContext';
 import { Logo } from '../../components/Logo';
 import { ImageCropModal } from '../../components/ImageCropModal';
 import clsx from 'clsx';
 
 export function BrandingSettings() {
+    const t = useTranslations('SettingsBranding');
+    const tCommon = useTranslations('Common');
     const { settings, uploadLogo, deleteLogo, uploadFavicon, deleteFavicon, updateSettings } = useGlobalSettings();
     const logoInputRef = useRef<HTMLInputElement>(null);
     const faviconInputRef = useRef<HTMLInputElement>(null);
@@ -166,8 +169,8 @@ export function BrandingSettings() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Branding</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Customize logo and footer content</p>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('description')}</p>
                 </div>
                 <button
                     onClick={handleSaveFooter}
@@ -186,14 +189,14 @@ export function BrandingSettings() {
                     ) : (
                         <Save className="w-4 h-4 mr-2" />
                     )}
-                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+                    {isSaving ? tCommon('saving') : saveSuccess ? tCommon('saved') : tCommon('save')}
                 </button>
             </div>
 
             {/* Logo Upload */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Application Logo</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{t('appLogo')}</h3>
                 </div>
                 <div className="p-6">
                     <div className="flex items-start gap-8">
@@ -211,7 +214,7 @@ export function BrandingSettings() {
                                 )}
                             </div>
                             <p className="mt-2 text-xs text-center text-gray-500 dark:text-gray-400">
-                                {settings.logo_url ? 'Custom' : 'Default'}
+                                {settings.logo_url ? tCommon('edit') : 'Default'}
                             </p>
                         </div>
                         
@@ -236,7 +239,7 @@ export function BrandingSettings() {
                                         ) : (
                                             <Upload className="w-4 h-4 mr-2" />
                                         )}
-                                        {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
+                                        {t('uploadLogo')}
                                     </button>
                                     
                                     {settings.logo_url && (
@@ -245,13 +248,13 @@ export function BrandingSettings() {
                                             className="flex items-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4 mr-2" />
-                                            Remove
+                                            {t('removeLogo')}
                                         </button>
                                     )}
                                 </div>
                                 
                                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    SVG, PNG, JPEG, WebP, or GIF. Max 2MB. PNG/JPEG images will open a crop editor.
+                                    {t('logoFormatHint')}
                                 </p>
                             </div>
                         </div>
@@ -262,7 +265,7 @@ export function BrandingSettings() {
             {/* Favicon Upload */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Browser Favicon</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{t('browserFavicon')}</h3>
                 </div>
                 <div className="p-6">
                     <div className="flex items-start gap-8">
@@ -284,7 +287,7 @@ export function BrandingSettings() {
                                 )}
                             </div>
                             <p className="mt-2 text-xs text-center text-gray-500 dark:text-gray-400">
-                                {settings.favicon_url ? 'Custom' : 'Default'}
+                                {settings.favicon_url ? tCommon('edit') : 'Default'}
                             </p>
                         </div>
                         
@@ -309,7 +312,7 @@ export function BrandingSettings() {
                                         ) : (
                                             <Upload className="w-4 h-4 mr-2" />
                                         )}
-                                        {isUploadingFavicon ? 'Uploading...' : 'Upload Favicon'}
+                                        {t('uploadFavicon')}
                                     </button>
                                     
                                     {settings.favicon_url && (
@@ -318,13 +321,13 @@ export function BrandingSettings() {
                                             className="flex items-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4 mr-2" />
-                                            Remove
+                                            {t('removeFavicon')}
                                         </button>
                                     )}
                                 </div>
                                 
                                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    ICO, SVG, PNG, or GIF. Max 1MB. Displayed in browser tabs.
+                                    {t('faviconFormatHint')}
                                 </p>
                             </div>
                         </div>
@@ -335,12 +338,12 @@ export function BrandingSettings() {
             {/* Footer Content */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Footer Content</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{t('footerSettings')}</h3>
                 </div>
                 <div className="p-6 space-y-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Attribution Text
+                            {t('footerAttribution')}
                         </label>
                         <input
                             type="text"
@@ -350,13 +353,13 @@ export function BrandingSettings() {
                             className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                         />
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            Main attribution line shown in the footer
+                            {t('footerAttributionDesc')}
                         </p>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Legal Disclaimer
+                            {t('footerDisclaimer')}
                         </label>
                         <textarea
                             value={footerDisclaimer}
@@ -366,7 +369,7 @@ export function BrandingSettings() {
                             className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                         />
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            Legal disclaimer displayed at the bottom of the footer
+                            {t('footerDisclaimerDesc')}
                         </p>
                     </div>
                 </div>

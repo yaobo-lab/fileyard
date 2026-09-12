@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 import { Navigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { RolePermissionsModal } from '../components/RolePermissionsModal';
@@ -53,6 +54,8 @@ interface CreateRoleData {
 export function RolesPage() {
     const { user, tenant } = useAuth();
     const authFetch = useAuthFetch();
+    const t = useTranslations('Roles');
+    const tCommon = useTranslations('Common');
 
     // Admin and SuperAdmin can access Roles page
     if (!user || !['SuperAdmin', 'Admin'].includes(user.role)) {
@@ -129,7 +132,7 @@ export function RolesPage() {
     };
 
     const handleDeleteRole = async (roleId: string) => {
-        if (!confirm('Are you sure you want to delete this role? This cannot be undone.')) {
+        if (!confirm(t('confirmDeleteRole'))) {
             return;
         }
 
@@ -141,7 +144,7 @@ export function RolesPage() {
             if (response.ok) {
                 fetchRoles();
             } else if (response.status === 409) {
-                alert('Cannot delete role: it is currently assigned to users.');
+                alert(t('errCannotDeleteAssigned'));
             }
         } catch (error) {
             console.error('Failed to delete role', error);
@@ -210,10 +213,10 @@ export function RolesPage() {
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2 sm:gap-3">
                         <Shield className="w-5 h-5 sm:w-6 sm:h-6 text-foreground" />
-                        Roles & Permissions
+                        {t('title')}
                     </h1>
                     <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-                        Manage user roles and their access levels
+                        {t('description')}
                     </p>
                 </div>
                 {canManageRoles && (
@@ -221,10 +224,10 @@ export function RolesPage() {
                         size="sm"
                         onClick={() => setShowCreateModal(true)}
                         className="h-9 gap-1.5 self-start sm:self-auto"
-                        title="Create Custom Role"
+                        title={t('createRole')}
                     >
                         <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">Create Custom Role</span>
+                        <span className="hidden sm:inline">{t('createRole')}</span>
                     </Button>
                 )}
             </div>
@@ -234,10 +237,10 @@ export function RolesPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-4">
                     <div className="flex items-center gap-2">
                         <Lock className="w-4 h-4 text-muted-foreground/60" />
-                        <h2 className="text-sm font-semibold text-foreground">System Roles</h2>
+                        <h2 className="text-sm font-semibold text-foreground">{t('systemRoles')}</h2>
                     </div>
                     <span className="text-xs text-muted-foreground ml-6 sm:ml-0">
-                        {isSuperAdmin ? '(Built-in, editable by SuperAdmin)' : '(Built-in, read-only)'}
+                        {isSuperAdmin ? t('systemRolesSuperAdmin') : t('systemRolesReadOnly')}
                     </span>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -259,14 +262,14 @@ export function RolesPage() {
                                     </div>
                                     <Badge variant="outline" className="gap-1 text-[11px] font-normal text-muted-foreground">
                                         <Globe className="w-3 h-3" />
-                                        <span>Global</span>
+                                        <span>{t('globalBadge')}</span>
                                     </Badge>
                                 </div>
                                 <h3 className={clsx("text-base font-semibold mb-1", colors.text)}>
                                     {role.name}
                                 </h3>
                                 <p className="text-xs sm:text-sm text-muted-foreground mb-3 line-clamp-2">
-                                    {role.description || 'No description'}
+                                    {role.description || t('noDesc')}
                                 </p>
                                 <Button
                                     variant="ghost"
@@ -277,7 +280,7 @@ export function RolesPage() {
                                     }}
                                     className="p-0 h-auto text-xs font-semibold text-foreground hover:underline hover:bg-transparent"
                                 >
-                                    {isSuperAdmin ? 'Edit Permissions' : 'View Permissions'}
+                                    {isSuperAdmin ? t('editPermissions') : t('viewPermissions')}
                                     <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
                                 </Button>
                             </div>
@@ -291,19 +294,19 @@ export function RolesPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-4">
                     <div className="flex items-center gap-2">
                         <Unlock className="w-4 h-4 text-muted-foreground" />
-                        <h2 className="text-sm font-semibold text-foreground">Custom Roles</h2>
+                        <h2 className="text-sm font-semibold text-foreground">{t('customRoles')}</h2>
                     </div>
-                    <span className="text-xs text-muted-foreground ml-6 sm:ml-0">(Created by your organization)</span>
+                    <span className="text-xs text-muted-foreground ml-6 sm:ml-0">{t('customRolesScopeHint')}</span>
                 </div>
 
                 {customRoles.length === 0 ? (
                     <div className="bg-muted/10 border border-dashed border-border rounded-xl p-8 text-center">
                         <Shield className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
                         <h3 className="text-sm font-semibold text-foreground mb-1">
-                            No Custom Roles Yet
+                            {t('noCustomRolesTitle')}
                         </h3>
                         <p className="text-xs text-muted-foreground mb-4">
-                            Create custom roles to define specific permission sets for your team.
+                            {t('noCustomRolesDesc')}
                         </p>
                         {canManageRoles && (
                             <Button
@@ -312,7 +315,7 @@ export function RolesPage() {
                                 className="h-9 gap-1.5"
                             >
                                 <Plus className="w-4 h-4" />
-                                <span>Create Your First Role</span>
+                                <span>{t('createFirstRole')}</span>
                             </Button>
                         )}
                     </div>
@@ -334,7 +337,7 @@ export function RolesPage() {
                                                 <div className="min-w-0">
                                                     <p className="font-semibold text-foreground truncate">{role.name}</p>
                                                     <p className="text-xs text-muted-foreground truncate">
-                                                        {role.description || 'No description'}
+                                                        {role.description || t('noDesc')}
                                                     </p>
                                                 </div>
                                             </div>
@@ -347,7 +350,7 @@ export function RolesPage() {
                                                         setShowPermissionsModal(true);
                                                     }}
                                                     className="h-8 w-8 text-muted-foreground"
-                                                    title="View/Edit Permissions"
+                                                    title={t('viewPermissions')}
                                                 >
                                                     <Settings className="w-4 h-4" />
                                                 </Button>
@@ -357,7 +360,7 @@ export function RolesPage() {
                                                         size="icon"
                                                         onClick={() => handleDeleteRole(role.id)}
                                                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                        title="Delete Role"
+                                                        title={t('deleteRole')}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -371,12 +374,12 @@ export function RolesPage() {
                                             {role.tenant_id ? (
                                                 <span className="inline-flex items-center text-xs text-muted-foreground">
                                                     <Building2 className="w-3 h-3 mr-1" />
-                                                    {tenant?.name || 'This Company'}
+                                                    {tenant?.name || t('thisCompany')}
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center text-xs text-muted-foreground">
                                                     <Globe className="w-3 h-3 mr-1" />
-                                                    Global
+                                                    {t('globalBadge')}
                                                 </span>
                                             )}
                                             <span className="text-xs text-muted-foreground/60">
@@ -392,11 +395,11 @@ export function RolesPage() {
                         <Table className="hidden sm:table">
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Role</TableHead>
-                                    <TableHead>Base Level</TableHead>
-                                    <TableHead>Scope</TableHead>
-                                    <TableHead>Created</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
+                                    <TableHead>{t('thRole')}</TableHead>
+                                    <TableHead>{t('thBaseLevel')}</TableHead>
+                                    <TableHead>{t('thScope')}</TableHead>
+                                    <TableHead>{t('thCreated')}</TableHead>
+                                    <TableHead className="text-right">{t('thActions')}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -416,7 +419,7 @@ export function RolesPage() {
                                                             {role.name}
                                                         </div>
                                                         <div className="text-xs text-muted-foreground truncate max-w-xs mt-0.5">
-                                                            {role.description || 'No description'}
+                                                            {role.description || t('noDesc')}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -430,12 +433,12 @@ export function RolesPage() {
                                                 {role.tenant_id ? (
                                                     <div className="flex items-center">
                                                         <Building2 className="w-3.5 h-3.5 mr-1 text-muted-foreground/60" />
-                                                        <span>{tenant?.name || 'This Company'}</span>
+                                                        <span>{tenant?.name || t('thisCompany')}</span>
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center">
                                                         <Globe className="w-3.5 h-3.5 mr-1 text-muted-foreground/60" />
-                                                        <span>Global</span>
+                                                        <span>{t('globalBadge')}</span>
                                                     </div>
                                                 )}
                                             </TableCell>
@@ -452,7 +455,7 @@ export function RolesPage() {
                                                             setShowPermissionsModal(true);
                                                         }}
                                                         className="h-8 w-8 text-muted-foreground"
-                                                        title="View/Edit Permissions"
+                                                        title={t('viewPermissions')}
                                                     >
                                                         <Settings className="w-4 h-4" />
                                                     </Button>
@@ -462,7 +465,7 @@ export function RolesPage() {
                                                             size="icon"
                                                             onClick={() => handleDeleteRole(role.id)}
                                                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                            title="Delete Role"
+                                                            title={t('deleteRole')}
                                                         >
                                                             <Trash2 className="w-4 h-4" />
                                                         </Button>
@@ -481,10 +484,10 @@ export function RolesPage() {
             {/* Info Panel */}
             <div className="bg-muted/50 border border-border rounded-xl p-5 sm:p-6">
                 <h4 className="font-semibold text-foreground mb-2 text-sm sm:text-base">
-                    Understanding Role Hierarchy
+                    {t('hierarchyTitle')}
                 </h4>
                 <p className="text-xs sm:text-sm text-muted-foreground mb-4">
-                    Roles follow a hierarchical permission model. Each role inherits all permissions from the level below it:
+                    {t('hierarchyDesc')}
                 </p>
                 {/* Mobile: Vertical layout */}
                 <div className="flex sm:hidden flex-col items-start gap-1 text-sm">
@@ -514,7 +517,7 @@ export function RolesPage() {
                     <div className="bg-popover rounded-xl shadow-xl border border-border max-w-md w-full">
                         <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
                             <h3 className="text-base font-semibold text-foreground">
-                                Create Custom Role
+                                {t('createModalTitle')}
                             </h3>
                             <button
                                 onClick={() => setShowCreateModal(false)}
@@ -526,24 +529,24 @@ export function RolesPage() {
                         <div className="p-5 space-y-4">
                             <div>
                                 <label className="block text-xs font-semibold text-foreground mb-1">
-                                    Role Name *
+                                    {t('roleNameLabel')}
                                 </label>
                                 <input
                                     type="text"
                                     value={newRoleName}
                                     onChange={(e) => setNewRoleName(e.target.value)}
-                                    placeholder="e.g., Senior Manager"
+                                    placeholder={t('roleNamePlaceholder')}
                                     className="w-full px-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
                                 />
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-foreground mb-1">
-                                    Description
+                                    {t('roleDescLabel')}
                                 </label>
                                 <textarea
                                     value={newRoleDescription}
                                     onChange={(e) => setNewRoleDescription(e.target.value)}
-                                    placeholder="What is this role for?"
+                                    placeholder={t('roleDescPlaceholder')}
                                     rows={2}
                                     className="w-full px-3 py-1.5 border border-border rounded-lg bg-muted/40 placeholder-muted-foreground/60 text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm transition-all"
                                 />
@@ -560,10 +563,10 @@ export function RolesPage() {
                                         <div className="ml-3">
                                             <span className="text-sm font-medium text-foreground flex items-center gap-2">
                                                 <Globe className="w-4 h-4 text-muted-foreground" />
-                                                Create as Global Role
+                                                {t('createAsGlobal')}
                                             </span>
                                             <p className="text-xs text-muted-foreground">
-                                                Global roles are available to all companies
+                                                {t('createAsGlobalHint')}
                                             </p>
                                         </div>
                                     </label>
@@ -571,10 +574,10 @@ export function RolesPage() {
                             )}
                             <div>
                                 <label className="block text-xs font-semibold text-foreground mb-1">
-                                    Base Permission Level *
+                                    {t('baseLevelLabel')}
                                 </label>
                                 <p className="text-xs text-muted-foreground mb-2">
-                                    This role will inherit all permissions from the selected level.
+                                    {t('baseLevelDesc')}
                                 </p>
                                 <div className="space-y-2">
                                     {['Employee', 'Manager', 'Admin'].map((level) => {
@@ -614,14 +617,14 @@ export function RolesPage() {
                                 onClick={() => setShowCreateModal(false)}
                                 className="px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted rounded-lg transition-colors"
                             >
-                                Cancel
+                                {tCommon('cancel')}
                             </button>
                             <button
                                 onClick={handleCreateRole}
                                 disabled={!newRoleName.trim() || isCreating}
                                 className="px-3 py-1.5 bg-foreground text-background rounded-lg hover:bg-foreground/90 text-sm font-medium disabled:opacity-50 transition-colors"
                             >
-                                {isCreating ? 'Creating...' : 'Create Role'}
+                                {isCreating ? t('creating') : t('createBtn')}
                             </button>
                         </div>
                     </div>

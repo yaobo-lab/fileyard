@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, Check, Loader2, AlertTriangle, Power, RefreshCw, ExternalLink, Github, Package, ArrowUp, CheckCircle2 } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
 
 interface VersionInfo {
@@ -15,6 +16,8 @@ interface VersionInfo {
 }
 
 export function SystemSettings() {
+    const t = useTranslations('SettingsSystem');
+    const tCommon = useTranslations('Common');
     const { settings, updateSettings } = useGlobalSettings();
     const { token } = useAuth();
     
@@ -96,7 +99,7 @@ export function SystemSettings() {
             setMaintenanceMode(false);
         } else {
             // Turning on - confirm first
-            if (confirm('Are you sure you want to enable maintenance mode? Users will be unable to access the system.')) {
+            if (confirm(t('confirmEnable'))) {
                 setMaintenanceMode(true);
             }
         }
@@ -106,8 +109,8 @@ export function SystemSettings() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">System</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">System-wide controls and maintenance settings</p>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('description')}</p>
                 </div>
                 <button
                     onClick={handleSave}
@@ -126,7 +129,7 @@ export function SystemSettings() {
                     ) : (
                         <Save className="w-4 h-4 mr-2" />
                     )}
-                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+                    {isSaving ? tCommon('saving') : saveSuccess ? tCommon('saved') : tCommon('save')}
                 </button>
             </div>
 
@@ -153,9 +156,9 @@ export function SystemSettings() {
                             )} />
                         </div>
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Maintenance Mode</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">{t('maintenanceMode')}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Temporarily disable access for all users except SuperAdmins
+                                {t('maintenanceDesc')}
                             </p>
                         </div>
                     </div>
@@ -190,10 +193,10 @@ export function SystemSettings() {
                             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                             <div>
                                 <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                                    Maintenance mode is currently active
+                                    {t('maintenanceActive')}
                                 </p>
                                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                                    Only SuperAdmins can access the system. Remember to save changes to apply.
+                                    {t('maintenanceDesc')}
                                 </p>
                             </div>
                         </div>
@@ -201,7 +204,7 @@ export function SystemSettings() {
                     
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Maintenance Message
+                            {t('maintenanceMsgLabel')}
                         </label>
                         <textarea
                             value={maintenanceMessage}
@@ -211,19 +214,19 @@ export function SystemSettings() {
                             className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                         />
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            This message will be shown to users when maintenance mode is active
+                            {t('maintenanceMsgDesc')}
                         </p>
                     </div>
 
                     {/* Preview */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Preview
+                            {tCommon('preview')}
                         </label>
                         <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
                             <div className="bg-amber-500 px-4 py-3 flex items-center gap-3">
                                 <AlertTriangle className="w-5 h-5 text-white" />
-                                <span className="text-white font-medium text-sm">System Maintenance</span>
+                                <span className="text-white font-medium text-sm">{t('maintenanceMode')}</span>
                             </div>
                             <div className="p-6 bg-gray-50 dark:bg-gray-900 text-center">
                                 <p className="text-gray-600 dark:text-gray-400">
@@ -243,9 +246,9 @@ export function SystemSettings() {
                             <Package className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                         </div>
                         <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">Version & Updates</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">{t('versionTitle')}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Current version and update notifications
+                                {t('description')}
                             </p>
                         </div>
                     </div>
@@ -261,7 +264,7 @@ export function SystemSettings() {
                             <div>
                                 <h4 className="font-semibold text-gray-900 dark:text-white">ClovaLink</h4>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">Version</span>
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">{t('currentVersion')}</span>
                                     <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded text-sm font-mono font-medium">
                                         v{versionInfo?.current_version || '...'}
                                     </span>
@@ -275,7 +278,7 @@ export function SystemSettings() {
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
                         >
                             <RefreshCw className={clsx("w-4 h-4", isCheckingVersion && "animate-spin")} />
-                            {isCheckingVersion ? 'Checking...' : 'Check for Updates'}
+                            {isCheckingVersion ? t('checkingVersion') : t('checkUpdate')}
                         </button>
                     </div>
 
@@ -292,11 +295,11 @@ export function SystemSettings() {
                                     <ArrowUp className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1">
                                         <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                                            Update Available: v{versionInfo.latest_version}
+                                            {t('updateAvailable')}: v{versionInfo.latest_version}
                                         </p>
                                         <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                                             {versionInfo.published_at && (
-                                                <>Released {new Date(versionInfo.published_at).toLocaleDateString()}</>
+                                                <>{t('publishedAt')} {new Date(versionInfo.published_at).toLocaleDateString()}</>
                                             )}
                                         </p>
                                         {versionInfo.release_notes && (
@@ -312,7 +315,7 @@ export function SystemSettings() {
                                                 className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100"
                                             >
                                                 <ExternalLink className="w-4 h-4" />
-                                                View Release on GitHub
+                                                {t('viewReleaseNotes')}
                                             </a>
                                         )}
                                     </div>
@@ -322,10 +325,10 @@ export function SystemSettings() {
                                     <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
                                     <div>
                                         <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                                            You're up to date!
+                                            {t('upToDate')}
                                         </p>
                                         <p className="text-xs text-green-700 dark:text-green-300 mt-1">
-                                            ClovaLink v{versionInfo.current_version} is the latest version
+                                            ClovaLink v{versionInfo.current_version}
                                         </p>
                                     </div>
                                 </>
@@ -341,11 +344,6 @@ export function SystemSettings() {
                                 <p className="text-sm text-gray-600 dark:text-gray-400">
                                     {versionError || versionInfo?.check_error}
                                 </p>
-                                {!githubRepo && (
-                                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                                        Configure a GitHub repository below to enable update checks
-                                    </p>
-                                )}
                             </div>
                         </div>
                     )}
@@ -355,7 +353,7 @@ export function SystemSettings() {
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             <div className="flex items-center gap-2">
                                 <Github className="w-4 h-4" />
-                                GitHub Repository
+                                {t('githubRepo')}
                             </div>
                         </label>
                         <div className="flex gap-3">
@@ -368,7 +366,7 @@ export function SystemSettings() {
                             />
                         </div>
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            Enter your GitHub repository to check for new releases. Format: <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">owner/repo</code>
+                            {t('githubRepoDesc')}
                         </p>
                     </div>
                 </div>

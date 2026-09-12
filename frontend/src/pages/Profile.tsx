@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
+import { useTranslations } from '../context/I18nContext';
 import { 
     User, 
     Shield, 
@@ -24,8 +25,6 @@ import clsx from 'clsx';
 import { NotificationPreferences } from '../components/NotificationPreferences';
 import { ImageCropModal } from '../components/ImageCropModal';
 import { PasswordInput, usePasswordPolicy, validatePassword } from '../components/PasswordInput';
-import { DiscordConnection } from '../components/DiscordConnection';
-import { OidcLinkedAccounts } from '../components/OidcLinkedAccounts';
 
 interface Session {
     id: string;
@@ -36,6 +35,8 @@ interface Session {
 }
 
 export function Profile() {
+    const t = useTranslations('Profile');
+    const tCommon = useTranslations('Common');
     const { user, refreshUser } = useAuth();
     const authFetch = useAuthFetch();
     const { currentCompany } = useTenant();
@@ -127,13 +128,13 @@ export function Profile() {
 
         // Validate file type
         if (!file.type.startsWith('image/')) {
-            setAvatarError('Please select an image file');
+            setAvatarError(t('avatarSelectImage'));
             return;
         }
 
         // Validate file size (5MB max)
         if (file.size > 5 * 1024 * 1024) {
-            setAvatarError('Image must be less than 5MB');
+            setAvatarError(t('avatarSizeLimit'));
             return;
         }
 
@@ -169,10 +170,10 @@ export function Profile() {
                 setAvatarCacheBuster(Date.now());
                 setAvatarImgError(false);
             } else {
-                setAvatarError('Failed to upload avatar');
+                setAvatarError(t('avatarUploadFailed'));
             }
         } catch (error) {
-            setAvatarError('Failed to upload avatar');
+            setAvatarError(t('avatarUploadFailed'));
         } finally {
             setIsUploadingAvatar(false);
         }
@@ -191,7 +192,7 @@ export function Profile() {
         
         // If email is changing and 2FA is required but no code provided
         if (isEmailChanging && email2FARequired && !email2FACode) {
-            setProfileError('Please enter your 2FA code to change email');
+            setProfileError(t('email2faRequired'));
             return;
         }
         
@@ -210,24 +211,24 @@ export function Profile() {
             });
 
             if (response.ok) {
-                setProfileSuccess('Profile updated successfully');
+                setProfileSuccess(t('profileUpdated'));
                 setIsEditingProfile(false);
                 setEmail2FACode('');
                 setEmail2FARequired(false);
                 await refreshUser();
             } else if (response.status === 409) {
-                setProfileError('Email is already in use');
+                setProfileError(t('emailInUse'));
             } else if (response.status === 403) {
                 // 2FA is required for email change
                 setEmail2FARequired(true);
-                setProfileError('2FA verification required to change email. Enter your authenticator code.');
+                setProfileError(t('email2faRequired'));
             } else if (response.status === 401) {
-                setProfileError('Invalid 2FA code. Please try again.');
+                setProfileError(t('invalid2faCode'));
             } else {
-                setProfileError('Failed to update profile');
+                setProfileError(t('profileUpdateFailed'));
             }
         } catch (error) {
-            setProfileError('An error occurred');
+            setProfileError(t('profileUpdateFailed'));
         } finally {
             setIsSavingProfile(false);
         }
@@ -235,7 +236,7 @@ export function Profile() {
 
     const handleChangePassword = async () => {
         if (newPassword !== confirmPassword) {
-            setPasswordError('Passwords do not match');
+            setPasswordError(t('passwordsDoNotMatch'));
             return;
         }
 
@@ -244,14 +245,14 @@ export function Profile() {
             const errors = validatePassword(newPassword, passwordPolicy);
             if (errors.length > 0) {
                 setPasswordErrors(errors);
-                setPasswordError('Password does not meet requirements');
+                setPasswordError(t('passwordRequirementsNotMet'));
                 return;
             }
         }
 
         // If 2FA is required but no code provided
         if (password2FARequired && !password2FACode) {
-            setPasswordError('Please enter your 2FA code');
+            setPasswordError(t('password2faRequired'));
             return;
         }
 
@@ -273,7 +274,7 @@ export function Profile() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                setPasswordSuccess('Password changed successfully');
+                setPasswordSuccess(t('passwordChanged'));
                 setShowPasswordForm(false);
                 setCurrentPassword('');
                 setNewPassword('');
@@ -283,18 +284,18 @@ export function Profile() {
             } else if (data.error === '2fa_required' || data.require_2fa) {
                 // 2FA is required - show the 2FA input
                 setPassword2FARequired(true);
-                setPasswordError('2FA verification required. Enter your authenticator code.');
+                setPasswordError(t('password2faRequired'));
             } else if (data.error === 'invalid_2fa_code') {
-                setPasswordError('Invalid 2FA code. Please try again.');
+                setPasswordError(t('invalid2faCode'));
             } else if (response.status === 401) {
-                setPasswordError('Current password is incorrect');
+                setPasswordError(t('currentPasswordIncorrect'));
             } else if (response.status === 400) {
-                setPasswordError('Password does not meet security requirements');
+                setPasswordError(t('passwordRequirementsNotMet'));
             } else {
-                setPasswordError(data.message || 'Failed to change password');
+                setPasswordError(data.message || t('passwordRequirementsNotMet'));
             }
         } catch (error) {
-            setPasswordError('An error occurred');
+            setPasswordError(t('passwordRequirementsNotMet'));
         } finally {
             setIsChangingPassword(false);
         }
@@ -333,10 +334,10 @@ export function Profile() {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             } else {
-                setExportError('Failed to export data.');
+                setExportError(t('exportFailed'));
             }
         } catch (error) {
-            setExportError('An error occurred during export.');
+            setExportError(t('exportFailed'));
         } finally {
             setIsExporting(false);
         }
@@ -353,10 +354,10 @@ export function Profile() {
                 setQrCode(data.qr_code);
                 setSecret(data.secret);
             } else {
-                setSetupError('Failed to initiate 2FA setup.');
+                setSetupError(t('setupFailed'));
             }
         } catch (error) {
-            setSetupError('An error occurred.');
+            setSetupError(t('setupFailed'));
         }
     };
 
@@ -373,10 +374,10 @@ export function Profile() {
                 setIsSettingUp2FA(false);
                 refreshUser();
             } else {
-                setSetupError('Invalid code. Please try again.');
+                setSetupError(t('invalidCode'));
             }
         } catch (error) {
-            setSetupError('Verification failed.');
+            setSetupError(t('invalidCode'));
         }
     };
 
@@ -444,7 +445,7 @@ export function Profile() {
                                         value={editName}
                                         onChange={(e) => setEditName(e.target.value)}
                                         className="text-xl font-bold w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                        placeholder="Your name"
+                                        placeholder={t('namePlaceholder')}
                                     />
                                     <input
                                         type="email"
@@ -458,13 +459,13 @@ export function Profile() {
                                             }
                                         }}
                                         className="text-sm w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                        placeholder="your.email@example.com"
+                                        placeholder={t('emailPlaceholder')}
                                     />
                                     {email2FARequired && editEmail !== user?.email && (
                                         <div className="mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                                             <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 text-xs mb-2">
                                                 <Shield className="w-4 h-4" />
-                                                2FA verification required to change email
+                                                {t('email2faHint')}
                                             </div>
                                             <input
                                                 type="text"
@@ -515,7 +516,7 @@ export function Profile() {
                                         className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                                     >
                                         <Save className="w-4 h-4" />
-                                        {isSavingProfile ? 'Saving...' : 'Save'}
+                                        {isSavingProfile ? t('savingProfile') : tCommon('save')}
                                     </button>
                                 </>
                             ) : (
@@ -524,7 +525,7 @@ export function Profile() {
                                     className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex items-center gap-2"
                                 >
                                     <Edit2 className="w-4 h-4" />
-                                    Edit Profile
+                                    {t('editProfile')}
                                 </button>
                             )}
                         </div>
@@ -557,14 +558,14 @@ export function Profile() {
                 <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
                         <Shield className="w-5 h-5 text-primary-500" />
-                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">Security</h2>
+                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">{t('securityTitle')}</h2>
                     </div>
                     <div className="p-6 space-y-6">
                         {/* Change Password */}
                         <div>
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                                 <Lock className="w-4 h-4" />
-                                Password
+                                {t('passwordTitle')}
                             </h3>
                             
                             {passwordSuccess && (
@@ -579,12 +580,12 @@ export function Profile() {
                                     onClick={() => setShowPasswordForm(true)}
                                     className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                                 >
-                                    Change Password
+                                    {t('changePassword')}
                                 </button>
                             ) : (
                                 <div className="space-y-3 bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Current Password</label>
+                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('currentPassword')}</label>
                                         <input
                                             type="password"
                                             value={currentPassword}
@@ -599,12 +600,12 @@ export function Profile() {
                                             setPasswordErrors([]);
                                         }}
                                         policy={passwordPolicy}
-                                        label="New Password"
+                                        label={t('newPassword')}
                                         showRequirements={true}
                                         error={passwordErrors}
                                     />
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm New Password</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('confirmNewPassword')}</label>
                                         <input
                                             type="password"
                                             value={confirmPassword}
@@ -618,7 +619,7 @@ export function Profile() {
                                             )}
                                         />
                                         {confirmPassword && newPassword !== confirmPassword && (
-                                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">Passwords do not match</p>
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">{t('passwordsDoNotMatch')}</p>
                                         )}
                                     </div>
 
@@ -626,18 +627,18 @@ export function Profile() {
                                         <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
                                             <label className="block text-xs font-medium text-amber-800 dark:text-amber-300 mb-2">
                                                 <Smartphone className="w-3 h-3 inline mr-1" />
-                                                2FA Verification Required
+                                                {t('twoFactorTitle')}
                                             </label>
                                             <input
                                                 type="text"
                                                 value={password2FACode}
                                                 onChange={(e) => setPassword2FACode(e.target.value)}
-                                                placeholder="Enter 6-digit code"
+                                                placeholder={t('verificationCode')}
                                                 maxLength={6}
                                                 className="w-full px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-center tracking-widest font-mono"
                                             />
                                             <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                                                Enter the code from your authenticator app
+                                                {t('scanQrCode')}
                                             </p>
                                         </div>
                                     )}
@@ -659,14 +660,14 @@ export function Profile() {
                                             }}
                                             className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
                                         >
-                                            Cancel
+                                            {tCommon('cancel')}
                                         </button>
                                         <button
                                             onClick={handleChangePassword}
                                             disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword || (password2FARequired && !password2FACode)}
                                             className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
                                         >
-                                            {isChangingPassword ? 'Changing...' : 'Change Password'}
+                                            {isChangingPassword ? t('changingPassword') : t('changePassword')}
                                         </button>
                                     </div>
                                 </div>
@@ -677,13 +678,13 @@ export function Profile() {
                         <div>
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                                 <Smartphone className="w-4 h-4" />
-                                Two-Factor Authentication
+                                {t('twoFactorTitle')}
                             </h3>
 
                             {setupSuccess && (
                                 <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg flex items-center gap-2 text-sm">
                                     <CheckCircle className="w-4 h-4" />
-                                    2FA enabled successfully!
+                                    {t('twoFactorEnabled')}
                                 </div>
                             )}
 
@@ -692,7 +693,7 @@ export function Profile() {
                                     onClick={start2FASetup}
                                     className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                                 >
-                                    Setup 2FA
+                                    {t('setup2fa')}
                                 </button>
                             ) : (
                                 <div className="space-y-4 bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg">
@@ -700,12 +701,12 @@ export function Profile() {
                                         {qrCode && (
                                             <img src={`data:image/png;base64,${qrCode}`} alt="2FA QR Code" className="mx-auto mb-4 rounded-lg bg-white p-2" />
                                         )}
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Scan with your authenticator app</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('scanQrCode')}</p>
                                         <p className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-1 rounded select-all">{secret}</p>
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Verification Code</label>
+                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{t('verificationCode')}</label>
                                         <div className="flex gap-2">
                                             <input
                                                 type="text"
@@ -719,7 +720,7 @@ export function Profile() {
                                                 disabled={!verifyCode}
                                                 className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
                                             >
-                                                Verify
+                                                {t('verifyBtn')}
                                             </button>
                                         </div>
                                     </div>
@@ -732,7 +733,7 @@ export function Profile() {
                                         onClick={() => setIsSettingUp2FA(false)}
                                         className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline w-full text-center"
                                     >
-                                        Cancel
+                                        {tCommon('cancel')}
                                     </button>
                                 </div>
                             )}
@@ -745,12 +746,12 @@ export function Profile() {
                     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
                             <Download className="w-5 h-5 text-blue-500" />
-                            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Data Privacy</h2>
+                            <h2 className="text-lg font-medium text-gray-900 dark:text-white">{t('dataPrivacyTitle')}</h2>
                         </div>
                         <div className="p-6">
-                            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Export Your Data</h3>
+                            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">{t('exportDataTitle')}</h3>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                Download a copy of your personal data.
+                                {t('exportDataDesc')}
                             </p>
 
                             {exportError && (
@@ -766,7 +767,7 @@ export function Profile() {
                                 className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
                             >
                                 <Download className={clsx("w-4 h-4", isExporting && "animate-bounce")} />
-                                {isExporting ? 'Exporting...' : 'Export My Data'}
+                                {isExporting ? t('exporting') : t('exportDataBtn')}
                             </button>
                         </div>
                     </div>
@@ -778,10 +779,10 @@ export function Profile() {
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <Monitor className="w-5 h-5 text-purple-500" />
-                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">Active Sessions</h2>
+                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">{t('sessionsTitle')}</h2>
                     </div>
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {sessions.length} active
+                        {t('activeSessionsCount', { count: sessions.length })}
                     </span>
                 </div>
                 <div className="p-6">
@@ -791,7 +792,7 @@ export function Profile() {
                         </div>
                     ) : sessions.length === 0 ? (
                         <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                            No active sessions found
+                            {t('noActiveSessions')}
                         </p>
                     ) : (
                         <div className="space-y-3">
@@ -806,7 +807,7 @@ export function Profile() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {session.device_info || 'Unknown Device'}
+                                                {session.device_info || t('unknownDevice')}
                                             </p>
                                             <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
                                                 {session.ip_address && (
@@ -826,7 +827,7 @@ export function Profile() {
                                         onClick={() => handleRevokeSession(session.id)}
                                         disabled={revokingSessionId === session.id}
                                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors disabled:opacity-50"
-                                        title="Revoke Session"
+                                        title={t('revokeSession')}
                                     >
                                         {revokingSessionId === session.id ? (
                                             <div className="animate-spin h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
@@ -846,22 +847,15 @@ export function Profile() {
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
                         <Bell className="w-5 h-5 text-orange-500" />
-                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">Notification Preferences</h2>
+                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">{t('notificationPreferencesTitle')}</h2>
                     </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Customize how you receive notifications
+                        {t('notificationPreferencesDesc')}
                     </p>
                 </div>
                 <div className="p-0">
                     <NotificationPreferences compact />
                 </div>
-            </div>
-
-            {/* Connected Accounts */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-medium text-gray-900 dark:text-white">Connected Accounts</h2>
-                <DiscordConnection />
-                <OidcLinkedAccounts />
             </div>
 
             {/* Image Crop Modal */}

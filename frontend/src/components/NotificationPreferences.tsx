@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Mail, BellRing, Info } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface NotificationPreference {
     id: string;
@@ -41,11 +42,22 @@ const DEFAULT_LABELS: PreferenceLabel[] = [
     { event_type: 'approval', label: 'Approvals', description: 'Notifications about document approvals requiring your action' }
 ];
 
+const EVENT_I18N_KEYS: Record<string, { label: string; desc: string }> = {
+    file_upload: { label: 'eventFileUpload', desc: 'eventFileUploadDesc' },
+    request_expiring: { label: 'eventRequestExpiring', desc: 'eventRequestExpiringDesc' },
+    user_action: { label: 'eventUserAction', desc: 'eventUserActionDesc' },
+    compliance_alert: { label: 'eventComplianceAlert', desc: 'eventComplianceAlertDesc' },
+    storage_warning: { label: 'eventStorageWarning', desc: 'eventStorageWarningDesc' },
+    file_shared: { label: 'eventFileShared', desc: 'eventFileSharedDesc' },
+    approval: { label: 'eventApproval', desc: 'eventApprovalDesc' }
+};
+
 interface NotificationPreferencesProps {
     compact?: boolean;
 }
 
 export function NotificationPreferences({ compact = false }: NotificationPreferencesProps) {
+    const t = useTranslations('Notifications');
     const { user } = useAuth();
     const authFetch = useAuthFetch();
     const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
@@ -160,9 +172,9 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
             <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 ${compact ? 'p-4' : 'p-6'}`}>
                 <div className="text-center py-6">
                     <Bell className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-                    <p className="text-gray-500 dark:text-gray-400">No notification settings available</p>
+                    <p className="text-gray-500 dark:text-gray-400">{t('noSettingsAvailable')}</p>
                     <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                        Your company administrator has disabled all notifications
+                        {t('allDisabledByAdmin')}
                     </p>
                 </div>
             </div>
@@ -175,15 +187,15 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
                         <Bell className="w-5 h-5 text-primary-600" />
-                        Notification Preferences
+                        {t('prefTitle')}
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Customize how you receive notifications
+                        {t('prefDesc')}
                     </p>
                     {isExempt && (
                         <p className="text-xs text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
                             <Info className="w-3 h-3" />
-                            As a SuperAdmin, you have full control over your notification preferences.
+                            {t('superAdminExempt')}
                         </p>
                     )}
                 </div>
@@ -194,17 +206,20 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                     const pref = getPreference(label.event_type);
                     const emailEnforced = isEmailEnforced(label.event_type);
                     const inAppEnforced = isInAppEnforced(label.event_type);
+                    const i18nConfig = EVENT_I18N_KEYS[label.event_type];
+                    const eventLabel = i18nConfig ? t(i18nConfig.label as any) : label.label;
+                    const eventDesc = i18nConfig ? t(i18nConfig.desc as any) : label.description;
                     
                     return (
                         <div key={label.event_type} className={compact ? 'p-4' : 'p-6'}>
                             <div className="flex items-start justify-between">
                                 <div className="flex-1">
                                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                        {label.label}
+                                        {eventLabel}
                                     </h4>
                                     {!compact && (
                                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                            {label.description}
+                                            {eventDesc}
                                         </p>
                                     )}
                                 </div>
@@ -221,7 +236,7 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                                                 className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                                             />
                                             <BellRing className="w-4 h-4 text-gray-400" />
-                                            <span className="text-sm text-gray-600 dark:text-gray-300">In-app</span>
+                                            <span className="text-sm text-gray-600 dark:text-gray-300">{t('inApp')}</span>
                                         </label>
                                     )}
                                     
@@ -236,7 +251,7 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                                                 className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                                             />
                                             <Mail className="w-4 h-4 text-gray-400" />
-                                            <span className="text-sm text-gray-600 dark:text-gray-300">Email</span>
+                                            <span className="text-sm text-gray-600 dark:text-gray-300">{t('email')}</span>
                                         </label>
                                     )}
                                     
@@ -244,7 +259,7 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                                     {emailEnforced && inAppEnforced && (
                                         <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
                                             <Info className="w-3 h-3" />
-                                            Set by admin
+                                            {t('setByAdmin')}
                                         </span>
                                     )}
                                 </div>
@@ -258,7 +273,7 @@ export function NotificationPreferences({ compact = false }: NotificationPrefere
                 <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <Info className="w-3 h-3" />
-                        Some settings may be managed by your company administrator
+                        {t('managedByAdmin')}
                     </p>
                 </div>
             )}

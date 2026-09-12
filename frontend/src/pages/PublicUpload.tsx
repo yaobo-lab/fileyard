@@ -1,11 +1,15 @@
 import React, { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { UploadCloud, CheckCircle, AlertCircle, File, Shield } from 'lucide-react';
+import { UploadCloud, CheckCircle, AlertCircle, File, Shield, Globe } from 'lucide-react';
 import clsx from 'clsx';
 import { Logo } from '../components/Logo';
+import { useI18n, useTranslations } from '../context/I18nContext';
 
 export function PublicUpload() {
     const { token } = useParams<{ token: string }>();
+    const { locale, setLocale } = useI18n();
+    const t = useTranslations('PublicUpload');
+
     const [isDragging, setIsDragging] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
     const [fileName, setFileName] = useState<string | null>(null);
@@ -64,17 +68,28 @@ export function PublicUpload() {
                 }
             } else {
                 setUploadStatus('error');
-                setErrorMessage('Upload failed. Please try again.');
+                setErrorMessage(t('failedRetry'));
             }
         } catch (error) {
             console.error('Upload error:', error);
             setUploadStatus('error');
-            setErrorMessage('Upload failed. Please check your connection and try again.');
+            setErrorMessage(t('failedRetry'));
         }
     };
 
     return (
         <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            {/* Language Switcher */}
+            <div className="absolute top-4 right-4 z-20">
+                <button
+                    onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 bg-white/80 hover:bg-white border border-gray-200 rounded-lg shadow-xs backdrop-blur-xs transition-colors"
+                >
+                    <Globe className="w-3.5 h-3.5 text-gray-500" />
+                    <span>{locale === 'zh' ? 'English' : '简体中文'}</span>
+                </button>
+            </div>
+
             {/* Background decoration */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
                 <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary-600/20 rounded-full blur-3xl"></div>
@@ -88,8 +103,8 @@ export function PublicUpload() {
                             <Logo className="h-60 w-auto text-primary-600" />
                         </div>
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Secure File Upload</h1>
-                    <p className="text-gray-500 mt-2">You have been invited to securely upload documents.</p>
+                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">{t('title')}</h1>
+                    <p className="text-gray-500 mt-2">{t('subtitle')}</p>
                 </div>
 
                 <div className="bg-white border border-gray-200 rounded-2xl shadow-xl ring-1 ring-gray-900/5 overflow-hidden">
@@ -99,13 +114,13 @@ export function PublicUpload() {
                                 <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-green-400 to-green-600 mb-6 animate-pulse">
                                     <CheckCircle className="h-10 w-10 text-white" />
                                 </div>
-                                <h3 className="text-2xl font-bold text-gray-900 mb-2">Upload Complete!</h3>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-2">{t('uploadComplete')}</h3>
                                 <p className="text-gray-500 mb-2">
-                                    <span className="font-semibold text-gray-900">{fileName}</span> has been securely uploaded.
+                                    {t('uploadedMsg', { name: fileName || '' })}
                                 </p>
                                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-500 mb-8">
                                     <Shield className="w-4 h-4 text-green-500" />
-                                    <span>End-to-end encrypted and secured</span>
+                                    <span>{t('encrypted')}</span>
                                 </div>
                                 <button
                                     onClick={() => {
@@ -114,7 +129,7 @@ export function PublicUpload() {
                                     }}
                                     className="w-full py-3 px-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl font-semibold hover:from-primary-700 hover:to-primary-800 transition-all duration-200 shadow-lg shadow-primary-500/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-primary-500"
                                 >
-                                    Upload Another File
+                                    {t('uploadAnother')}
                                 </button>
                             </div>
                         ) : (
@@ -150,10 +165,10 @@ export function PublicUpload() {
                                             )} />
                                         </div>
                                         <p className="mb-2 text-lg font-medium text-gray-900">
-                                            Drop files here or click to upload
+                                            {t('dropOrClick')}
                                         </p>
                                         <p className="text-sm text-gray-500">
-                                            End-to-end encrypted transfer
+                                            {t('encryptedTransfer')}
                                         </p>
                                     </div>
                                 </div>
@@ -165,7 +180,7 @@ export function PublicUpload() {
                                                 <File className="w-4 h-4 mr-2" />
                                                 <span className="truncate max-w-[200px]">{fileName}</span>
                                             </div>
-                                            <span>Uploading...</span>
+                                            <span>{t('uploading')}</span>
                                         </div>
                                         <div className="w-full bg-gray-200 rounded-full h-2">
                                             <div className="bg-primary-600 h-2 rounded-full animate-pulse w-full"></div>
@@ -177,9 +192,9 @@ export function PublicUpload() {
                                     <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start">
                                         <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" />
                                         <div>
-                                            <h4 className="text-sm font-medium text-red-400">Upload Failed</h4>
+                                            <h4 className="text-sm font-medium text-red-400">{t('uploadFailed')}</h4>
                                             <p className="text-sm text-red-300/80 mt-1">
-                                                {errorMessage || 'Please check your connection and try again.'}
+                                                {errorMessage || t('failedRetry')}
                                             </p>
                                         </div>
                                     </div>
@@ -190,12 +205,12 @@ export function PublicUpload() {
 
                     <div className="bg-gray-50 px-8 py-4 border-t border-gray-200 flex items-center justify-center text-xs text-gray-500">
                         <Shield className="w-3 h-3 mr-1.5" />
-                        <span>256-bit SSL Secure Transfer</span>
+                        <span>{t('sslSecure')}</span>
                     </div>
                 </div>
 
                 <p className="mt-8 text-center text-xs text-gray-500">
-                    &copy; {new Date().getFullYear()} ClovaLink. All rights reserved.
+                    {t('copyright', { year: new Date().getFullYear().toString() })}
                 </p>
             </div>
         </div>
