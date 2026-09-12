@@ -28,6 +28,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarTrigger,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { TeamSwitcher } from './TeamSwitcher'
 import { NavUser } from './NavUser'
@@ -143,10 +145,23 @@ export function AppSidebar({
     },
   ]
 
+  const { state } = useSidebar()
+
   return (
     <Sidebar collapsible='icon' variant='inset'>
-      <SidebarHeader>
-        <TeamSwitcher />
+      <SidebarHeader className='p-2'>
+        {state === 'collapsed' ? (
+          <div className='flex items-center justify-center w-full py-1'>
+            <SidebarTrigger className='size-8 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors cursor-pointer' />
+          </div>
+        ) : (
+          <div className='flex items-center justify-between gap-1 w-full'>
+            <div className='flex-1 min-w-0'>
+              <TeamSwitcher />
+            </div>
+            <SidebarTrigger className='shrink-0 size-8 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors cursor-pointer' />
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent>

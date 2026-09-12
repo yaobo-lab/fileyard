@@ -1,8 +1,7 @@
 import * as React from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
+import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/AppSidebar'
-import { Header } from '@/components/layout/Header'
 import { Main } from '@/components/layout/Main'
 import { SearchDialog } from '@/components/layout/SearchDialog'
 import { ExtensionPanel } from '@/components/ExtensionPanel'
@@ -228,10 +227,11 @@ export function Layout() {
       />
 
       <SidebarInset className='flex flex-col min-h-svh bg-background'>
-        <Header
-          onSearchClick={() => setIsSearchOpen(true)}
-          searchPlaceholder={getSearchPlaceholder()}
-        />
+        {/* Mobile sidebar trigger header (hidden on desktop md+) */}
+        <div className='md:hidden flex items-center h-11 px-3 border-b bg-background gap-2'>
+          <SidebarTrigger className='size-8' />
+          <span className='text-sm font-semibold'>Fileyard</span>
+        </div>
 
         <SearchDialog
           open={isSearchOpen}

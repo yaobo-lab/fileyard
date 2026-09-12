@@ -2267,7 +2267,7 @@ export function FileBrowser() {
     };
 
     return (
-        <div className="h-full flex flex-col space-y-3 sm:space-y-4">
+        <div className="h-full flex flex-col space-y-3 sm:space-y-4 flex-1">
             <FileSystemIconSpriteSheet />
             {/* Unified Header Toolbar: Operations */}
             <div className="flex items-center justify-between gap-2 mb-1 py-0.5 relative z-30">
@@ -3569,7 +3569,7 @@ export function FileBrowser() {
 
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
-                        <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <div className="sticky bottom-0 z-20 mt-auto flex items-center justify-between pt-4 pb-3 -mx-4 -mb-4 px-4 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs rounded-b-lg border-t border-gray-200 dark:border-gray-700 shadow-xs">
                             <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredFiles.length)} of {filteredFiles.length} items
                             </p>
