@@ -36,7 +36,6 @@ import { ComplianceBadge } from '../components/ComplianceBadge';
 import { LockedToggle } from '../components/LockedField';
 import { TenantEmailTemplates } from '../components/TenantEmailTemplates';
 import { TenantAiSettings } from '../components/TenantAiSettings';
-import { TenantDiscordSettings } from '../components/TenantDiscordSettings';
 import { BackupRestore } from '../components/BackupRestore';
 import { useTranslations } from '../context/I18nContext';
 import { useModalDialog } from '../context/ModalDialogContext';
@@ -123,7 +122,7 @@ export function CompanyDetails() {
     const [company, setCompany] = useState<Tenant | null>(null);
     const [departments, setDepartments] = useState<Department[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'overview' | 'settings' | 'departments' | 'users' | 'audit' | 'notifications' | 'email-templates' | 'ai' | 'discord' | 'document-workflow' | 'backup'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'settings' | 'departments' | 'users' | 'audit' | 'notifications' | 'email-templates' | 'ai' | 'document-workflow' | 'backup'>('overview');
     
     // Notification settings state
     const [notificationSettings, setNotificationSettings] = useState<any[]>([]);
@@ -847,7 +846,6 @@ export function CompanyDetails() {
             case 'notifications': return t('tabNotifications');
             case 'email-templates': return t('tabEmailTemplates');
             case 'ai': return t('tabAi');
-            case 'discord': return t('tabDiscord');
             case 'audit': return t('tabAudit');
             case 'backup': return t('tabBackup');
             default: return tab.charAt(0).toUpperCase() + tab.slice(1);
@@ -898,7 +896,7 @@ export function CompanyDetails() {
             {/* Tabs */}
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8 overflow-x-auto">
-                    {['overview', 'settings', 'departments', 'users', 'document-workflow', 'notifications', 'email-templates', 'ai', 'discord', 'audit', 'backup'].filter((tab) => {
+                    {['overview', 'settings', 'departments', 'users', 'document-workflow', 'notifications', 'email-templates', 'ai', 'audit', 'backup'].filter((tab) => {
                         if (tab === 'backup' && company?.backup_enabled === false && currentUser?.role !== 'SuperAdmin') return false;
                         return true;
                     }).map((tab) => (
@@ -2267,12 +2265,6 @@ export function CompanyDetails() {
                     />
                 )}
 
-                {activeTab === 'discord' && company && (
-                    <TenantDiscordSettings
-                        tenantId={company.id}
-                        authFetch={authFetch}
-                    />
-                )}
 
                 {activeTab === 'document-workflow' && company && (
                     <div className="max-w-6xl mx-auto space-y-6">

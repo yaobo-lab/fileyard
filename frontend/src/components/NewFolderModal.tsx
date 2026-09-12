@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, FolderPlus } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 
 interface NewFolderModalProps {
     isOpen: boolean;
@@ -8,6 +9,8 @@ interface NewFolderModalProps {
 }
 
 export function NewFolderModal({ isOpen, onClose, onCreate }: NewFolderModalProps) {
+    const t = useTranslations('Explorer');
+    const tCommon = useTranslations('Common');
     const [folderName, setFolderName] = useState('');
 
     if (!isOpen) return null;
@@ -27,7 +30,7 @@ export function NewFolderModal({ isOpen, onClose, onCreate }: NewFolderModalProp
                 <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white flex items-center">
                         <FolderPlus className="w-5 h-5 mr-2 text-primary-500" />
-                        New Folder
+                        {t('newFolder')}
                     </h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
                         <X className="w-5 h-5" />
@@ -36,14 +39,14 @@ export function NewFolderModal({ isOpen, onClose, onCreate }: NewFolderModalProp
                 <form onSubmit={handleSubmit} className="p-4">
                     <div className="mb-4">
                         <label htmlFor="folderName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Folder Name
+                            {t('folderName')}
                         </label>
                         <input
                             type="text"
                             id="folderName"
                             value={folderName}
                             onChange={(e) => setFolderName(e.target.value)}
-                            placeholder="e.g., Projects"
+                            placeholder={t('folderNamePlaceholder')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                             autoFocus
                         />
@@ -54,14 +57,14 @@ export function NewFolderModal({ isOpen, onClose, onCreate }: NewFolderModalProp
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={!folderName.trim()}
                             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Create
+                            {t('create')}
                         </button>
                     </div>
                 </form>
@@ -69,3 +72,4 @@ export function NewFolderModal({ isOpen, onClose, onCreate }: NewFolderModalProp
         </div>
     );
 }
+

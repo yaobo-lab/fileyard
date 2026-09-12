@@ -27,7 +27,6 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar'
@@ -310,7 +309,6 @@ export function AppSidebar({
       <SidebarFooter>
         <NavUser />
       </SidebarFooter>
-      <SidebarRail />
     </Sidebar>
   )
 }

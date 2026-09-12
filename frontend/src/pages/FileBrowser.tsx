@@ -143,21 +143,12 @@ export function FileBrowser() {
         const saved = localStorage.getItem(`file-per-page-${user?.id ?? 'default'}`);
         if (!saved) return null;
         const val = parseInt(saved, 10);
+        if (val === 10) return 30;
         return val === 25 ? 30 : val;
     });
     
-    // Display density (list view)
-    const densityKey = `file-density-${user?.id ?? 'default'}`;
-    const [density, setDensity] = useState<'compact' | 'default' | 'comfortable'>(() => {
-        const saved = localStorage.getItem(`file-density-${user?.id ?? 'default'}`);
-        return (saved === 'compact' || saved === 'comfortable') ? saved : 'default';
-    });
-    const densityStyles = {
-        compact: { cellPy: 'py-1', iconSize: 'h-6 w-6', textSize: 'text-xs', rowHeight: 32 },
-        default: { cellPy: 'py-2.5', iconSize: 'h-8 w-8', textSize: 'text-sm', rowHeight: 45 },
-        comfortable: { cellPy: 'py-4', iconSize: 'h-10 w-10', textSize: 'text-sm', rowHeight: 60 },
-    };
-    const ds = densityStyles[density];
+    // List view row styles (standard density)
+    const ds = { cellPy: 'py-2.5', iconSize: 'h-8 w-8', textSize: 'text-sm', rowHeight: 45 };
 
     // Resizable column widths (list view)
     const colWidthsKey = `file-col-widths-${user?.id ?? 'default'}`;
@@ -315,7 +306,7 @@ export function FileBrowser() {
         };
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
-    }, [viewMode, itemsPerPageOverride, density]);
+    }, [viewMode, itemsPerPageOverride]);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const starredDropdownRef = useRef<HTMLDivElement>(null);
@@ -2476,16 +2467,16 @@ export function FileBrowser() {
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsPerPageMenuOpen(!isPerPageMenuOpen); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
-                            title="Items per page"
+                            title={t('itemsPerPage')}
                         >
                             <Rows3 className="w-3.5 h-3.5 text-gray-500" />
                             <span className="hidden sm:inline">
-                                {itemsPerPageOverride ?? 'Auto'}
+                                {itemsPerPageOverride ?? t('auto')}
                             </span>
                         </button>
                         {isPerPageMenuOpen && (
                             <div className="absolute right-0 mt-1 w-28 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
-                                {([null, 10, 30, 50, 100] as (number | null)[]).map((count) => (
+                                {([null, 30, 40, 50, 80, 100] as (number | null)[]).map((count) => (
                                     <button
                                         key={count ?? 'auto'}
                                         onClick={() => {
@@ -2505,32 +2496,14 @@ export function FileBrowser() {
                                                 : "text-gray-700 dark:text-gray-300"
                                         )}
                                     >
-                                        {count ?? 'Auto'}
+                                        {count ?? t('auto')}
                                     </button>
                                 ))}
                             </div>
                         )}
                     </div>
 
-                    {/* Density toggle (list view only) */}
-                    {viewMode === 'list' && (
-                        <button
-                            onClick={() => {
-                                const next = density === 'compact' ? 'default' : density === 'default' ? 'comfortable' : 'compact';
-                                setDensity(next);
-                                localStorage.setItem(densityKey, next);
-                            }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
-                            title={`Density: ${density}`}
-                        >
-                            <span className="hidden md:inline text-xs capitalize">{density === 'default' ? 'Normal' : density}</span>
-                            <div className="flex flex-col gap-px">
-                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
-                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
-                                <div className={clsx("rounded-sm bg-current", density === 'compact' ? "w-3 h-px" : density === 'default' ? "w-3 h-0.5" : "w-3 h-1")} />
-                            </div>
-                        </button>
-                    )}
+
 
                     {/* Grid / List switch */}
                     <div className="flex space-x-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -2657,13 +2630,6 @@ export function FileBrowser() {
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                         </Link>
-                        <button
-                            onClick={() => setIsRequestModalOpen(true)}
-                            title={t('requestFiles')}
-                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
-                        >
-                            <LinkIcon className="w-3.5 h-3.5" />
-                        </button>
                         {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                             <button
                                 onClick={() => setIsNewFolderOpen(true)}
@@ -2671,15 +2637,6 @@ export function FileBrowser() {
                                 className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                             >
                                 <FolderPlus className="w-3.5 h-3.5" />
-                            </button>
-                        )}
-                        {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
-                            <button
-                                onClick={() => setIsCreateGroupOpen(true)}
-                                title={t('newGroup')}
-                                className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
-                            >
-                                <Layers className="w-3.5 h-3.5" />
                             </button>
                         )}
                         {clipboardFile && (
@@ -2732,13 +2689,6 @@ export function FileBrowser() {
                                     <Trash2 className="w-3.5 h-3.5 mr-2" />
                                     {t('recycleBin')}
                                 </Link>
-                                <button
-                                    onClick={() => { setIsRequestModalOpen(true); setIsMobileMenuOpen(false); }}
-                                    className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                                >
-                                    <LinkIcon className="w-3.5 h-3.5 mr-2" />
-                                    {t('requestFiles')}
-                                </button>
                                 {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                                     <button
                                         onClick={() => { setIsNewFolderOpen(true); setIsMobileMenuOpen(false); }}
@@ -2746,15 +2696,6 @@ export function FileBrowser() {
                                     >
                                         <FolderPlus className="w-3.5 h-3.5 mr-2" />
                                         {t('newFolder')}
-                                    </button>
-                                )}
-                                {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
-                                    <button
-                                        onClick={() => { setIsCreateGroupOpen(true); setIsMobileMenuOpen(false); }}
-                                        className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                                    >
-                                        <Layers className="w-3.5 h-3.5 mr-2" />
-                                        {t('newGroup')}
                                     </button>
                                 )}
                                 {clipboardFile && (

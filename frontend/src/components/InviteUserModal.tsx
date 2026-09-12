@@ -35,10 +35,11 @@ interface AccordionSectionProps {
     children: React.ReactNode;
     badge?: string | number;
     required?: boolean;
+    requiredText?: string;
     completed?: boolean;
 }
 
-function AccordionSection({ title, icon, isOpen, onToggle, children, badge, required, completed }: AccordionSectionProps) {
+function AccordionSection({ title, icon, isOpen, onToggle, children, badge, required, requiredText = 'Required', completed }: AccordionSectionProps) {
     return (
         <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <button
@@ -62,7 +63,7 @@ function AccordionSection({ title, icon, isOpen, onToggle, children, badge, requ
                     </div>
                     <span className="font-medium text-gray-900 dark:text-white">{title}</span>
                     {required && !completed && (
-                        <span className="text-xs text-red-500">Required</span>
+                        <span className="text-xs text-red-500">{requiredText}</span>
                     )}
                     {badge !== undefined && badge !== 0 && (
                         <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full">
@@ -156,7 +157,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
     const { policy: passwordPolicy } = usePasswordPolicy();
     
     // Accordion states
-    const [openSections, setOpenSections] = useState<Set<string>>(new Set(['basic', 'role']));
+    const [openSections, setOpenSections] = useState<Set<string>>(new Set(['basic']));
     
     const { user, tenant } = useAuth();
     const authFetch = useAuthFetch();
@@ -226,12 +227,8 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
             setDepartmentsByTenant({});
             setShowTempPassword(false);
             
-            // Reset accordion states
-            if (initialData) {
-                setOpenSections(new Set(['basic', 'role']));
-            } else {
-                setOpenSections(new Set(['basic', 'role', 'credentials']));
-            }
+            // Reset accordion states: 默认只打开第一栏（基本信息）
+            setOpenSections(new Set(['basic']));
             
             if (initialData) {
                 setFormData({
@@ -421,6 +418,16 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
     if (!isOpen) return null;
 
+    const getLocalizedRoleLabel = (roleName: string, fallbackLabel?: string) => {
+        switch (roleName) {
+            case 'SuperAdmin': return t('roleSuperAdmin');
+            case 'Admin': return t('roleAdmin');
+            case 'Manager': return t('roleManager');
+            case 'Employee': return t('roleEmployee');
+            default: return fallbackLabel || roleName;
+        }
+    };
+
     const roleInList = availableRoles.some(r => r.value === formData.role);
     const displayRoles = roleInList ? availableRoles : [
         ...availableRoles,
@@ -445,7 +452,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                             {initialData ? (t('edit') + ' ' + t('colUser')) : t('inviteUser')}
                         </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                            {initialData ? '更新成员基本信息与访问权限' : '向您的企业组织中添加新成员'}
+                            {initialData ? t('editSubtitle') : t('inviteSubtitle')}
                         </p>
                     </div>
                     <button
@@ -467,11 +474,12 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                         {/* Basic Information */}
                         <AccordionSection
-                            title="基本信息"
+                            title={t('basicInfo')}
                             icon={<User className="w-4 h-4" />}
                             isOpen={openSections.has('basic')}
                             onToggle={() => toggleSection('basic')}
                             required
+                            requiredText={t('requiredBadge')}
                             completed={basicComplete}
                         >
                             <div className="space-y-4">
@@ -490,8 +498,8 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                        邮箱地址
-                                        {initialData && <span className="text-xs text-gray-400 font-normal ml-2">(不可修改)</span>}
+                                        {t('emailAddress')}
+                                        {initialData && <span className="text-xs text-gray-400 font-normal ml-2">{t('cannotModify')}</span>}
                                     </label>
                                     <input
                                         type="email"
@@ -508,11 +516,12 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                         {/* Role & Department */}
                         <AccordionSection
-                            title="角色与所属部门"
+                            title={t('roleAndDepartment')}
                             icon={<Shield className="w-4 h-4" />}
                             isOpen={openSections.has('role')}
                             onToggle={() => toggleSection('role')}
                             required
+                            requiredText={t('requiredBadge')}
                             completed={roleComplete}
                         >
                             <div className="space-y-4">
@@ -528,7 +537,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     >
                                         {displayRoles.map((role) => (
                                             <option key={role.value} value={role.value}>
-                                                {role.label}
+                                                {getLocalizedRoleLabel(role.value, role.label)}
                                             </option>
                                         ))}
                                     </select>
@@ -539,18 +548,18 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         <div className="flex items-center gap-2 mb-2">
                                             <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                                             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                                                确认角色权限变更
+                                                {t('confirmRoleChange')}
                                             </span>
                                         </div>
                                         <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">
-                                            正在由 "{originalRole}" 变更为 "{formData.role}"
+                                            {t('roleChangeWarning', { from: getLocalizedRoleLabel(originalRole || ''), to: getLocalizedRoleLabel(formData.role) })}
                                         </p>
                                         <input
                                             type="password"
                                             required={roleChanged}
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
-                                            placeholder="请输入您的登录密码以确认操作"
+                                            placeholder={t('confirmPasswordPlaceholder')}
                                             className="w-full px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
                                         />
                                     </div>
@@ -559,14 +568,14 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                                         {t('colDepartment')}
-                                        <span className="text-xs text-gray-400 font-normal ml-2">(选填)</span>
+                                        <span className="text-xs text-gray-400 font-normal ml-2">{t('optional')}</span>
                                     </label>
                                     <select
                                         value={formData.department_id}
                                         onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
                                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     >
-                                        <option value="">未分配部门</option>
+                                        <option value="">{t('unassignedDepartment')}</option>
                                         {departments.map((dept) => (
                                             <option key={dept.id} value={dept.id}>
                                                 {dept.name}
@@ -580,7 +589,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {/* Extended Access (only show if there's something to configure) */}
                         {(departments.length > 1 || (isSuperAdmin && tenants.length > 1)) && (
                             <AccordionSection
-                                title="扩展访问权限"
+                                title={t('extendedAccess')}
                                 icon={<Building2 className="w-4 h-4" />}
                                 isOpen={openSections.has('access')}
                                 onToggle={() => toggleSection('access')}
@@ -591,7 +600,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {departments.filter(d => d.id !== formData.department_id).length > 0 && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                Additional Departments
+                                                {t('additionalDepartments')}
                                             </label>
                                             <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                                                 {departments.filter(d => d.id !== formData.department_id).map((dept) => (
@@ -620,31 +629,31 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {isSuperAdmin && tenants.filter(t => t.id !== currentTenantId).length > 0 && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                Additional Company Access
+                                                {t('additionalCompanyAccess')}
                                             </label>
                                             <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                                {tenants.filter(t => t.id !== currentTenantId).map((t) => (
-                                                    <label key={t.id} className="flex items-center gap-2 cursor-pointer">
+                                                {tenants.filter(t => t.id !== currentTenantId).map((tItem) => (
+                                                    <label key={tItem.id} className="flex items-center gap-2 cursor-pointer">
                                                         <input
                                                             type="checkbox"
-                                                            checked={formData.allowed_tenant_ids?.includes(t.id)}
+                                                            checked={formData.allowed_tenant_ids?.includes(tItem.id)}
                                                             onChange={(e) => {
                                                                 const current = formData.allowed_tenant_ids || [];
                                                                 if (e.target.checked) {
-                                                                    setFormData({ ...formData, allowed_tenant_ids: [...current, t.id] });
-                                                                    fetchDepartmentsForTenant(t.id);
+                                                                    setFormData({ ...formData, allowed_tenant_ids: [...current, tItem.id] });
+                                                                    fetchDepartmentsForTenant(tItem.id);
                                                                 } else {
-                                                                    setFormData({ ...formData, allowed_tenant_ids: current.filter(id => id !== t.id) });
+                                                                    setFormData({ ...formData, allowed_tenant_ids: current.filter(id => id !== tItem.id) });
                                                                     setDepartmentsByTenant(prev => {
                                                                         const updated = { ...prev };
-                                                                        delete updated[t.id];
+                                                                        delete updated[tItem.id];
                                                                         return updated;
                                                                     });
                                                                 }
                                                             }}
                                                             className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                                                         />
-                                                        <span className="text-sm text-gray-700 dark:text-gray-300">{t.name}</span>
+                                                        <span className="text-sm text-gray-700 dark:text-gray-300">{tItem.name}</span>
                                                     </label>
                                                 ))}
                                             </div>
@@ -653,12 +662,12 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                                     {/* Departments from selected companies */}
                                     {Object.entries(departmentsByTenant).map(([tenantId, depts]) => {
-                                        const tenantInfo = tenants.find(t => t.id === tenantId);
+                                        const tenantInfo = tenants.find(tItem => tItem.id === tenantId);
                                         if (!tenantInfo || depts.length === 0) return null;
                                         return (
                                             <div key={tenantId}>
                                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                    Departments in {tenantInfo.name}
+                                                    {t('departmentsInTenant', { name: tenantInfo.name })}
                                                 </label>
                                                 <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                                                     {depts.map((dept: any) => (
@@ -690,11 +699,12 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {/* Credentials (new users only) */}
                         {!initialData && (
                             <AccordionSection
-                                title="Credentials"
+                                title={t('credentials')}
                                 icon={<Key className="w-4 h-4" />}
                                 isOpen={openSections.has('credentials')}
                                 onToggle={() => toggleSection('credentials')}
                                 required
+                                requiredText={t('requiredBadge')}
                                 completed={credentialsComplete as boolean}
                             >
                                 <div className="space-y-3">
@@ -702,7 +712,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {hasSsoProviders && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                                Authentication Method
+                                                {t('authMethod')}
                                             </label>
                                             <div className="grid grid-cols-3 gap-2">
                                                 {(['local', 'oidc', 'hybrid'] as const).map((method) => (
@@ -717,15 +727,15 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                                 : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                                                         )}
                                                     >
-                                                        {method === 'local' && <><Key className="w-3 h-3 inline mr-1" />Password</>}
-                                                        {method === 'oidc' && <><Globe className="w-3 h-3 inline mr-1" />SSO Only</>}
-                                                        {method === 'hybrid' && <><Shield className="w-3 h-3 inline mr-1" />Both</>}
+                                                        {method === 'local' && <><Key className="w-3 h-3 inline mr-1" />{t('authPassword')}</>}
+                                                        {method === 'oidc' && <><Globe className="w-3 h-3 inline mr-1" />{t('authSsoOnly')}</>}
+                                                        {method === 'hybrid' && <><Shield className="w-3 h-3 inline mr-1" />{t('authHybrid')}</>}
                                                     </button>
                                                 ))}
                                             </div>
                                             {authMethod === 'oidc' && (
                                                 <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                                                    User will sign in via SSO only. No password needed.
+                                                    {t('ssoOnlyHint')}
                                                 </p>
                                             )}
                                         </div>
@@ -734,7 +744,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {authMethod !== 'oidc' && (
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                            Temporary Password
+                                            {t('tempPassword')}
                                         </label>
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
@@ -746,7 +756,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                         setFormData({ ...formData, password: e.target.value });
                                                         setPasswordErrors([]);
                                                     }}
-                                                    placeholder={`Min. ${passwordPolicy?.min_length || 8} characters`}
+                                                    placeholder={t('passwordPlaceholder', { count: passwordPolicy?.min_length || 8 })}
                                                     className={clsx(
                                                         "w-full px-3 py-2.5 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 font-mono",
                                                         passwordErrors.length > 0
@@ -774,7 +784,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                 className="px-4 py-2.5 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center gap-2 transition-colors"
                                             >
                                                 <RefreshCw className="w-4 h-4" />
-                                                Generate
+                                                {t('generatePassword')}
                                             </button>
                                         </div>
                                         
@@ -792,29 +802,29 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         {/* Password requirements */}
                                         {passwordPolicy && formData.password && (
                                             <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-                                                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Requirements:</p>
+                                                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('passwordRequirements')}</p>
                                                 <ul className="text-xs space-y-0.5">
                                                     <li className={formData.password.length >= passwordPolicy.min_length ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
-                                                        {formData.password.length >= passwordPolicy.min_length ? "✓" : "○"} {passwordPolicy.min_length}+ characters
+                                                        {formData.password.length >= passwordPolicy.min_length ? "✓" : "○"} {t('reqMinLength', { count: passwordPolicy.min_length })}
                                                     </li>
                                                     {passwordPolicy.require_uppercase && (
                                                         <li className={/[A-Z]/.test(formData.password) ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
-                                                            {/[A-Z]/.test(formData.password) ? "✓" : "○"} Uppercase letter
+                                                            {/[A-Z]/.test(formData.password) ? "✓" : "○"} {t('reqUppercase')}
                                                         </li>
                                                     )}
                                                     {passwordPolicy.require_lowercase && (
                                                         <li className={/[a-z]/.test(formData.password) ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
-                                                            {/[a-z]/.test(formData.password) ? "✓" : "○"} Lowercase letter
+                                                            {/[a-z]/.test(formData.password) ? "✓" : "○"} {t('reqLowercase')}
                                                         </li>
                                                     )}
                                                     {passwordPolicy.require_number && (
                                                         <li className={/[0-9]/.test(formData.password) ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
-                                                            {/[0-9]/.test(formData.password) ? "✓" : "○"} Number
+                                                            {/[0-9]/.test(formData.password) ? "✓" : "○"} {t('reqNumber')}
                                                         </li>
                                                     )}
                                                     {passwordPolicy.require_special && (
                                                         <li className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
-                                                            {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) ? "✓" : "○"} Special character
+                                                            {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) ? "✓" : "○"} {t('reqSpecial')}
                                                         </li>
                                                     )}
                                                 </ul>
@@ -822,7 +832,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         )}
                                         
                                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                                            User will be prompted to change this on first login
+                                            {t('firstLoginPrompt')}
                                         </p>
                                     </div>
                                     )}
