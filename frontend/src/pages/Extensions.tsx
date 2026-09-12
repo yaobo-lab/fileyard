@@ -274,7 +274,7 @@ export function Extensions() {
             {showRegisterModal && (
                 <div className="fixed inset-0 z-50 overflow-y-auto">
                     <div className="flex min-h-full items-center justify-center p-4">
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={() => setShowRegisterModal(false)} />
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                                 Register New Extension
@@ -376,7 +376,7 @@ export function Extensions() {
             {showInstallModal && selectedExtension && (
                 <div className="fixed inset-0 z-50 overflow-y-auto">
                     <div className="flex min-h-full items-center justify-center p-4">
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={() => setShowInstallModal(false)} />
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                                 Install {selectedExtension.name}
@@ -443,7 +443,7 @@ export function Extensions() {
             {showAccessModal && selectedExtension && (
                 <div className="fixed inset-0 z-50 overflow-y-auto">
                     <div className="flex min-h-full items-center justify-center p-4">
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={() => setShowAccessModal(false)} />
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                         <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                                 Manage Company Access

@@ -91,7 +91,7 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto">
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
             
             <div className="relative w-full max-w-2xl mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] flex flex-col">
                 {/* Header */}

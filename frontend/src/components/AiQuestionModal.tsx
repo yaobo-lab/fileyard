@@ -88,7 +88,6 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                 {/* Backdrop */}
                 <div
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
-                    onClick={onClose}
                 />
 
                 {/* Modal */}

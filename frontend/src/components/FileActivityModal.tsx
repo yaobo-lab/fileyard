@@ -169,7 +169,6 @@ export function FileActivityModal({ isOpen, onClose, fileId, fileName }: FileAct
                 {/* Backdrop */}
                 <div 
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" 
-                    onClick={onClose}
                 />
 
                 {/* Modal */}

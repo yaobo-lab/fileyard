@@ -24,7 +24,7 @@ export function RejectFileModal({ isOpen, onClose, onReject, fileName }: RejectF
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-xs" />
             <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4">
                 <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center space-x-2">

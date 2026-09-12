@@ -61,6 +61,14 @@ function DialogContent({
           className
         )}
         {...props}
+        onPointerDownOutside={(e) => {
+          e.preventDefault()
+          props.onPointerDownOutside?.(e)
+        }}
+        onInteractOutside={(e) => {
+          e.preventDefault()
+          props.onInteractOutside?.(e)
+        }}
       >
         {children}
         {showCloseButton && (

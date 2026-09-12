@@ -251,7 +251,7 @@ export function MoveFileModal({
     return (
         <div className="fixed inset-0 z-[60] overflow-y-auto">
             <div className="flex items-center justify-center min-h-screen px-4">
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={onClose} />
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
                 
                 <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
                     {/* Header */}

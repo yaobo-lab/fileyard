@@ -531,7 +531,7 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
       
       <div className={clsx(
         "relative mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-2xl flex flex-col",

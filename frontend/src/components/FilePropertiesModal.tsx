@@ -66,7 +66,6 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                 {/* Backdrop */}
                 <div 
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" 
-                    onClick={onClose}
                 />
 
                 {/* Modal */}

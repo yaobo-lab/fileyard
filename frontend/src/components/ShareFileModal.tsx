@@ -148,7 +148,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
         <div className="fixed inset-0 z-[60] overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
                 {/* Backdrop */}
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={handleClose} />
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
 
                 {/* Modal */}
                 <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md transform transition-all">
