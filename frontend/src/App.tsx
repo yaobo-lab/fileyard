@@ -58,6 +58,7 @@ import { GlobalSettingsProvider } from './context/GlobalSettingsContext';
 import { KeyboardShortcutsProvider } from './context/KeyboardShortcutsContext';
 import { MaintenanceOverlay } from './components/MaintenanceOverlay';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { I18nProvider } from './context/I18nContext';
 
 // Loading fallback component
 function PageLoader() {
@@ -74,6 +75,7 @@ function PageLoader() {
 function App() {
     return (
         <Router>
+            <I18nProvider>
             <AuthProvider>
                 <ThemeProvider>
                     <GlobalSettingsProvider>
@@ -146,6 +148,7 @@ function App() {
                     </GlobalSettingsProvider>
                 </ThemeProvider>
             </AuthProvider>
+            </I18nProvider>
         </Router>
     );
 }

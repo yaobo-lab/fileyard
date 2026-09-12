@@ -36,6 +36,7 @@ import { NavUser } from './NavUser'
 import { useAuth } from '@/context/AuthContext'
 import { useTenant } from '@/context/TenantContext'
 import { useExtensions, SidebarItem } from '@/context/ExtensionContext'
+import { useTranslations } from '@/context/I18nContext'
 
 interface AppSidebarProps {
   securityAlertCount?: number
@@ -52,6 +53,7 @@ export function AppSidebar({
   const { user, hasPermission } = useAuth()
   const { currentCompany } = useTenant()
   const { uiComponents } = useExtensions()
+  const t = useTranslations('Sidebar')
 
   const currentPath = location.pathname
 
@@ -70,7 +72,7 @@ export function AppSidebar({
   // Define nav groups
   const overviewGroup = [
     {
-      title: 'Dashboard',
+      title: t('dashboard'),
       url: '/',
       icon: LayoutDashboard,
       visible: isAdmin,
@@ -79,31 +81,31 @@ export function AppSidebar({
 
   const fileGroup = [
     {
-      title: 'Files',
+      title: t('files'),
       url: '/files',
       icon: FileText,
       visible: hasPermission('files.view'),
     },
     {
-      title: 'Requests',
+      title: t('requests'),
       url: '/file-requests',
       icon: Link2,
       visible: hasPermission('requests.view'),
     },
     {
-      title: 'Approvals',
+      title: t('approvals'),
       url: '/approvals',
       icon: CheckCircle,
       visible: hasPermission('approvals.view') && ((currentCompany as any)?.approval_workflow_enabled ?? true),
     },
     {
-      title: 'Shared with me',
+      title: t('sharedWithMe'),
       url: '/shared-with-me',
       icon: Share2,
       visible: hasPermission('files.view'),
     },
     {
-      title: 'Storage',
+      title: t('storage'),
       url: '/storage',
       icon: Folder,
       visible: true,
@@ -113,32 +115,32 @@ export function AppSidebar({
 
   const adminGroup = [
     {
-      title: 'Companies',
+      title: t('companies'),
       url: '/companies',
       icon: Building2,
       visible: hasPermission('tenants.manage'),
     },
     {
-      title: 'Users',
+      title: t('users'),
       url: '/users',
       icon: Users,
       visible: hasPermission('users.view'),
     },
     {
-      title: 'Security',
+      title: t('security'),
       url: '/security',
       icon: Shield,
       visible: hasPermission('audit.view'),
       badge: securityAlertCount > 0 ? securityAlertCount : undefined,
     },
     {
-      title: 'Performance',
+      title: t('performance'),
       url: '/performance',
       icon: Activity,
       visible: isSuperAdmin,
     },
     {
-      title: 'Settings',
+      title: t('settings'),
       url: '/settings',
       icon: Settings,
       visible: hasPermission('settings.view'),
@@ -168,7 +170,7 @@ export function AppSidebar({
         {/* Overview Group */}
         {overviewGroup.some((i) => i.visible) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Overview</SidebarGroupLabel>
+            <SidebarGroupLabel>{t('overview')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {overviewGroup
@@ -198,7 +200,7 @@ export function AppSidebar({
         {/* Files & Workspace Group */}
         {fileGroup.some((i) => i.visible) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+            <SidebarGroupLabel>{t('workspace')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {fileGroup
@@ -217,13 +219,10 @@ export function AppSidebar({
                               href={item.url}
                               target='_blank'
                               rel='noopener noreferrer'
-                              className='flex items-center justify-between w-full'
                             >
-                              <div className='flex items-center gap-2'>
-                                <item.icon className='size-4' />
-                                <span>{item.title}</span>
-                              </div>
-                              <ExternalLink className='size-3 text-muted-foreground' />
+                              <item.icon className='size-4' />
+                              <span>{item.title}</span>
+                              <ExternalLink className='size-3 text-muted-foreground ml-auto group-data-[collapsible=icon]:hidden' />
                             </a>
                           ) : (
                             <Link to={item.url}>
@@ -243,7 +242,7 @@ export function AppSidebar({
         {/* Administration Group */}
         {adminGroup.some((i) => i.visible) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupLabel>{t('administration')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {adminGroup
@@ -257,18 +256,16 @@ export function AppSidebar({
                           isActive={active}
                           tooltip={item.title}
                         >
-                          <Link to={item.url} className='flex items-center justify-between w-full'>
-                            <div className='flex items-center gap-2'>
-                              <item.icon className='size-4' />
-                              <span>{item.title}</span>
-                            </div>
-                            {item.badge !== undefined && (
-                              <SidebarMenuBadge className='bg-destructive text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold'>
-                                {item.badge}
-                              </SidebarMenuBadge>
-                            )}
+                          <Link to={item.url}>
+                            <item.icon className='size-4' />
+                            <span>{item.title}</span>
                           </Link>
                         </SidebarMenuButton>
+                        {item.badge !== undefined && (
+                          <SidebarMenuBadge className='bg-destructive text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold'>
+                            {item.badge}
+                          </SidebarMenuBadge>
+                        )}
                       </SidebarMenuItem>
                     )
                   })}

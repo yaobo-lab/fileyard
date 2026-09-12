@@ -5,6 +5,7 @@ export interface GlobalSettings {
     date_format: string;
     time_format: '12h' | '24h';
     timezone: string;
+    language: 'zh' | 'en';
     footer_attribution: string;
     footer_disclaimer: string;
     app_name: string;
@@ -25,6 +26,7 @@ const defaultSettings: GlobalSettings = {
     date_format: 'MM/DD/YYYY',
     time_format: '12h',
     timezone: 'America/New_York',
+    language: (typeof window !== 'undefined' && localStorage.getItem('app_language') === 'en' ? 'en' : 'zh'),
     footer_attribution: 'An open source project by ClovaLink.org',
     footer_disclaimer: 'ClovaLink is provided "as is" without warranty of any kind. The authors and contributors are not liable for any damages arising from use of this software.',
     app_name: 'ClovaLink',
@@ -84,6 +86,7 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
         date_format: unwrapValue(data.date_format, defaultSettings.date_format),
         time_format: unwrapValue(data.time_format, defaultSettings.time_format) as '12h' | '24h',
         timezone: unwrapValue(data.timezone, defaultSettings.timezone),
+        language: (unwrapValue(data.language, (typeof window !== 'undefined' && localStorage.getItem('app_language')) || defaultSettings.language) === 'en' ? 'en' : 'zh'),
         footer_attribution: unwrapValue(data.footer_attribution, defaultSettings.footer_attribution),
         footer_disclaimer: unwrapValue(data.footer_disclaimer, defaultSettings.footer_disclaimer),
         app_name: unwrapValue(data.app_name, defaultSettings.app_name),
@@ -153,6 +156,10 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
                     key,
                     value: value === null ? '' : value, // Convert null to empty string for storage
                 }));
+
+            if (updates.language) {
+                localStorage.setItem('app_language', updates.language);
+            }
 
             const response = await authFetch('/api/global-settings', {
                 method: 'PUT',

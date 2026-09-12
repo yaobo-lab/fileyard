@@ -30,6 +30,7 @@ import { FileContextMenu, ContextMenuTarget } from '../components/FileContextMen
 import { useTenant } from '../context/TenantContext';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 import { useKeyboardShortcuts, Shortcut } from '../hooks/useKeyboardShortcuts';
 import { useKeyboardShortcutsContext } from '../context/KeyboardShortcutsContext';
 import { ShortcutActionId } from '../hooks/shortcutPresets';
@@ -96,6 +97,8 @@ interface UserPrefs {
 }
 
 export function FileBrowser() {
+    const t = useTranslations('Explorer');
+    const tCommon = useTranslations('Common');
     const { user } = useAuth();
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
@@ -2326,7 +2329,7 @@ export function FileBrowser() {
                         <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-primary-500 transition-colors" />
                         <input
                             type="text"
-                            placeholder="Search files..."
+                            placeholder={t('searchPlaceholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 shadow-sm transition-shadow"
@@ -2338,11 +2341,11 @@ export function FileBrowser() {
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsSortMenuOpen(!isSortMenuOpen); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
-                            title="Sort files"
+                            title={t('sortBy')}
                         >
                             <ArrowUpDown className="w-3.5 h-3.5 text-gray-500" />
                             <span className="hidden sm:inline">
-                                {sortBy === 'name' ? 'Name' : sortBy === 'size' ? 'Size' : 'Modified'}
+                                {sortBy === 'name' ? t('sortName') : sortBy === 'size' ? t('sortSize') : t('sortModified')}
                             </span>
                             <span className="text-[10px] text-gray-400">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                         </button>
@@ -2355,7 +2358,7 @@ export function FileBrowser() {
                                         sortBy === 'name' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
                                     )}
                                 >
-                                    Name
+                                    {t('sortName')}
                                     {sortBy === 'name' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                                 </button>
                                 <button
@@ -2365,7 +2368,7 @@ export function FileBrowser() {
                                         sortBy === 'size' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
                                     )}
                                 >
-                                    Size
+                                    {t('sortSize')}
                                     {sortBy === 'size' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                                 </button>
                                 <button
@@ -2375,7 +2378,7 @@ export function FileBrowser() {
                                         sortBy === 'modified' ? "text-primary-600 dark:text-primary-400 font-medium" : "text-gray-700 dark:text-gray-300"
                                     )}
                                 >
-                                    Modified
+                                    {t('sortModified')}
                                     {sortBy === 'modified' && <span>{sortOrder === 'asc' ? '↑' : '↓'}</span>}
                                 </button>
                             </div>
@@ -2448,14 +2451,14 @@ export function FileBrowser() {
                         <button
                             onClick={() => { setViewMode('grid'); localStorage.setItem(viewModeKey, 'grid'); }}
                             className={clsx("p-1 rounded-md transition-all", viewMode === 'grid' ? "bg-white dark:bg-gray-700 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
-                            title="Grid View"
+                            title={t('viewGrid')}
                         >
                             <Grid className="w-3.5 h-3.5" />
                         </button>
                         <button
                             onClick={() => { setViewMode('list'); localStorage.setItem(viewModeKey, 'list'); }}
                             className={clsx("p-1 rounded-md transition-all", viewMode === 'list' ? "bg-white dark:bg-gray-700 shadow-sm text-primary-600 dark:text-primary-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200")}
-                            title="List View"
+                            title={t('viewList')}
                         >
                             <List className="w-3.5 h-3.5" />
                         </button>
@@ -2470,15 +2473,15 @@ export function FileBrowser() {
                             className="flex items-center px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
                         >
                             {fileViewMode === 'private' ? (
-                                <><EyeOff className="w-3.5 h-3.5 mr-1.5 text-purple-500" />My Private Files</>
+                                <><EyeOff className="w-3.5 h-3.5 mr-1.5 text-purple-500" />{t('myPrivateFiles')}</>
                             ) : selectedDepartment ? (
-                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || 'Department'}</>
+                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || t('myDepartment')}</>
                             ) : (user?.role === 'SuperAdmin' || user?.role === 'Admin') ? (
-                                <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />All Departments</>
+                                <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />{t('filterAllDepartments')}</>
                             ) : departments.length === 1 ? (
                                 <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments[0].name}</>
                             ) : (
-                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />My Department</>
+                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{t('myDepartment')}</>
                             )}
                             <ChevronDown className="w-3 h-3 ml-1 text-gray-400" />
                         </button>
@@ -2493,7 +2496,7 @@ export function FileBrowser() {
                                         )}
                                     >
                                         <Users className="w-3.5 h-3.5 mr-2 text-blue-500" />
-                                        All Departments
+                                        {t('filterAllDepartments')}
                                         {fileViewMode === 'department' && !selectedDepartment && <span className="ml-auto text-primary-500">✓</span>}
                                     </button>
                                 )}
@@ -2504,7 +2507,7 @@ export function FileBrowser() {
                                             <>
                                                 <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
                                                 <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                                                    Filter by Department
+                                                    {t('filterByDepartment')}
                                                 </div>
                                             </>
                                         )}
@@ -2534,7 +2537,7 @@ export function FileBrowser() {
                                     )}
                                 >
                                     <EyeOff className="w-3.5 h-3.5 mr-2 text-purple-500" />
-                                    My Private Files
+                                    {t('myPrivateFiles')}
                                     {fileViewMode === 'private' && <span className="ml-auto text-primary-500">✓</span>}
                                 </button>
                             </div>
@@ -2551,7 +2554,7 @@ export function FileBrowser() {
                                     setIsSelectionMode(true);
                                 }
                             }}
-                            title={isSelectionMode ? 'Cancel selection' : 'Select files'}
+                            title={isSelectionMode ? t('cancelSelection') : t('selectFiles')}
                             className={clsx(
                                 "p-1.5 border rounded-lg shadow-sm transition-colors",
                                 isSelectionMode 
@@ -2563,14 +2566,14 @@ export function FileBrowser() {
                         </button>
                         <Link
                             to="/recycle-bin"
-                            title="Recycle Bin"
+                            title={t('recycleBin')}
                             className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                         </Link>
                         <button
                             onClick={() => setIsRequestModalOpen(true)}
-                            title="Request Files"
+                            title={t('requestFiles')}
                             className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                         >
                             <LinkIcon className="w-3.5 h-3.5" />
@@ -2578,7 +2581,7 @@ export function FileBrowser() {
                         {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                             <button
                                 onClick={() => setIsNewFolderOpen(true)}
-                                title="New Folder"
+                                title={t('newFolder')}
                                 className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                             >
                                 <FolderPlus className="w-3.5 h-3.5" />
@@ -2587,7 +2590,7 @@ export function FileBrowser() {
                         {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                             <button
                                 onClick={() => setIsCreateGroupOpen(true)}
-                                title="New Group"
+                                title={t('newGroup')}
                                 className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-colors"
                             >
                                 <Layers className="w-3.5 h-3.5" />
@@ -2597,7 +2600,7 @@ export function FileBrowser() {
                             <button
                                 onClick={handlePaste}
                                 disabled={isPasting}
-                                title={`Paste "${clipboardFile.name}" here`}
+                                title={`${t('paste')} "${clipboardFile.name}"`}
                                 className={clsx(
                                     "px-2 py-1 border rounded-lg shadow-sm transition-colors flex items-center gap-1 text-xs",
                                     isPasting
@@ -2606,7 +2609,7 @@ export function FileBrowser() {
                                 )}
                             >
                                 <Clipboard className="w-3.5 h-3.5" />
-                                <span>Paste</span>
+                                <span>{t('paste')}</span>
                             </button>
                         )}
                     </div>
@@ -2633,7 +2636,7 @@ export function FileBrowser() {
                                     className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     {isSelectionMode ? <X className="w-3.5 h-3.5 mr-2" /> : <CheckSquare className="w-3.5 h-3.5 mr-2" />}
-                                    {isSelectionMode ? 'Cancel Selection' : 'Select Files'}
+                                    {isSelectionMode ? t('cancelSelection') : t('selectFiles')}
                                 </button>
                                 <Link
                                     to="/recycle-bin"
@@ -2641,14 +2644,14 @@ export function FileBrowser() {
                                     className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     <Trash2 className="w-3.5 h-3.5 mr-2" />
-                                    Recycle Bin
+                                    {t('recycleBin')}
                                 </Link>
                                 <button
                                     onClick={() => { setIsRequestModalOpen(true); setIsMobileMenuOpen(false); }}
                                     className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                 >
                                     <LinkIcon className="w-3.5 h-3.5 mr-2" />
-                                    Request Files
+                                    {t('requestFiles')}
                                 </button>
                                 {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
                                     <button
@@ -2656,7 +2659,7 @@ export function FileBrowser() {
                                         className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                     >
                                         <FolderPlus className="w-3.5 h-3.5 mr-2" />
-                                        New Folder
+                                        {t('newFolder')}
                                     </button>
                                 )}
                                 {!currentGroup && (!isInsideCompanyFolder || isAdminOrHigher) && (
@@ -2665,7 +2668,7 @@ export function FileBrowser() {
                                         className="flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                                     >
                                         <Layers className="w-3.5 h-3.5 mr-2" />
-                                        New Group
+                                        {t('newGroup')}
                                     </button>
                                 )}
                                 {clipboardFile && (
@@ -2675,7 +2678,7 @@ export function FileBrowser() {
                                         className="flex items-center w-full px-3 py-2 text-xs text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20"
                                     >
                                         <Clipboard className="w-3.5 h-3.5 mr-2" />
-                                        Paste
+                                        {t('paste')}
                                         <span className="ml-1 text-[10px] text-green-500 truncate max-w-28">({clipboardFile.name})</span>
                                     </button>
                                 )}
@@ -2695,10 +2698,10 @@ export function FileBrowser() {
                         <button
                             onClick={() => fileInputRef.current?.click()}
                             className="flex items-center gap-1 px-2.5 py-1.5 bg-primary-600 rounded-lg text-xs font-medium text-white hover:bg-primary-700 shadow-sm transition-colors flex-shrink-0"
-                            title="Upload File"
+                            title={t('uploadFiles')}
                         >
                             <Upload className="w-3.5 h-3.5" />
-                            <span>Upload</span>
+                            <span>{t('upload')}</span>
                         </button>
                     )}
                 </div>
@@ -2710,7 +2713,7 @@ export function FileBrowser() {
                 <div className="flex items-center justify-between px-4 py-3 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg">
                     <div className="flex items-center gap-4">
                         <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
-                            {selectedFiles.size} item{selectedFiles.size !== 1 ? 's' : ''} selected
+                            {t('selectedCount', { count: selectedFiles.size })}
                         </span>
                         {/* Show permission info if some files can't be acted on */}
                         {(movableSelectedFiles.length < selectedFiles.size || deletableSelectedFiles.length < selectedFiles.size) && (
@@ -2722,7 +2725,7 @@ export function FileBrowser() {
                             onClick={selectAllFiles}
                             className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
                         >
-                            Select all
+                            {t('selectAll')}
                         </button>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2744,7 +2747,7 @@ export function FileBrowser() {
                             title={movableSelectedFiles.length === 0 ? 'No movable files selected' : `Move ${movableSelectedFiles.length} file(s)`}
                         >
                             <Move className="w-4 h-4 mr-1.5" />
-                            Move{movableSelectedFiles.length < selectedFiles.size && movableSelectedFiles.length > 0 && ` (${movableSelectedFiles.length})`}
+                            {t('move')}{movableSelectedFiles.length < selectedFiles.size && movableSelectedFiles.length > 0 && ` (${movableSelectedFiles.length})`}
                         </button>
                         <button
                             onClick={handleBulkDelete}
@@ -2758,7 +2761,7 @@ export function FileBrowser() {
                             title={deletableSelectedFiles.length === 0 ? 'No deletable files selected (locked or no permission)' : `Delete ${deletableSelectedFiles.length} file(s)`}
                         >
                             <Trash2 className="w-4 h-4 mr-1.5" />
-                            Delete{deletableSelectedFiles.length < selectedFiles.size && deletableSelectedFiles.length > 0 && ` (${deletableSelectedFiles.length})`}
+                            {t('delete')}{deletableSelectedFiles.length < selectedFiles.size && deletableSelectedFiles.length > 0 && ` (${deletableSelectedFiles.length})`}
                         </button>
                         <button
                             onClick={clearSelection}
@@ -2782,20 +2785,20 @@ export function FileBrowser() {
                 return (
                     <div className="mb-4">
                         <div className="flex items-center justify-between mb-3">
-                            <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quick Access</h2>
+                            <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('quickAccess')}</h2>
                             {hasOverflow && (
                                 <div className="relative" ref={starredDropdownRef}>
                                     <button
                                         onClick={() => setShowMoreStarred(!showMoreStarred)}
                                         className="flex items-center text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
                                     >
-                                        +{overflowStarred.length} more
+                                        +{overflowStarred.length} {t('more')}
                                         <ChevronDown className={clsx("w-4 h-4 ml-1 transition-transform", showMoreStarred && "rotate-180")} />
                                     </button>
                                     {showMoreStarred && (
                                         <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl z-30 max-h-80 overflow-y-auto">
                                             <div className="p-2">
-                                                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">More starred items</p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">{t('moreStarredItems')}</p>
                                                 {overflowStarred.map(file => (
                                                     <div 
                                                         key={`overflow-${file.id}`} 
@@ -3035,7 +3038,7 @@ export function FileBrowser() {
                         <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 bg-opacity-90 dark:bg-opacity-90 z-50 backdrop-blur-sm">
                             <div className="text-center p-8 border-4 border-dashed border-primary-400 rounded-xl bg-primary-50 dark:bg-primary-900/30">
                                 <Upload className="w-16 h-16 text-primary-500 mx-auto mb-4 animate-bounce" />
-                                <p className="text-xl font-bold text-primary-700 dark:text-primary-300">Drop files to upload</p>
+                                <p className="text-xl font-bold text-primary-700 dark:text-primary-300">{t('dropToUpload')}</p>
                             </div>
                         </div>
                     )}
@@ -3047,12 +3050,12 @@ export function FileBrowser() {
                                 <FileSystemFolderGlyph size="lg" className="h-16 w-auto opacity-50" />
                             </div>
                             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                                {searchQuery ? 'No files found' : 'No files yet'}
+                                {searchQuery ? t('noFilesFound') : t('noFilesYet')}
                             </h3>
                             <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md">
                                 {searchQuery 
-                                    ? `No files match "${searchQuery}". Try a different search term.`
-                                    : 'Get started by uploading your first file or creating a folder. You can also drag and drop files here.'}
+                                    ? t('noFilesMatch', { query: searchQuery })
+                                    : t('getStartedPrompt')}
                             </p>
                             {!searchQuery && (
                                 <div className="flex gap-3">
@@ -3061,14 +3064,14 @@ export function FileBrowser() {
                                         className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
                                     >
                                         <FolderPlus className="w-4 h-4 mr-2" />
-                                        New Folder
+                                        {t('newFolder')}
                                     </button>
                                     <button
                                         onClick={() => fileInputRef.current?.click()}
                                         className="flex items-center px-4 py-2 bg-primary-600 rounded-lg text-sm font-medium text-white hover:bg-primary-700 shadow-sm"
                                     >
                                         <Upload className="w-4 h-4 mr-2" />
-                                        Upload Files
+                                        {t('uploadFiles')}
                                     </button>
                                 </div>
                             )}
@@ -3557,7 +3560,11 @@ export function FileBrowser() {
                     {totalPages > 1 && (
                         <div className="sticky bottom-0 z-20 mt-auto flex items-center justify-between pt-4 pb-3 -mx-4 -mb-4 px-4 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xs rounded-b-lg border-t border-gray-200 dark:border-gray-700 shadow-xs">
                             <p className="text-sm text-gray-500 dark:text-gray-400">
-                                Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredFiles.length)} of {filteredFiles.length} items
+                                {t('showingItems', {
+                                    start: ((currentPage - 1) * itemsPerPage) + 1,
+                                    end: Math.min(currentPage * itemsPerPage, filteredFiles.length),
+                                    total: filteredFiles.length
+                                })}
                             </p>
                             <div className="flex items-center space-x-2">
                                 <button
@@ -3571,7 +3578,7 @@ export function FileBrowser() {
                                     )}
                                 >
                                     <ChevronLeft className="w-4 h-4 mr-1" />
-                                    Previous
+                                    {t('previous')}
                                 </button>
                                 <div className="flex items-center space-x-1">
                                     {Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -3608,7 +3615,7 @@ export function FileBrowser() {
                                             : "text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
                                     )}
                                 >
-                                    Next
+                                    {t('next')}
                                     <ChevronRight className="w-4 h-4 ml-1" />
                                 </button>
                             </div>

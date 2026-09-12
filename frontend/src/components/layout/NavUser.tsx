@@ -26,8 +26,10 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useAuth } from '@/context/AuthContext'
+import { useTranslations } from '@/context/I18nContext'
 
 export function NavUser() {
+  const t = useTranslations('Common')
   const { isMobile } = useSidebar()
   const { user, logout, hasPermission } = useAuth()
   const navigate = useNavigate()
@@ -98,20 +100,20 @@ export function NavUser() {
               <DropdownMenuItem asChild>
                 <Link to='/profile' className='flex items-center gap-2 cursor-pointer'>
                   <BadgeCheck className='size-4 text-muted-foreground' />
-                  <span>Profile</span>
+                  <span>{t('profile')}</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to='/notifications' className='flex items-center gap-2 cursor-pointer'>
                   <Bell className='size-4 text-muted-foreground' />
-                  <span>Notifications</span>
+                  <span>{t('notifications')}</span>
                 </Link>
               </DropdownMenuItem>
               {hasPermission('settings.view') && (
                 <DropdownMenuItem asChild>
                   <Link to='/settings' className='flex items-center gap-2 cursor-pointer'>
                     <Settings className='size-4 text-muted-foreground' />
-                    <span>Settings</span>
+                    <span>{t('settings')}</span>
                   </Link>
                 </DropdownMenuItem>
               )}
@@ -123,7 +125,7 @@ export function NavUser() {
               className='cursor-pointer text-destructive focus:text-destructive'
             >
               <LogOut className='size-4 mr-2' />
-              <span>Sign out</span>
+              <span>{t('signOut')}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

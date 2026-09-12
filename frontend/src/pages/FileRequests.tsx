@@ -3,6 +3,7 @@ import { Search, Filter, Link as LinkIcon, Calendar, Trash2, Eye, Copy, Check, P
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { copyToClipboard } from '@/lib/utils';
 import { FilterModal } from '../components/FilterModal';
 import { CreateFileRequestModal, FileRequestData } from '../components/CreateFileRequestModal';
 import { FileRequestDetailsModal } from '../components/FileRequestDetailsModal';
@@ -96,10 +97,12 @@ export function FileRequests() {
         }
     };
 
-    const handleCopy = (link: string, id: string) => {
-        navigator.clipboard.writeText(link);
-        setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 2000);
+    const handleCopy = async (link: string, id: string) => {
+        const success = await copyToClipboard(link);
+        if (success) {
+            setCopiedId(id);
+            setTimeout(() => setCopiedId(null), 2000);
+        }
     };
 
     const handleDelete = async (id: string) => {

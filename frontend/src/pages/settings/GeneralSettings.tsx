@@ -1,7 +1,27 @@
 import { useState, useEffect } from 'react';
-import { Save, Check, Loader2, Calendar } from 'lucide-react';
+import { Save, Check, Loader2, Calendar, Globe } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
+import { useI18n, useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
+
+const LANGUAGES = [
+    {
+        value: 'zh',
+        label: '简体中文',
+        nativeName: 'Simplified Chinese',
+        code: 'zh-CN',
+        descZh: '选择界面显示语言为中文。',
+        descEn: 'Choose the interface language as Chinese.',
+    },
+    {
+        value: 'en',
+        label: 'English',
+        nativeName: 'English (US)',
+        code: 'en-US',
+        descZh: '选择界面显示语言为英文。',
+        descEn: 'Choose the interface language as English.',
+    },
+];
 
 const DATE_FORMATS = [
     { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY', description: 'United States' },
@@ -31,11 +51,15 @@ const TIMEZONES = [
 
 export function GeneralSettings() {
     const { settings, updateSettings } = useGlobalSettings();
+    const { locale, setLocale } = useI18n();
+    const tSettings = useTranslations('Settings');
+    const tCommon = useTranslations('Common');
     
     const [appName, setAppName] = useState(settings.app_name);
     const [dateFormat, setDateFormat] = useState(settings.date_format);
     const [timeFormat, setTimeFormat] = useState(settings.time_format);
     const [timezone, setTimezone] = useState(settings.timezone);
+    const [language, setLanguage] = useState<'zh' | 'en'>(locale || settings.language || 'zh');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     
@@ -43,14 +67,21 @@ export function GeneralSettings() {
         appName !== settings.app_name ||
         dateFormat !== settings.date_format ||
         timeFormat !== settings.time_format ||
-        timezone !== settings.timezone;
+        timezone !== settings.timezone ||
+        language !== (settings.language || 'zh');
 
     useEffect(() => {
         setAppName(settings.app_name);
         setDateFormat(settings.date_format);
         setTimeFormat(settings.time_format);
         setTimezone(settings.timezone);
-    }, [settings]);
+        setLanguage(locale || settings.language || 'zh');
+    }, [settings, locale]);
+
+    const handleLanguageChange = (nextLang: 'zh' | 'en') => {
+        setLanguage(nextLang);
+        setLocale(nextLang);
+    };
 
     const formatPreviewDate = (format: string): string => {
         const now = new Date();
@@ -82,7 +113,12 @@ export function GeneralSettings() {
             date_format: dateFormat,
             time_format: timeFormat as '12h' | '24h',
             timezone,
+            language,
         });
+        
+        // Also save to localStorage immediately
+        localStorage.setItem('app_language', language);
+        setLocale(language);
         
         setIsSaving(false);
         if (success) {
@@ -95,8 +131,8 @@ export function GeneralSettings() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">General Settings</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Application name and date/time configuration</p>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{tSettings('title')}</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{tSettings('description')}</p>
                 </div>
                 <button
                     onClick={handleSave}
@@ -115,14 +151,14 @@ export function GeneralSettings() {
                     ) : (
                         <Save className="w-4 h-4 mr-2" />
                     )}
-                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+                    {isSaving ? tCommon('saving') : saveSuccess ? tCommon('saved') : tCommon('save')}
                 </button>
             </div>
 
             {/* Application Name */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Application Name</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{tSettings('appName')}</h3>
                 </div>
                 <div className="p-6">
                     <input
@@ -133,8 +169,77 @@ export function GeneralSettings() {
                         className="w-full max-w-md px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        Displayed in the browser tab and throughout the application
+                        {tSettings('appNameDesc')}
                     </p>
+                </div>
+            </div>
+
+            {/* Language / 语言 */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg">
+                            <Globe className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="font-medium text-gray-900 dark:text-white">
+                                {tSettings('language')}
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                {tSettings('languageHint')}
+                            </p>
+                        </div>
+                    </div>
+                    {/* storageui 风格的快速选择器 */}
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={language}
+                            onChange={(e) => handleLanguageChange(e.target.value as 'zh' | 'en')}
+                            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 font-medium cursor-pointer shadow-xs"
+                        >
+                            {LANGUAGES.map((lang) => (
+                                <option key={lang.value} value={lang.value}>
+                                    {lang.label} ({lang.nativeName})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="p-4 space-y-2">
+                    {LANGUAGES.map((lang) => (
+                        <label
+                            key={lang.value}
+                            className={clsx(
+                                "flex items-center justify-between p-4 rounded-lg border-2 cursor-pointer transition-all",
+                                language === lang.value
+                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                                    : "border-transparent bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            )}
+                        >
+                            <div className="flex items-center gap-4">
+                                <input
+                                    type="radio"
+                                    name="language"
+                                    value={lang.value}
+                                    checked={language === lang.value}
+                                    onChange={(e) => handleLanguageChange(e.target.value as 'zh' | 'en')}
+                                    className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                                />
+                                <div>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                        {lang.label}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {lang.nativeName} · {language === 'zh' ? lang.descZh : lang.descEn}
+                                    </p>
+                                </div>
+                            </div>
+                            <span className="text-xs font-mono font-medium px-2.5 py-1 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+                                {lang.code}
+                            </span>
+                        </label>
+                    ))}
                 </div>
             </div>
 
@@ -142,20 +247,20 @@ export function GeneralSettings() {
             <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl p-6 text-white">
                 <div className="flex items-center gap-2 mb-3 opacity-90">
                     <Calendar className="w-4 h-4" />
-                    <span className="text-sm font-medium">Date & Time Preview</span>
+                    <span className="text-sm font-medium">{tSettings('dateTimePreview')}</span>
                 </div>
                 <div className="text-3xl font-bold tracking-tight">
                     {formatPreviewDate(dateFormat)} {formatPreviewTime(timeFormat)}
                 </div>
                 <p className="mt-2 text-sm opacity-75">
-                    Current date and time in your selected format
+                    {tSettings('dateTimePreviewDesc')}
                 </p>
             </div>
 
             {/* Date Format */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Date Format</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{tSettings('dateFormat')}</h3>
                 </div>
                 <div className="p-4 space-y-2">
                     {DATE_FORMATS.map((format) => (
@@ -193,7 +298,7 @@ export function GeneralSettings() {
             {/* Time Format */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Time Format</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{tSettings('timeFormat')}</h3>
                 </div>
                 <div className="p-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -228,7 +333,7 @@ export function GeneralSettings() {
             {/* Timezone */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="font-medium text-gray-900 dark:text-white">Default Timezone</h3>
+                    <h3 className="font-medium text-gray-900 dark:text-white">{tSettings('timezone')}</h3>
                 </div>
                 <div className="p-6">
                     <select
@@ -243,7 +348,7 @@ export function GeneralSettings() {
                         ))}
                     </select>
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        Used as the default for scheduling and timestamps
+                        {tSettings('timezoneDesc')}
                     </p>
                 </div>
             </div>

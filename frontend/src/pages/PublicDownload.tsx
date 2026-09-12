@@ -146,8 +146,8 @@ export function PublicDownload() {
             <div className="w-full max-w-md z-10">
                 <div className="text-center mb-8">
                     <div className="flex justify-center mb-4">
-                        <div className="h-60 w-auto text-primary-600">
-                            <Logo className="h-60 w-auto text-primary-600" />
+                        <div className="h-10 w-auto text-primary-600">
+                            <Logo className="h-10 w-auto text-primary-600" />
                         </div>
                     </div>
                     <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Secure File Download</h1>

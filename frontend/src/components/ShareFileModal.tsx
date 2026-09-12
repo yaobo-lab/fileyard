@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Link2, Copy, Check, Globe, Lock, Calendar, AlertCircle, Loader2, Folder, FileText, Users, User, Search, X as XIcon, Building } from 'lucide-react';
+import { X, Link2, Copy, Check, Globe, Lock, Calendar, AlertCircle, Loader2, Folder, FileText, Users, User, Search, X as XIcon, Building, ExternalLink } from 'lucide-react';
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
+import { copyToClipboard } from '../lib/utils';
 
 interface ShareableUser {
     id: string;
@@ -26,6 +28,8 @@ interface ShareFileModalProps {
 }
 
 export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMode }: ShareFileModalProps) {
+    const t = useTranslations('Share');
+    const tCommon = useTranslations('Common');
     const isFolder = file.type === 'folder';
     const authFetch = useAuthFetch();
     const [shareType, setShareType] = useState<'link' | 'user'>('link');
@@ -101,7 +105,12 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                 if (shareType === 'user' && selectedUser) {
                     setUserShareSuccess(true);
                 } else {
-                    setShareLink(data.link);
+                    // Always build share link using the current frontend's origin so it resolves to the frontend SPA route
+                    const token = data.token || (data.link ? data.link.split('/share/').pop() : '');
+                    const frontendLink = token
+                        ? `${window.location.origin}/share/${token}`
+                        : (data.link ? data.link.replace(/^https?:\/\/[^/]+/, window.location.origin) : '');
+                    setShareLink(frontendLink);
                 }
             } else if (response.status === 403) {
                 if (shareType === 'user') {
@@ -120,8 +129,9 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
     };
 
     const handleCopy = async () => {
-        if (shareLink) {
-            await navigator.clipboard.writeText(shareLink);
+        if (!shareLink) return;
+        const success = await copyToClipboard(shareLink);
+        if (success) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
@@ -164,7 +174,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                             </div>
                             <div>
                                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                    Share {isFolder ? 'Folder' : 'File'}
+                                    {isFolder ? t('shareFolderTitle') : t('shareFileTitle')}
                                 </h3>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[250px]">{file.name}</p>
                             </div>
@@ -186,16 +196,16 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                 <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                                     <div className="flex items-center gap-2 text-green-700 dark:text-green-300 text-sm font-medium mb-2">
                                         <Check className="w-4 h-4" />
-                                        Share link created!
+                                        {t('linkCreated')}
                                     </div>
                                     <p className="text-xs text-green-600 dark:text-green-400">
                                         {isPublic 
-                                            ? `Anyone with this link can download the ${isFolder ? 'folder as a zip file' : 'file'}.` 
-                                            : `Only logged-in users from your organization can access this ${isFolder ? 'folder' : 'file'}.`}
+                                            ? t('publicDesc') 
+                                            : t('orgOnlyDesc')}
                                     </p>
                                     {isFolder && (
                                         <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                                            📁 Folder contents will be automatically zipped when downloaded.
+                                            📁 {t('folderZipDesc')}
                                         </p>
                                     )}
                                 </div>
@@ -205,19 +215,30 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                         type="text"
                                         value={shareLink}
                                         readOnly
-                                        className="flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300"
+                                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                                        className="flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 font-mono select-all focus:outline-hidden focus:ring-1 focus:ring-primary-500"
                                     />
+                                    <a
+                                        href={shareLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title="在新标签页中打开分享页面"
+                                        className="px-3 py-2 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                                    >
+                                        <ExternalLink className="w-4 h-4" />
+                                    </a>
                                     <button
+                                        type="button"
                                         onClick={handleCopy}
                                         className={clsx(
-                                            "px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2",
+                                            "px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-xs",
                                             copied
-                                                ? "bg-green-600 text-white"
-                                                : "bg-primary-600 text-white hover:bg-primary-700"
+                                                ? "bg-green-600 text-white hover:bg-green-700"
+                                                : "bg-primary-600 text-white hover:bg-primary-700 active:scale-95"
                                         )}
                                     >
                                         {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                                        {copied ? 'Copied!' : 'Copy'}
+                                        {copied ? tCommon('copied') : tCommon('copy')}
                                     </button>
                                 </div>
 
@@ -225,7 +246,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                     onClick={handleClose}
                                     className="w-full py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
                                 >
-                                    Done
+                                    {t('done')}
                                 </button>
                             </div>
                         ) : userShareSuccess ? (
@@ -263,7 +284,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                     >
                                         <div className="flex items-center justify-center gap-2">
                                             <Link2 className="w-4 h-4" />
-                                            Share Link
+                                            {t('shareLinkTab')}
                                         </div>
                                     </button>
                                     <button
@@ -277,7 +298,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                     >
                                         <div className="flex items-center justify-center gap-2">
                                             <User className="w-4 h-4" />
-                                            Share with User
+                                            {t('shareWithUserTab')}
                                         </div>
                                     </button>
                                 </div>
@@ -313,7 +334,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                                         type="text"
                                                         value={searchQuery}
                                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                                        placeholder="Search users by name or email..."
+                                                        placeholder={t('searchUserPlaceholder')}
                                                         className="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                     />
                                                     {searchLoading && (
@@ -374,7 +395,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                 {shareType === 'link' && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                        Who can access this link?
+                                        {t('whoCanAccess')}
                                     </label>
                                     <div className="grid grid-cols-2 gap-3">
                                         <button
@@ -389,10 +410,10 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                         >
                                             <Lock className={clsx("w-6 h-6", !isPublic ? "text-primary-600 dark:text-primary-400" : "text-gray-400")} />
                                             <span className={clsx("text-sm font-medium", !isPublic ? "text-primary-700 dark:text-primary-300" : "text-gray-600 dark:text-gray-400")}>
-                                                Organization Only
+                                                {t('orgOnly')}
                                             </span>
                                             <span className="text-xs text-gray-500 dark:text-gray-500 text-center">
-                                                Must be logged in
+                                                {t('orgOnlySub')}
                                             </span>
                                         </button>
 
@@ -409,10 +430,10 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                         >
                                             <Globe className={clsx("w-6 h-6", isPublic ? "text-primary-600 dark:text-primary-400" : "text-gray-400")} />
                                             <span className={clsx("text-sm font-medium", isPublic ? "text-primary-700 dark:text-primary-300" : "text-gray-600 dark:text-gray-400")}>
-                                                Anyone with Link
+                                                {t('anyoneWithLink')}
                                             </span>
                                             <span className="text-xs text-gray-500 dark:text-gray-500 text-center">
-                                                {isComplianceMode ? 'Blocked by compliance' : 'No login required'}
+                                                {isComplianceMode ? t('complianceBlocked') : t('anyoneSub')}
                                             </span>
                                         </button>
                                     </div>
@@ -423,7 +444,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                            Set expiration date?
+                                            {t('setExpiration')}
                                         </label>
                                         <button
                                             onClick={() => setHasExpiration(!hasExpiration)}
@@ -478,7 +499,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                         disabled={isCreating}
                                         className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                                     >
-                                        Cancel
+                                        {t('cancel')}
                                     </button>
                                     <button
                                         onClick={handleCreateShare}
@@ -488,17 +509,17 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                                         {isCreating ? (
                                             <>
                                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                                {shareType === 'user' ? 'Sharing...' : 'Creating...'}
+                                                {shareType === 'user' ? t('sharing') : t('creatingLink')}
                                             </>
                                         ) : shareType === 'user' ? (
                                             <>
                                                 <User className="w-4 h-4" />
-                                                Share with User
+                                                {t('shareWithUser')}
                                             </>
                                         ) : (
                                             <>
                                                 <Link2 className="w-4 h-4" />
-                                                Create Link
+                                                {t('createLink')}
                                             </>
                                         )}
                                     </button>
