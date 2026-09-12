@@ -20,42 +20,7 @@ const startServer = async () => {
         secure: false,
     }));
 
-    // 2. Route routing for Next.js /storage, /_next, and /__nextjs_font requests
-    if (dev) {
-        // Dev: proxy everything to Next.js dev server on port 3001 with complete header rewrite
-        // This completely bypasses Turbopack CORS/Cross-Origin Referer 403 Forbidden checks
-        const storageDevUrl = process.env.STORAGE_DEV_URL || 'http://127.0.0.1:3001';
-        app.use(createProxyMiddleware({
-            target: storageDevUrl,
-            changeOrigin: true,
-            ws: true,
-            filter: (pathname) => (
-                pathname.startsWith('/storage') ||
-                pathname.startsWith('/_next') ||
-                pathname.startsWith('/__nextjs_font')
-            ),
-            on: {
-                proxyReq: (proxyReq, req) => {
-                    proxyReq.setHeader('host', 'localhost:3001');
-                    proxyReq.setHeader('origin', 'http://localhost:3001');
-                    if (req.headers.referer) {
-                        proxyReq.setHeader('referer', req.headers.referer.replace(/^https?:\/\/[^/]+/, 'http://localhost:3001'));
-                    }
-                }
-            }
-        }));
-    } else {
-        // Prod: lazy import next and load custom handler in production
-        const { default: next } = await import('next');
-        const nextApp = next({ dev, dir: path.resolve(__dirname, './storageui') });
-        const nextHandler = nextApp.getRequestHandler();
-        await nextApp.prepare();
-        
-        app.all(/^\/storage($|\/.*)/, (req, res) => nextHandler(req, res));
-        app.all(/^\/_next($|\/.*)/, (req, res) => nextHandler(req, res));
-    }
-
-    // 3. Serve frontend SPA pages and assets
+    // 2. Serve frontend SPA pages and assets
     if (dev) {
         // Dev: proxy everything else to Vite dev server on port 8081 for HMR
         app.use('/', createProxyMiddleware({

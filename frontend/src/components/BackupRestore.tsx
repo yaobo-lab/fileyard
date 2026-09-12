@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import { PasswordConfirmModal } from './PasswordConfirmModal';
 import clsx from 'clsx';
 
@@ -91,6 +92,8 @@ interface SavedBackup {
 
 export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
     const t = useTranslations('SettingsBackup');
+    const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const { token, user } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isSuperAdmin = user?.role === 'SuperAdmin';
@@ -584,7 +587,14 @@ export function BackupRestore({ type, tenantId }: BackupRestoreProps) {
     };
 
     const handleDeleteSaved = async (id: string) => {
-        if (!confirm(t('confirmDelete'))) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: t('confirmDelete'),
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
         try {
             await fetch(`/api/backup/saved/${id}`, {
                 method: 'DELETE',

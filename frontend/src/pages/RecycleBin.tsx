@@ -7,6 +7,7 @@ import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -31,6 +32,7 @@ interface DepartmentOption {
 export default function RecycleBin() {
     const t = useTranslations('RecycleBin');
     const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const [items, setItems] = useState<TrashItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -134,7 +136,12 @@ export default function RecycleBin() {
 
     const handleDelete = async (item: TrashItem) => {
         if (!companyId) return;
-        if (!confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Delete',
+            description: `Permanently delete "${item.name}"? This cannot be undone.`,
+            variant: 'destructive'
+        });
+        if (!ok) return;
         
         setIsDeleting(item.id);
         try {

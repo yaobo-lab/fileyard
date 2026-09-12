@@ -8,6 +8,8 @@ import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import { RejectFileModal } from '../components/RejectFileModal';
 
 interface ApprovalItem {
@@ -70,6 +72,8 @@ function formatFileSize(bytes: number): string {
 const ITEMS_PER_PAGE = 15;
 
 export function Approvals() {
+    const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const [tab, setTab] = useState<'pending' | 'history'>('pending');
     const [pendingItems, setPendingItems] = useState<ApprovalItem[]>([]);
     const [historyItems, setHistoryItems] = useState<ApprovalItem[]>([]);
@@ -160,7 +164,12 @@ export function Approvals() {
     // Bulk actions
     const handleBulkApprove = async () => {
         if (selectedIds.size === 0 || !companyId) return;
-        if (!confirm(`Approve ${selectedIds.size} file(s)?`)) return;
+        const ok = await modalConfirm({
+            title: tCommon('confirmTitle') || 'Confirm Action',
+            description: `Approve ${selectedIds.size} file(s)?`,
+            variant: 'default',
+        });
+        if (!ok) return;
         setBulkLoading(true);
         try {
             const promises = Array.from(selectedIds).map(id =>

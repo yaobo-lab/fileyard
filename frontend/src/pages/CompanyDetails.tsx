@@ -38,6 +38,8 @@ import { TenantEmailTemplates } from '../components/TenantEmailTemplates';
 import { TenantAiSettings } from '../components/TenantAiSettings';
 import { TenantDiscordSettings } from '../components/TenantDiscordSettings';
 import { BackupRestore } from '../components/BackupRestore';
+import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import clsx from 'clsx';
 
 interface Tenant {
@@ -77,7 +79,41 @@ interface Department {
 }
 
 export function CompanyDetails() {
+    const t = useTranslations('CompanyDetails');
+    const tCommon = useTranslations('Common');
+    const tCompliance = useTranslations('Compliance');
+    const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { slug } = useParams<{ slug: string }>();
+
+    const getLocalizedComplianceSummary = (mode: string): string[] => {
+        switch (mode?.toUpperCase()) {
+            case 'HIPAA':
+                return [
+                    tCompliance('enforceMfaAll'),
+                    tCompliance('enforceSessionTimeout'),
+                    tCompliance('enforcePublicDisabled'),
+                    tCompliance('enforceFileAccessLogged'),
+                ];
+            case 'SOX':
+            case 'SOC2':
+                return [
+                    tCompliance('enforceMfaAll'),
+                    tCompliance('enforceVersioning'),
+                    tCompliance('enforcePublicDisabled'),
+                    tCompliance('enforceDocPermLogged'),
+                    tCompliance('enforceMinRetention'),
+                ];
+            case 'GDPR':
+                return [
+                    tCompliance('enforceMfaAll'),
+                    tCompliance('enforceGdprConsent'),
+                    tCompliance('enforceGdprErasure'),
+                    tCompliance('enforceGdprExport'),
+                ];
+            default:
+                return [];
+        }
+    };
     const navigate = useNavigate();
     const authFetch = useAuthFetch();
     const { refreshUser, tenant, user: currentUser } = useAuth();
@@ -394,7 +430,11 @@ export function CompanyDetails() {
                     await refreshRestrictions();
                     await refreshUser();
                 }
-                alert('Settings saved successfully!');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: tCommon('savedSuccess') || 'Settings saved successfully!',
+                    variant: 'success'
+                });
                 // If name changed, navigate to new slug
                 if (editName !== company.name) {
                     navigate(`/companies/${encodeURIComponent(editName)}`, { replace: true });
@@ -402,11 +442,19 @@ export function CompanyDetails() {
             } else {
                 const errorText = await response.text();
                 console.error('Failed to update company:', response.status, errorText);
-                alert(`Failed to save settings: ${response.status} ${response.statusText}`);
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: `Failed to save settings: ${response.status} ${response.statusText}`,
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to update company', error);
-            alert('Failed to save settings. Check console for details.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'Failed to save settings. Check console for details.',
+                variant: 'destructive'
+            });
         } finally {
             setIsSaving(false);
         }
@@ -426,14 +474,26 @@ export function CompanyDetails() {
                 setEditStatus('suspended');
                 setShowSuspendConfirm(false);
                 setSuspendReason('');
-                alert('Company suspended successfully');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: 'Company suspended successfully',
+                    variant: 'success'
+                });
             } else {
                 const errorText = await response.text();
-                alert(`Failed to suspend company: ${errorText}`);
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: `Failed to suspend company: ${errorText}`,
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to suspend company', error);
-            alert('An error occurred while suspending the company.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'An error occurred while suspending the company.',
+                variant: 'destructive'
+            });
         } finally {
             setIsSuspending(false);
         }
@@ -450,14 +510,26 @@ export function CompanyDetails() {
             if (response.ok) {
                 setCompany({ ...company, status: 'active' });
                 setEditStatus('active');
-                alert('Company unsuspended successfully');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: 'Company unsuspended successfully',
+                    variant: 'success'
+                });
             } else {
                 const errorText = await response.text();
-                alert(`Failed to unsuspend company: ${errorText}`);
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: `Failed to unsuspend company: ${errorText}`,
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to unsuspend company', error);
-            alert('An error occurred while unsuspending the company.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'An error occurred while unsuspending the company.',
+                variant: 'destructive'
+            });
         } finally {
             setIsSuspending(false);
         }
@@ -472,15 +544,27 @@ export function CompanyDetails() {
             });
 
             if (response.ok) {
-                alert('Company deleted successfully');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: 'Company deleted successfully',
+                    variant: 'success'
+                });
                 navigate('/companies');
             } else {
                 const errorText = await response.text();
-                alert(`Failed to delete company: ${errorText}`);
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: `Failed to delete company: ${errorText}`,
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to delete company', error);
-            alert('An error occurred while deleting the company.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'An error occurred while deleting the company.',
+                variant: 'destructive'
+            });
         } finally {
             setIsDeleting(false);
         }
@@ -520,13 +604,25 @@ export function CompanyDetails() {
             });
 
             if (response.ok) {
-                alert('SMTP Connection Successful!');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: 'SMTP Connection Successful!',
+                    variant: 'success'
+                });
             } else {
-                alert('SMTP Connection Failed. Please check your settings.');
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: 'SMTP Connection Failed. Please check your settings.',
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to test SMTP', error);
-            alert('An error occurred while testing SMTP.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'An error occurred while testing SMTP.',
+                variant: 'destructive'
+            });
         } finally {
             setIsTestingSmtp(false);
         }
@@ -614,12 +710,12 @@ export function CompanyDetails() {
     };
 
     const notificationLabels: Record<string, { label: string; description: string }> = {
-        file_upload: { label: 'File Uploads', description: 'Notifications when files are uploaded to file requests' },
-        request_expiring: { label: 'Expiring Requests', description: 'Reminders when file requests are about to expire' },
-        user_action: { label: 'User Actions', description: 'Notifications about new users and role changes' },
-        compliance_alert: { label: 'Compliance Alerts', description: 'Important compliance-related notifications' },
-        storage_warning: { label: 'Storage Warnings', description: 'Alerts when storage quota is running low' },
-        file_shared: { label: 'File Sharing', description: 'Notifications when files are shared' }
+        file_upload: { label: t('notifFileUpload'), description: t('notifFileUploadDesc') },
+        request_expiring: { label: t('notifRequestExpiring'), description: t('notifRequestExpiringDesc') },
+        user_action: { label: t('notifUserAction'), description: t('notifUserActionDesc') },
+        compliance_alert: { label: t('notifComplianceAlert'), description: t('notifComplianceAlertDesc') },
+        storage_warning: { label: t('notifStorageWarning'), description: t('notifStorageWarningDesc') },
+        file_shared: { label: t('notifFileShared'), description: t('notifFileSharedDesc') }
     };
 
     const handleSaveAuditSettings = async () => {
@@ -638,13 +734,25 @@ export function CompanyDetails() {
             });
 
             if (response.ok) {
-                alert('Audit settings saved successfully!');
+                await modalAlert({
+                    title: tCommon('successTitle') || 'Success',
+                    description: 'Audit settings saved successfully!',
+                    variant: 'success'
+                });
             } else {
-                alert('Failed to save audit settings.');
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: 'Failed to save audit settings.',
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to save audit settings', error);
-            alert('An error occurred while saving audit settings.');
+            await modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'An error occurred while saving audit settings.',
+                variant: 'destructive'
+            });
         } finally {
             setIsSavingAudit(false);
         }
@@ -713,13 +821,38 @@ export function CompanyDetails() {
     if (!company) {
         return (
             <div className="text-center py-12">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Company not found</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{tCommon('noData') || 'Company not found'}</h2>
                 <button onClick={() => navigate('/companies')} className="mt-4 text-primary-600 hover:underline">
-                    Back to Companies
+                    {tCommon('back') || 'Back'}
                 </button>
             </div>
         );
     }
+
+    const getStatusBadgeText = (status: string) => {
+        if (status === 'active') return t('statusActive');
+        if (status === 'suspended') return t('statusSuspended');
+        if (status === 'archived') return t('statusArchived');
+        if (status === 'trial') return t('statusTrial');
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    };
+
+    const getTabTitle = (tab: string) => {
+        switch (tab) {
+            case 'overview': return t('tabOverview');
+            case 'settings': return t('tabSettings');
+            case 'departments': return t('tabDepartments');
+            case 'users': return t('tabUsers');
+            case 'document-workflow': return t('tabDocumentWorkflow');
+            case 'notifications': return t('tabNotifications');
+            case 'email-templates': return t('tabEmailTemplates');
+            case 'ai': return t('tabAi');
+            case 'discord': return t('tabDiscord');
+            case 'audit': return t('tabAudit');
+            case 'backup': return t('tabBackup');
+            default: return tab.charAt(0).toUpperCase() + tab.slice(1);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -747,7 +880,7 @@ export function CompanyDetails() {
                                     ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
                                     : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
                             )}>
-                                {company.status.charAt(0).toUpperCase() + company.status.slice(1)}
+                                {getStatusBadgeText(company.status)}
                             </span>
                         </div>
                     </div>
@@ -757,7 +890,7 @@ export function CompanyDetails() {
                         onClick={() => setActiveTab('settings')}
                         className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-all"
                     >
-                        Edit Details
+                        {t('editDetails')}
                     </button>
                 </div>
             </div>
@@ -779,7 +912,7 @@ export function CompanyDetails() {
                                     : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
                             )}
                         >
-                            {tab === 'audit' ? 'Audit Settings' : tab === 'ai' ? 'AI' : tab === 'document-workflow' ? 'Document Workflow' : tab === 'email-templates' ? 'Email-templates' : tab === 'backup' ? 'Backup & Restore' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            {getTabTitle(tab)}
                         </button>
                     ))}
                 </nav>
@@ -792,16 +925,16 @@ export function CompanyDetails() {
                         {/* Stats Cards */}
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Users</h3>
+                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{t('totalUsers')}</h3>
                                 <Users className="w-5 h-5 text-primary-500" />
                             </div>
                             <div className="text-3xl font-bold text-gray-900 dark:text-white">{company.user_count || 0}</div>
-                            <p className="text-xs text-gray-500 mt-1">Active accounts</p>
+                            <p className="text-xs text-gray-500 mt-1">{t('activeAccounts')}</p>
                         </div>
 
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Storage Used</h3>
+                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{t('storageUsed')}</h3>
                                 <HardDrive className="w-5 h-5 text-blue-500" />
                             </div>
                             <div className="text-3xl font-bold text-gray-900 dark:text-white">{formatBytes(company.storage_used_bytes || 0)}</div>
@@ -811,12 +944,12 @@ export function CompanyDetails() {
                                     style={{ width: `${Math.min(((company.storage_used_bytes || 0) / (company.storage_quota_bytes || 1)) * 100, 100)}%` }}
                                 ></div>
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">of {formatBytes(company.storage_quota_bytes)} quota</p>
+                            <p className="text-xs text-gray-500 mt-1">{t('ofQuota', { quota: formatBytes(company.storage_quota_bytes) })}</p>
                         </div>
 
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Compliance</h3>
+                                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{t('compliance')}</h3>
                                 <Shield className="w-5 h-5 text-green-500" />
                             </div>
                             <div className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -828,31 +961,31 @@ export function CompanyDetails() {
                                     return 'Standard';
                                 })()}
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">Current mode</p>
+                            <p className="text-xs text-gray-500 mt-1">{t('currentMode')}</p>
                         </div>
 
                         {/* Details Section */}
                         <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Company Information</h3>
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('companyInfo')}</h3>
                             </div>
                             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Company Name</label>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('companyName')}</label>
                                     <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">{company.name}</p>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</label>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('domain')}</label>
                                     <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">{company.domain}</p>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</label>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('createdAt')}</label>
                                     <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">
                                         {formatDate(company.created_at)}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</label>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">{t('status')}</label>
                                     <div className="mt-1">
                                         <span className={clsx(
                                             "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
@@ -860,7 +993,7 @@ export function CompanyDetails() {
                                                 ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
                                                 : "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300"
                                         )}>
-                                            {company.status.toUpperCase()}
+                                            {getStatusBadgeText(company.status).toUpperCase()}
                                         </span>
                                     </div>
                                 </div>
@@ -878,11 +1011,11 @@ export function CompanyDetails() {
 
                         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">Edit Configuration</h3>
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('generalSettings')}</h3>
                         </div>
                         <div className="p-6 space-y-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('companyName')}</label>
                                 <input
                                     type="text"
                                     value={editName}
@@ -892,7 +1025,7 @@ export function CompanyDetails() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Domain</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('domain')}</label>
                                 <input
                                     type="text"
                                     value={editDomain}
@@ -902,7 +1035,7 @@ export function CompanyDetails() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Storage Quota (TB)</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('storageQuotaGb')}</label>
                                 <input
                                     type="number"
                                     min="1"
@@ -914,9 +1047,9 @@ export function CompanyDetails() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Upload Size</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('maxUploadSize')}</label>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                    Maximum file size per upload
+                                    {t('storageAndUploadDesc')}
                                 </p>
                                 <div className="flex flex-wrap gap-2">
                                     {[
@@ -946,7 +1079,7 @@ export function CompanyDetails() {
 
                             <div>
                                 <div className="flex items-center justify-between mb-1">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Compliance Mode</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('complianceMode')}</label>
                                     {editCompliance && editCompliance !== 'none' && editCompliance !== 'Standard' && (
                                         <ComplianceBadge mode={editCompliance} size="sm" />
                                     )}
@@ -963,15 +1096,15 @@ export function CompanyDetails() {
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="block text-sm font-medium text-gray-900 dark:text-white">
-                                                    {mode === 'none' ? 'Standard' : mode.toUpperCase()}
+                                                    {mode === 'none' ? t('modeStandard') : mode.toUpperCase()}
                                                 </span>
                                                 {editCompliance === mode && <CheckCircle className="h-5 w-5 text-primary-600 dark:text-primary-400" />}
                                             </div>
                                             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                                {mode === 'hipaa' && 'Enforces PHI logging, auto-logout, and strict access controls.'}
-                                                {mode === 'sox' && 'Enforces audit trails, change management, and security monitoring.'}
-                                                {mode === 'gdpr' && 'Enforces data privacy, consent management, and right-to-be-forgotten.'}
-                                                {mode === 'none' && 'Standard security features without specific regulatory enforcement.'}
+                                                {mode === 'hipaa' && t('complianceHipaaDesc')}
+                                                {mode === 'sox' && t('complianceSoxDesc')}
+                                                {mode === 'gdpr' && t('complianceGdprDesc')}
+                                                {mode === 'none' && t('complianceStandardDesc')}
                                             </p>
                                         </div>
                                     ))}
@@ -981,10 +1114,10 @@ export function CompanyDetails() {
                                     <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700">
                                         <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                                             <Info className="w-4 h-4" />
-                                            Controls enforced in {editCompliance.toUpperCase()} mode:
+                                            {tCompliance('controlsEnforced', { mode: editCompliance.toUpperCase() })}
                                         </h4>
                                         <ul className="space-y-1">
-                                            {getComplianceEnforcementSummary(editCompliance).map((item, idx) => (
+                                            {getLocalizedComplianceSummary(editCompliance).map((item, idx) => (
                                                 <li key={idx} className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-2">
                                                     <CheckCircle className="w-3 h-3 text-green-500 mt-0.5 flex-shrink-0" />
                                                     {item}
@@ -997,25 +1130,25 @@ export function CompanyDetails() {
 
                             <div>
                                 <div className="flex items-center justify-between mb-1">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Recycle Bin Retention</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('retentionDays')}</label>
                                     {minRetentionDays && (
                                         <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                                             <Lock className="w-3 h-3" />
-                                            Min {minRetentionDays} days required
+                                            {t('minDaysRequired', { days: minRetentionDays })}
                                         </span>
                                     )}
                                 </div>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                    How long deleted files stay in trash before permanent removal
+                                    {t('retentionDaysDesc')}
                                 </p>
                                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-6">
                                     {[
-                                        { value: 30, label: '30 days' },
-                                        { value: 90, label: '90 days' },
-                                        { value: 365, label: '1 year' },
-                                        { value: 2190, label: '6 years' },
-                                        { value: 2555, label: '7 years' },
-                                        { value: 0, label: 'Never' },
+                                        { value: 30, label: t('daysCount', { count: 30 }) },
+                                        { value: 90, label: t('daysCount', { count: 90 }) },
+                                        { value: 365, label: t('yearsCount', { count: 1 }) },
+                                        { value: 2190, label: t('yearsCount', { count: 6 }) },
+                                        { value: 2555, label: t('yearsCount', { count: 7 }) },
+                                        { value: 0, label: tCommon('never') || 'Never' },
                                     ].map(({ value, label }) => {
                                         // 0 (Never) is always allowed - it's the most conservative option
                                         const isDisabled = value !== 0 && minRetentionDays ? value < minRetentionDays : false;
@@ -1055,9 +1188,9 @@ export function CompanyDetails() {
                             {/* Data Export Toggle */}
                             <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Allow User Data Export</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('dataExport')}</label>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        When enabled, users can export their personal data from their profile
+                                        {t('dataExportDesc')}
                                     </p>
                                 </div>
                                 <button
@@ -1080,9 +1213,9 @@ export function CompanyDetails() {
 
                             {/* Blocked File Extensions */}
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-2">Blocked File Extensions</h4>
+                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-2">{t('blockedExtensions')}</h4>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    Block certain file types from being uploaded. Users will be notified when they try to upload blocked file types.
+                                    {t('blockedExtensionsDesc')}
                                 </p>
                                 <div className="flex flex-wrap gap-2 mb-3">
                                     {blockedExtensions.map((ext, index) => (
@@ -1104,7 +1237,7 @@ export function CompanyDetails() {
                                         </span>
                                     ))}
                                     {blockedExtensions.length === 0 && (
-                                        <span className="text-sm text-gray-400 dark:text-gray-500 italic">No extensions blocked</span>
+                                        <span className="text-sm text-gray-400 dark:text-gray-500 italic">{t('noBlockedExtensions')}</span>
                                     )}
                                 </div>
                                 <div className="flex gap-2">
@@ -1123,7 +1256,7 @@ export function CompanyDetails() {
                                                 setNewExtension('');
                                             }
                                         }}
-                                        placeholder="Enter extension (e.g., exe)"
+                                        placeholder={t('addExtensionPlaceholder')}
                                         className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                     />
                                     <button
@@ -1137,11 +1270,11 @@ export function CompanyDetails() {
                                         }}
                                         className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
                                     >
-                                        Block
+                                        {t('addExtension')}
                                     </button>
                                 </div>
                                 <div className="mt-3 flex flex-wrap gap-2">
-                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">Quick add:</span>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">{t('quickAdd')}</span>
                                     {['exe', 'bat', 'sh', 'cmd', 'msi', 'dll', 'scr', 'js', 'vbs', 'ps1'].map(ext => (
                                         !blockedExtensions.includes(ext) && (
                                             <button
@@ -1164,9 +1297,9 @@ export function CompanyDetails() {
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                                 <div className="flex items-center justify-between mb-4">
                                     <div>
-                                        <h4 className="text-md font-medium text-gray-900 dark:text-white">Password Policy</h4>
+                                        <h4 className="text-md font-medium text-gray-900 dark:text-white">{t('passwordPolicy')}</h4>
                                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                                            Configure password requirements for all users in this company
+                                            {t('passwordPolicyDesc')}
                                         </p>
                                     </div>
                                     <button
@@ -1177,12 +1310,12 @@ export function CompanyDetails() {
                                         {isSavingPasswordPolicy ? (
                                             <>
                                                 <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                                                Saving...
+                                                {t('savingPasswordPolicy')}
                                             </>
                                         ) : (
                                             <>
                                                 <Save className="w-4 h-4" />
-                                                Save Policy
+                                                {t('savePasswordPolicy')}
                                             </>
                                         )}
                                     </button>
@@ -1192,7 +1325,7 @@ export function CompanyDetails() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                                Minimum Length
+                                                {t('minLength')}
                                             </label>
                                             <input
                                                 type="number"
@@ -1205,18 +1338,18 @@ export function CompanyDetails() {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                                Prevent Password Reuse
+                                                {t('preventReuse')}
                                             </label>
                                             <select
                                                 value={passwordPolicy.prevent_reuse}
                                                 onChange={(e) => setPasswordPolicy({ ...passwordPolicy, prevent_reuse: parseInt(e.target.value) })}
                                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                             >
-                                                <option value={0}>Disabled</option>
-                                                <option value={3}>Last 3 passwords</option>
-                                                <option value={6}>Last 6 passwords</option>
-                                                <option value={12}>Last 12 passwords</option>
-                                                <option value={24}>Last 24 passwords</option>
+                                                <option value={0}>{t('ipDisabled') || 'Disabled'}</option>
+                                                <option value={3}>{t('lastPasswords', { count: 3 })}</option>
+                                                <option value={6}>{t('lastPasswords', { count: 6 })}</option>
+                                                <option value={12}>{t('lastPasswords', { count: 12 })}</option>
+                                                <option value={24}>{t('lastPasswords', { count: 24 })}</option>
                                             </select>
                                         </div>
                                     </div>
@@ -1229,7 +1362,7 @@ export function CompanyDetails() {
                                                 onChange={(e) => setPasswordPolicy({ ...passwordPolicy, require_uppercase: e.target.checked })}
                                                 className="form-checkbox h-4 w-4 text-primary-600 rounded border-gray-300 dark:border-gray-600"
                                             />
-                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Uppercase</span>
+                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{t('requireUppercase')}</span>
                                         </label>
                                         <label className="flex items-center p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
                                             <input
@@ -1238,7 +1371,7 @@ export function CompanyDetails() {
                                                 onChange={(e) => setPasswordPolicy({ ...passwordPolicy, require_lowercase: e.target.checked })}
                                                 className="form-checkbox h-4 w-4 text-primary-600 rounded border-gray-300 dark:border-gray-600"
                                             />
-                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Lowercase</span>
+                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{t('requireLowercase')}</span>
                                         </label>
                                         <label className="flex items-center p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
                                             <input
@@ -1247,7 +1380,7 @@ export function CompanyDetails() {
                                                 onChange={(e) => setPasswordPolicy({ ...passwordPolicy, require_number: e.target.checked })}
                                                 className="form-checkbox h-4 w-4 text-primary-600 rounded border-gray-300 dark:border-gray-600"
                                             />
-                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Number</span>
+                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{t('requireNumbers')}</span>
                                         </label>
                                         <label className="flex items-center p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
                                             <input
@@ -1256,17 +1389,17 @@ export function CompanyDetails() {
                                                 onChange={(e) => setPasswordPolicy({ ...passwordPolicy, require_special: e.target.checked })}
                                                 className="form-checkbox h-4 w-4 text-primary-600 rounded border-gray-300 dark:border-gray-600"
                                             />
-                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Special char</span>
+                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{t('requireSpecial')}</span>
                                         </label>
                                     </div>
                                     
                                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                                         <p className="text-sm text-blue-700 dark:text-blue-300">
-                                            <strong>Current requirements:</strong> {passwordPolicy.min_length}+ characters
-                                            {passwordPolicy.require_uppercase && ', uppercase'}
-                                            {passwordPolicy.require_lowercase && ', lowercase'}
-                                            {passwordPolicy.require_number && ', number'}
-                                            {passwordPolicy.require_special && ', special character'}
+                                            <strong>{t('currentRequirements')}</strong> {t('charsMin', { count: passwordPolicy.min_length })}
+                                            {passwordPolicy.require_uppercase && t('reqUppercase')}
+                                            {passwordPolicy.require_lowercase && t('reqLowercase')}
+                                            {passwordPolicy.require_number && t('reqNumber')}
+                                            {passwordPolicy.require_special && t('reqSpecial')}
                                         </p>
                                     </div>
                                 </div>
@@ -1276,9 +1409,9 @@ export function CompanyDetails() {
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                                 <div className="flex items-center justify-between mb-4">
                                     <div>
-                                        <h4 className="text-md font-medium text-gray-900 dark:text-white">IP Restrictions</h4>
+                                        <h4 className="text-md font-medium text-gray-900 dark:text-white">{t('ipRestrictions')}</h4>
                                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                                            Restrict access based on IP addresses (supports CIDR notation)
+                                            {t('ipRestrictionsDesc')}
                                         </p>
                                     </div>
                                     <button
@@ -1289,12 +1422,12 @@ export function CompanyDetails() {
                                         {isSavingIpRestrictions ? (
                                             <>
                                                 <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                                                Saving...
+                                                {t('savingIpRestrictions')}
                                             </>
                                         ) : (
                                             <>
                                                 <Save className="w-4 h-4" />
-                                                Save Restrictions
+                                                {t('saveIpRestrictions')}
                                             </>
                                         )}
                                     </button>
@@ -1303,17 +1436,17 @@ export function CompanyDetails() {
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                            Restriction Mode
+                                            {t('ipRestrictionMode')}
                                         </label>
                                         <select
                                             value={ipRestrictions.mode}
                                             onChange={(e) => setIpRestrictions({ ...ipRestrictions, mode: e.target.value })}
                                             className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                         >
-                                            <option value="disabled">Disabled</option>
-                                            <option value="allowlist_only">Allowlist Only (block all except listed)</option>
-                                            <option value="blocklist_only">Blocklist Only (allow all except listed)</option>
-                                            <option value="both">Both (must be on allowlist and not on blocklist)</option>
+                                            <option value="disabled">{t('ipDisabled')}</option>
+                                            <option value="allowlist_only">{t('ipAllowlistOnly')}</option>
+                                            <option value="blocklist_only">{t('ipBlocklistOnly')}</option>
+                                            <option value="both">{t('ipBoth')}</option>
                                         </select>
                                     </div>
                                     
@@ -1323,7 +1456,7 @@ export function CompanyDetails() {
                                             {(ipRestrictions.mode === 'allowlist_only' || ipRestrictions.mode === 'both') && (
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                        Allowed IPs
+                                                        {t('allowlistIps')}
                                                     </label>
                                                     <div className="space-y-2">
                                                         {ipRestrictions.allowlist.map((ip, index) => (
@@ -1341,14 +1474,14 @@ export function CompanyDetails() {
                                                             </div>
                                                         ))}
                                                         {ipRestrictions.allowlist.length === 0 && (
-                                                            <p className="text-sm text-gray-400 italic">No IPs in allowlist</p>
+                                                            <p className="text-sm text-gray-400 italic">{t('noIpsConfigured')}</p>
                                                         )}
                                                         <div className="flex gap-2">
                                                             <input
                                                                 type="text"
                                                                 value={newAllowlistIp}
                                                                 onChange={(e) => setNewAllowlistIp(e.target.value)}
-                                                                placeholder="192.168.1.0/24"
+                                                                placeholder={t('addIpPlaceholder')}
                                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
                                                                 onKeyDown={(e) => {
                                                                     if (e.key === 'Enter' && newAllowlistIp.trim()) {
@@ -1386,7 +1519,7 @@ export function CompanyDetails() {
                                             {(ipRestrictions.mode === 'blocklist_only' || ipRestrictions.mode === 'both') && (
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                                        Blocked IPs
+                                                        {t('blocklistIps')}
                                                     </label>
                                                     <div className="space-y-2">
                                                         {ipRestrictions.blocklist.map((ip, index) => (
@@ -1404,14 +1537,14 @@ export function CompanyDetails() {
                                                             </div>
                                                         ))}
                                                         {ipRestrictions.blocklist.length === 0 && (
-                                                            <p className="text-sm text-gray-400 italic">No IPs in blocklist</p>
+                                                            <p className="text-sm text-gray-400 italic">{t('noIpsConfigured')}</p>
                                                         )}
                                                         <div className="flex gap-2">
                                                             <input
                                                                 type="text"
                                                                 value={newBlocklistIp}
                                                                 onChange={(e) => setNewBlocklistIp(e.target.value)}
-                                                                placeholder="10.0.0.0/8"
+                                                                placeholder={t('addIpPlaceholder')}
                                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
                                                                 onKeyDown={(e) => {
                                                                     if (e.key === 'Enter' && newBlocklistIp.trim()) {
@@ -1450,7 +1583,7 @@ export function CompanyDetails() {
                                     {ipRestrictions.mode === 'disabled' && (
                                         <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700">
                                             <p className="text-sm text-gray-500 dark:text-gray-400">
-                                                IP restrictions are currently disabled. All IP addresses can access this company.
+                                                {t('ipDisabledDesc')}
                                             </p>
                                         </div>
                                     )}
@@ -1459,7 +1592,7 @@ export function CompanyDetails() {
                                         <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                                             <p className="text-sm text-amber-700 dark:text-amber-300">
                                                 <AlertTriangle className="w-4 h-4 inline mr-1" />
-                                                <strong>Warning:</strong> Be careful not to lock yourself out! Make sure your current IP is in the allowlist before enabling restrictions.
+                                                <strong>{tCommon('warning') || 'Warning'}:</strong> {t('ipWarningDesc')}
                                             </p>
                                         </div>
                                     )}
@@ -1467,21 +1600,21 @@ export function CompanyDetails() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Encryption Standard</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('encryptionStandard')}</label>
                                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600 flex items-center">
                                     <Shield className="h-5 w-5 text-green-600 dark:text-green-400 mr-3" />
                                     <div>
-                                        <p className="text-sm font-medium text-gray-900 dark:text-white">AES-256-GCM (High Security)</p>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">Data at rest and in transit is encrypted.</p>
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{t('encryptionAes')}</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('encryptionDesc')}</p>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-4">SMTP Configuration</h4>
+                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-4">{t('smtpSettings')}</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="md:col-span-2">
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SMTP Host</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('smtpHost')}</label>
                                         <input
                                             type="text"
                                             value={editSmtpHost}
@@ -1491,7 +1624,7 @@ export function CompanyDetails() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('smtpPort')}</label>
                                         <input
                                             type="number"
                                             value={editSmtpPort}
@@ -1507,11 +1640,11 @@ export function CompanyDetails() {
                                                 onChange={(e) => setEditSmtpSecure(e.target.checked)}
                                                 className="form-checkbox h-5 w-5 text-primary-600 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700"
                                             />
-                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Use Secure Connection (TLS)</span>
+                                            <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{t('smtpSecure')}</span>
                                         </label>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('smtpUsername')}</label>
                                         <input
                                             type="text"
                                             value={editSmtpUsername}
@@ -1520,16 +1653,17 @@ export function CompanyDetails() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('smtpPassword')}</label>
                                         <input
                                             type="password"
                                             value={editSmtpPassword}
                                             onChange={(e) => setEditSmtpPassword(e.target.value)}
+                                            placeholder={t('smtpPasswordPlaceholder')}
                                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                         />
                                     </div>
                                     <div className="md:col-span-2">
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From Email</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('smtpFrom')}</label>
                                         <input
                                             type="email"
                                             value={editSmtpFrom}
@@ -1545,41 +1679,41 @@ export function CompanyDetails() {
                                             disabled={isTestingSmtp || !editSmtpHost}
                                             className="text-sm text-primary-600 hover:text-primary-700 font-medium"
                                         >
-                                            {isTestingSmtp ? 'Testing...' : 'Test Connection'}
+                                            {isTestingSmtp ? t('testingConnection') : t('testConnection')}
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-4">Authentication Settings</h4>
+                                <h4 className="text-md font-medium text-gray-900 dark:text-white mb-4">{t('mfaRequired')}</h4>
                                 <div className="space-y-4">
                                     <LockedToggle
-                                        label="Enable Two-Factor Authentication (TOTP)"
-                                        description="Require users to set up an authenticator app."
+                                        label={t('mfaRequired')}
+                                        description={t('mfaRequiredDesc')}
                                         checked={editEnableTotp || isMfaLocked}
                                         onChange={(checked) => setEditEnableTotp(checked)}
                                         locked={isMfaLocked}
-                                        reason="MFA is required by compliance mode and cannot be disabled."
+                                        reason={t('mfaComplianceReason')}
                                     />
 
                                     {/* SSO Auth Methods (read-only display) */}
                                     {company?.auth_methods && company.auth_methods.length > 0 && (
                                         <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                            <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">Enabled Authentication Methods</p>
+                                            <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">{t('enabledAuthMethods')}</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {company.auth_methods.includes('local') && (
-                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-300">Password</span>
+                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-300">{t('authPassword')}</span>
                                                 )}
                                                 {company.auth_methods.includes('oidc') && (
-                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">OIDC SSO</span>
+                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{t('authOidc')}</span>
                                                 )}
                                                 {company.auth_methods.includes('saml') && (
-                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">SAML SSO</span>
+                                                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{t('authSaml')}</span>
                                                 )}
                                             </div>
                                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                                                SSO methods are managed in Settings &gt; SSO. Providers can be enabled/disabled individually.
+                                                {t('ssoMethodsManagedHint')}
                                             </p>
                                         </div>
                                     )}
@@ -1593,7 +1727,7 @@ export function CompanyDetails() {
                                     className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                                 >
                                     <Save className="w-4 h-4 mr-2" />
-                                    {isSaving ? 'Saving...' : 'Save Changes'}
+                                    {isSaving ? t('saving') : t('saveChanges')}
                                 </button>
                             </div>
                         </div>
@@ -1604,10 +1738,10 @@ export function CompanyDetails() {
                                 <div className="px-6 py-4 border-b border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
                                     <h3 className="text-lg font-medium text-red-700 dark:text-red-400 flex items-center gap-2">
                                         <AlertTriangle className="w-5 h-5" />
-                                        Danger Zone
+                                        {t('dangerZone')}
                                     </h3>
                                     <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                                        These actions are irreversible. Please proceed with caution.
+                                        {t('dangerZoneDesc')}
                                     </p>
                                 </div>
                                 <div className="p-6 space-y-4">
@@ -1615,12 +1749,12 @@ export function CompanyDetails() {
                                     <div className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
                                         <div>
                                             <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {company.status === 'suspended' ? 'Unsuspend Company' : 'Suspend Company'}
+                                                {company.status === 'suspended' ? t('resumeCompany') : t('suspendCompany')}
                                             </h4>
                                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                                 {company.status === 'suspended' 
-                                                    ? 'Restore access to this company and all its users.'
-                                                    : 'Block all users from accessing this company. Data will be preserved.'}
+                                                    ? t('resumeCompanyDesc')
+                                                    : t('suspendCompanyDesc')}
                                             </p>
                                         </div>
                                         {company.status === 'suspended' ? (
@@ -1630,7 +1764,7 @@ export function CompanyDetails() {
                                                 className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
                                             >
                                                 <Play className="w-4 h-4 mr-2" />
-                                                {isSuspending ? 'Processing...' : 'Unsuspend'}
+                                                {isSuspending ? tCommon('loading') || 'Processing...' : t('resumeCompany')}
                                             </button>
                                         ) : (
                                             <button
@@ -1639,7 +1773,7 @@ export function CompanyDetails() {
                                                 className="flex items-center px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium"
                                             >
                                                 <Ban className="w-4 h-4 mr-2" />
-                                                Suspend
+                                                {t('suspendCompany')}
                                             </button>
                                         )}
                                     </div>
@@ -1648,16 +1782,16 @@ export function CompanyDetails() {
                                     {showSuspendConfirm && (
                                         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg space-y-3">
                                             <p className="text-sm text-amber-800 dark:text-amber-200">
-                                                Are you sure you want to suspend <strong>{company.name}</strong>? All users will be blocked from accessing this company.
+                                                {t('suspendConfirmTitle')} <strong>{company.name}</strong>? {t('suspendConfirmDesc')}
                                             </p>
                                             <div>
                                                 <label className="block text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
-                                                    Reason (optional)
+                                                    {t('reasonOptional')}
                                                 </label>
                                                 <textarea
                                                     value={suspendReason}
                                                     onChange={(e) => setSuspendReason(e.target.value)}
-                                                    placeholder="Enter a reason for suspension..."
+                                                    placeholder={t('suspendReasonPlaceholder')}
                                                     rows={2}
                                                     className="w-full px-3 py-2 text-sm border border-amber-300 dark:border-amber-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
                                                 />
@@ -1668,13 +1802,13 @@ export function CompanyDetails() {
                                                     disabled={isSuspending}
                                                     className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
                                                 >
-                                                    {isSuspending ? 'Suspending...' : 'Confirm Suspend'}
+                                                    {isSuspending ? t('saving') : t('confirm')}
                                                 </button>
                                                 <button
                                                     onClick={() => { setShowSuspendConfirm(false); setSuspendReason(''); }}
                                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600"
                                                 >
-                                                    Cancel
+                                                    {t('cancel')}
                                                 </button>
                                             </div>
                                         </div>
@@ -1684,10 +1818,10 @@ export function CompanyDetails() {
                                     <div className="flex items-center justify-between p-4 border border-red-200 dark:border-red-800 rounded-lg bg-red-50/50 dark:bg-red-900/10">
                                         <div>
                                             <h4 className="text-sm font-medium text-red-700 dark:text-red-400">
-                                                Delete Company
+                                                {t('deleteCompany')}
                                             </h4>
                                             <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                                                Permanently delete this company and ALL associated data. This cannot be undone.
+                                                {t('deleteCompanyDesc')}
                                             </p>
                                         </div>
                                         <button
@@ -1696,7 +1830,7 @@ export function CompanyDetails() {
                                             className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
                                         >
                                             <Trash2 className="w-4 h-4 mr-2" />
-                                            Delete
+                                            {tCommon('delete') || 'Delete'}
                                         </button>
                                     </div>
 
@@ -1706,12 +1840,12 @@ export function CompanyDetails() {
                                             <div className="flex items-start gap-2 text-sm text-red-800 dark:text-red-200">
                                                 <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                                                 <p>
-                                                    <strong>Warning:</strong> This action cannot be undone. All users ({company.user_count || 0}) and files will be permanently deleted.
+                                                    <strong>{t('dangerZone')}:</strong> {t('deleteCompanyDesc')}
                                                 </p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-medium text-red-700 dark:text-red-300 mb-1">
-                                                    Type <span className="font-mono bg-red-100 dark:bg-red-900/50 px-1 rounded">{company.name}</span> to confirm
+                                                    {t('deleteConfirmDesc')} <span className="font-mono bg-red-100 dark:bg-red-900/50 px-1 rounded">{company.name}</span>
                                                 </label>
                                                 <input
                                                     type="text"
@@ -1727,13 +1861,13 @@ export function CompanyDetails() {
                                                     disabled={isDeleting || deleteConfirmName !== company.name}
                                                     className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
-                                                    {isDeleting ? 'Deleting...' : 'Permanently Delete Company'}
+                                                    {isDeleting ? t('saving') : t('deleteCompany')}
                                                 </button>
                                                 <button
                                                     onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmName(''); }}
                                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600"
                                                 >
-                                                    Cancel
+                                                    {t('cancel')}
                                                 </button>
                                             </div>
                                         </div>
@@ -1748,25 +1882,25 @@ export function CompanyDetails() {
                 {activeTab === 'departments' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">Departments</h3>
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('departmentsTitle')}</h3>
                             <button
                                 onClick={() => setIsAddingDept(true)}
                                 className="flex items-center px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
                             >
                                 <Plus className="w-4 h-4 mr-2" />
-                                Add Department
+                                {t('newDepartment')}
                             </button>
                         </div>
 
                         {isAddingDept && (
                             <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700 flex items-end gap-4">
                                 <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Department Name</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('colDepartmentName')}</label>
                                     <input
                                         type="text"
                                         value={newDeptName}
                                         onChange={(e) => setNewDeptName(e.target.value)}
-                                        placeholder="e.g. Engineering"
+                                        placeholder={t('departmentNamePlaceholder')}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     />
                                 </div>
@@ -1775,7 +1909,7 @@ export function CompanyDetails() {
                                     disabled={!newDeptName.trim()}
                                     className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm font-medium"
                                 >
-                                    Add
+                                    {tCommon('add') || 'Add'}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -1784,7 +1918,7 @@ export function CompanyDetails() {
                                     }}
                                     className="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 text-sm font-medium"
                                 >
-                                    Cancel
+                                    {t('cancel')}
                                 </button>
                             </div>
                         )}
@@ -1793,16 +1927,16 @@ export function CompanyDetails() {
                             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead className="bg-gray-50 dark:bg-gray-900/50">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Users</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colDepartmentName')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colDepartmentUsers')}</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colDepartmentActions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                     {departments.length === 0 ? (
                                         <tr>
                                             <td colSpan={3} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                                                No departments found. Add one to get started.
+                                                {t('noDepartments')}
                                             </td>
                                         </tr>
                                     ) : (
@@ -1812,7 +1946,7 @@ export function CompanyDetails() {
                                                     {dept.name}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                    {dept.user_count || 0} users
+                                                    {dept.user_count || 0}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                     <button className="text-red-600 hover:text-red-900 dark:hover:text-red-400">
@@ -1831,7 +1965,7 @@ export function CompanyDetails() {
                 {activeTab === 'users' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">Users</h3>
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('usersTitle')}</h3>
                             <button
                                 onClick={() => {
                                     setSelectedUser(null);
@@ -1840,7 +1974,7 @@ export function CompanyDetails() {
                                 className="flex items-center px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
                             >
                                 <Plus className="w-4 h-4 mr-2" />
-                                Add User
+                                {t('inviteUser')}
                             </button>
                         </div>
 
@@ -1848,17 +1982,17 @@ export function CompanyDetails() {
                             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead className="bg-gray-50 dark:bg-gray-900/50">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colUser')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colRole')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colStatus')}</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('colActions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                     {users.length === 0 ? (
                                         <tr>
                                             <td colSpan={4} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                                                No users found. Add one to get started.
+                                                {t('noUsers')}
                                             </td>
                                         </tr>
                                     ) : (
@@ -1887,7 +2021,7 @@ export function CompanyDetails() {
                                                             ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
                                                             : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-300"
                                                     )}>
-                                                        {user.status}
+                                                        {user.status === 'active' ? t('statusActive') : t('statusSuspended')}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -1913,10 +2047,10 @@ export function CompanyDetails() {
                             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
                                     <Bell className="w-5 h-5 text-primary-600" />
-                                    Company Notification Settings
+                                    {t('notificationsTitle')}
                                 </h3>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    Configure notification policies per role. SuperAdmins are exempt from company controls.
+                                    {t('notificationsDesc')}
                                 </p>
                             </div>
                             
@@ -1932,7 +2066,7 @@ export function CompanyDetails() {
                                                 : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
                                         )}
                                     >
-                                        All Users (Default)
+                                        {t('roleAllUsers')}
                                     </button>
                                     {availableRoles.map((role) => (
                                         <button
@@ -1948,7 +2082,7 @@ export function CompanyDetails() {
                                             {role}
                                             {notificationsByRole[role]?.length > 0 && (
                                                 <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
-                                                    Custom
+                                                    {t('notifCustom')}
                                                 </span>
                                             )}
                                         </button>
@@ -1956,8 +2090,7 @@ export function CompanyDetails() {
                                 </div>
                                 {selectedNotificationRole && (
                                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                                        Settings here override "All Users" defaults for {selectedNotificationRole} role.
-                                        Inherited settings are marked.
+                                        {t('notifOverrideDesc', { role: selectedNotificationRole })}
                                     </p>
                                 )}
                             </div>
@@ -1997,7 +2130,7 @@ export function CompanyDetails() {
                                                             </h4>
                                                             {isInherited && (
                                                                 <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded">
-                                                                    Inherited
+                                                                    {t('inherited')}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -2014,7 +2147,7 @@ export function CompanyDetails() {
                                                                 disabled={isSavingNotifications}
                                                                 className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                                                             />
-                                                            <span className="text-sm text-gray-600 dark:text-gray-300">Enabled</span>
+                                                            <span className="text-sm text-gray-600 dark:text-gray-300">{t('enabled')}</span>
                                                         </label>
                                                     </div>
                                                 </div>
@@ -2027,8 +2160,8 @@ export function CompanyDetails() {
                                                                 <div className="flex items-center space-x-2">
                                                                     <Mail className="w-4 h-4 text-gray-400" />
                                                                     <div>
-                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Force Email</span>
-                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">Users cannot disable</p>
+                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('forceEmail')}</span>
+                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('usersCannotDisable')}</p>
                                                                     </div>
                                                                 </div>
                                                                 <input
@@ -2045,8 +2178,8 @@ export function CompanyDetails() {
                                                                 <div className="flex items-center space-x-2">
                                                                     <BellRing className="w-4 h-4 text-gray-400" />
                                                                     <div>
-                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Force In-App</span>
-                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">Users cannot disable</p>
+                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('forceInApp')}</span>
+                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('usersCannotDisable')}</p>
                                                                     </div>
                                                                 </div>
                                                                 <input
@@ -2063,8 +2196,8 @@ export function CompanyDetails() {
                                                                 <div className="flex items-center space-x-2">
                                                                     <Mail className="w-4 h-4 text-gray-400" />
                                                                     <div>
-                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Default Email</span>
-                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">For new users</p>
+                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('defaultEmail')}</span>
+                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('forNewUsers')}</p>
                                                                     </div>
                                                                 </div>
                                                                 <input
@@ -2081,8 +2214,8 @@ export function CompanyDetails() {
                                                                 <div className="flex items-center space-x-2">
                                                                     <BellRing className="w-4 h-4 text-gray-400" />
                                                                     <div>
-                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Default In-App</span>
-                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">For new users</p>
+                                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('defaultInApp')}</span>
+                                                                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('forNewUsers')}</p>
                                                                     </div>
                                                                 </div>
                                                                 <input
@@ -2107,12 +2240,12 @@ export function CompanyDetails() {
                             <div className="flex">
                                 <Info className="w-5 h-5 text-blue-500 mr-3 flex-shrink-0 mt-0.5" />
                                 <div>
-                                    <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">How it works</h4>
+                                    <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">{t('howItWorks')}</h4>
                                     <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-                                        <strong>Role-based:</strong> Select a role to configure specific settings. Role settings override "All Users" defaults.<br/>
-                                        <strong>SuperAdmins:</strong> Are exempt from company controls (they manage the platform).<br/>
-                                        <strong>Force Email/In-App:</strong> When enabled, users of that role cannot disable this delivery method.<br/>
-                                        <strong>Inherited:</strong> Settings marked as inherited come from "All Users" defaults.
+                                        <strong>{t('roleBased')}</strong> {t('roleBasedDesc')}<br/>
+                                        <strong>{t('superAdmins')}</strong> {t('superAdminsDesc')}<br/>
+                                        <strong>{t('forceEmailInApp')}</strong> {t('forceEmailInAppDesc')}<br/>
+                                        <strong>{t('inheritedLabel')}</strong> {t('inheritedLabelDesc')}
                                     </p>
                                 </div>
                             </div>
@@ -2147,10 +2280,9 @@ export function CompanyDetails() {
                         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                             <div className="flex items-center justify-between">
                                 <div className="flex-1">
-                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Document Approval Workflow</h3>
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('docApprovalWorkflow')}</h3>
                                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                        When enabled, uploaded documents must be reviewed and approved by a Manager or Admin before they become accessible to other users.
-                                        Approvers are notified automatically when new files need review.
+                                        {t('docApprovalWorkflowDesc')}
                                     </p>
                                 </div>
                                 <button
@@ -2188,7 +2320,7 @@ export function CompanyDetails() {
                             {editApprovalWorkflow && (
                                 <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                                     <p className="text-sm text-green-800 dark:text-green-300">
-                                        Approval workflow is active. New uploads matching your policies below will require approval. Existing files are unaffected.
+                                        {t('workflowActiveBanner')}
                                     </p>
                                 </div>
                             )}
@@ -2199,9 +2331,9 @@ export function CompanyDetails() {
                             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
                                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                                     <div>
-                                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Approval Policies</h3>
+                                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('approvalPolicies')}</h3>
                                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                                            Policies determine which uploads require approval. Files are matched against policies in order: department-specific, company folders, then catch-all.
+                                            {t('approvalPoliciesDesc')}
                                         </p>
                                     </div>
                                     {!showAddPolicy && (
@@ -2209,7 +2341,7 @@ export function CompanyDetails() {
                                             onClick={() => setShowAddPolicy(true)}
                                             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors flex-shrink-0 ml-4"
                                         >
-                                            + Add Policy
+                                            {t('addPolicy')}
                                         </button>
                                     )}
                                 </div>
@@ -2219,44 +2351,44 @@ export function CompanyDetails() {
                                     {showAddPolicy && (
                                         <div className="mb-6 p-5 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
                                             <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-                                                {editingPolicyId ? 'Edit Policy' : 'New Approval Policy'}
+                                                {editingPolicyId ? t('editPolicy') : t('newApprovalPolicy')}
                                             </h4>
                                             <div className="space-y-4">
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Policy Name</label>
+                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('policyName')}</label>
                                                     <input
                                                         type="text"
-                                                        placeholder="e.g., Require approval for all uploads"
+                                                        placeholder={t('policyNamePlaceholder')}
                                                         value={newPolicyName}
                                                         onChange={(e) => setNewPolicyName(e.target.value)}
                                                         className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Scope</label>
+                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('scope')}</label>
                                                     <select
                                                         value={newPolicyScope}
                                                         onChange={(e) => setNewPolicyScope(e.target.value)}
                                                         className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                     >
-                                                        <option value="all">All Uploads — Every file upload requires approval</option>
-                                                        <option value="department">Specific Department — Only uploads to a specific department</option>
-                                                        <option value="company_folder">Company Folders — Only uploads to company-wide folders</option>
-                                                        <option value="file_type">File Type — Specific file extensions (e.g., exe, zip, dmg)</option>
-                                                        <option value="file_size">File Size — Files above a size threshold</option>
-                                                        <option value="role">User Role — Uploads by users with a specific role</option>
-                                                        <option value="private_files">Private Files — Files uploaded as private only</option>
+                                                        <option value="all">{t('scopeAllUploads')}</option>
+                                                        <option value="department">{t('scopeDepartment')}</option>
+                                                        <option value="company_folder">{t('scopeCompanyFolders')}</option>
+                                                        <option value="file_type">{t('scopeFileType')}</option>
+                                                        <option value="file_size">{t('scopeFileSize')}</option>
+                                                        <option value="role">{t('scopeUserRole')}</option>
+                                                        <option value="private_files">{t('scopePrivateFiles')}</option>
                                                     </select>
                                                 </div>
                                                 {newPolicyScope === 'department' && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Department</label>
+                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('departmentLabel')}</label>
                                                         <select
                                                             value={newPolicyScopeValue}
                                                             onChange={(e) => setNewPolicyScopeValue(e.target.value)}
                                                             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                         >
-                                                            <option value="">Select a department...</option>
+                                                            <option value="">{t('selectDepartment')}</option>
                                                             {departments.map(dept => (
                                                                 <option key={dept.id} value={dept.id}>{dept.name}</option>
                                                             ))}
@@ -2265,44 +2397,44 @@ export function CompanyDetails() {
                                                 )}
                                                 {newPolicyScope === 'file_type' && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">File Extensions</label>
+                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('fileExtensions')}</label>
                                                         <input
                                                             type="text"
-                                                            placeholder="e.g., exe, zip, dmg, bat, msi"
+                                                            placeholder={t('fileExtensionsPlaceholder')}
                                                             value={newPolicyScopeValue}
                                                             onChange={(e) => setNewPolicyScopeValue(e.target.value)}
                                                             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                         />
-                                                        <p className="text-xs text-gray-400 mt-1">Comma-separated list of extensions (without dots)</p>
+                                                        <p className="text-xs text-gray-400 mt-1">{t('fileExtensionsHint')}</p>
                                                     </div>
                                                 )}
                                                 {newPolicyScope === 'file_size' && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size Threshold (MB)</label>
+                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('sizeThresholdMb')}</label>
                                                         <input
                                                             type="number"
                                                             min="1"
-                                                            placeholder="e.g., 10"
+                                                            placeholder="10"
                                                             value={newPolicyScopeValue ? String(Math.round(Number(newPolicyScopeValue) / 1048576)) : ''}
                                                             onChange={(e) => setNewPolicyScopeValue(String(Number(e.target.value) * 1048576))}
                                                             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                         />
-                                                        <p className="text-xs text-gray-400 mt-1">Files larger than this will require approval</p>
+                                                        <p className="text-xs text-gray-400 mt-1">{t('sizeThresholdHint')}</p>
                                                     </div>
                                                 )}
                                                 {newPolicyScope === 'role' && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">User Role</label>
+                                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('userRole')}</label>
                                                         <select
                                                             value={newPolicyScopeValue}
                                                             onChange={(e) => setNewPolicyScopeValue(e.target.value)}
                                                             className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                                                         >
-                                                            <option value="">Select a role...</option>
+                                                            <option value="">{t('selectRole')}</option>
                                                             <option value="Employee">Employee</option>
                                                             <option value="Manager">Manager</option>
                                                         </select>
-                                                        <p className="text-xs text-gray-400 mt-1">Uploads by users with this base role will require approval</p>
+                                                        <p className="text-xs text-gray-400 mt-1">{t('userRoleHint')}</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -2311,7 +2443,7 @@ export function CompanyDetails() {
                                                     onClick={() => { setShowAddPolicy(false); setEditingPolicyId(null); setNewPolicyName(''); setNewPolicyScope('all'); setNewPolicyScopeValue(''); }}
                                                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-lg transition-colors"
                                                 >
-                                                    Cancel
+                                                    {t('cancel')}
                                                 </button>
                                                 <button
                                                     onClick={async () => {
@@ -2356,7 +2488,7 @@ export function CompanyDetails() {
                                                     disabled={!newPolicyName.trim() || (['department', 'file_type', 'file_size', 'role'].includes(newPolicyScope) && !newPolicyScopeValue)}
                                                     className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                                                 >
-                                                    {editingPolicyId ? 'Save Changes' : 'Create Policy'}
+                                                    {editingPolicyId ? t('saveChanges') : t('createPolicy')}
                                                 </button>
                                             </div>
                                         </div>
@@ -2368,8 +2500,8 @@ export function CompanyDetails() {
                                             <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                                                 <Shield className="w-6 h-6 text-gray-400" />
                                             </div>
-                                            <p className="text-sm font-medium text-gray-900 dark:text-white">No approval policies</p>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Create a policy to define which uploads require approval</p>
+                                            <p className="text-sm font-medium text-gray-900 dark:text-white">{t('noPolicies')}</p>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('noPoliciesHint')}</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-3">
@@ -2390,17 +2522,17 @@ export function CompanyDetails() {
                                                                         ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                                                                         : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
                                                                 )}>
-                                                                    {policy.is_active ? 'Active' : 'Inactive'}
+                                                                    {policy.is_active ? t('active') : t('inactive')}
                                                                 </span>
                                                             </div>
                                                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                                {policy.scope === 'all' && 'Applies to all file uploads across the organization'}
-                                                                {policy.scope === 'company_folder' && 'Applies to uploads in company-wide folders only'}
-                                                                {policy.scope === 'department' && 'Applies to uploads in a specific department'}
-                                                                {policy.scope === 'file_type' && `File extensions: ${policy.scope_value || ''}`}
-                                                                {policy.scope === 'file_size' && `Files larger than ${policy.scope_value ? Math.round(Number(policy.scope_value) / 1048576) : '?'} MB`}
-                                                                {policy.scope === 'role' && `Uploads by ${policy.scope_value || ''} users`}
-                                                                {policy.scope === 'private_files' && 'Applies to files uploaded as private'}
+                                                                {policy.scope === 'all' && t('policyAppliesAll')}
+                                                                {policy.scope === 'company_folder' && t('policyAppliesCompanyFolders')}
+                                                                {policy.scope === 'department' && t('policyAppliesDept')}
+                                                                {policy.scope === 'file_type' && t('policyAppliesExt', { ext: policy.scope_value || '' })}
+                                                                {policy.scope === 'file_size' && t('policyAppliesSize', { size: policy.scope_value ? Math.round(Number(policy.scope_value) / 1048576) : '?' })}
+                                                                {policy.scope === 'role' && t('policyAppliesRole', { role: policy.scope_value || '' })}
+                                                                {policy.scope === 'private_files' && t('policyAppliesPrivate')}
                                                             </p>
                                                         </div>
                                                         <div className="flex items-center space-x-2 ml-4">
@@ -2435,20 +2567,25 @@ export function CompanyDetails() {
                                                                     setShowAddPolicy(true);
                                                                 }}
                                                                 className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded transition-colors"
-                                                                title="Edit policy"
+                                                                title={t('editPolicy')}
                                                             >
                                                                 <Edit2 className="w-4 h-4" />
                                                             </button>
                                                             <button
                                                                 onClick={async () => {
-                                                                    if (!confirm(`Delete policy "${policy.name}"? This cannot be undone.`)) return;
+                                                                    const ok = await modalConfirm({
+                                                                        title: tCommon('deleteConfirmTitle') || 'Confirm Delete',
+                                                                        description: t('deletePolicyConfirm', { name: policy.name }),
+                                                                        variant: 'destructive'
+                                                                    });
+                                                                    if (!ok) return;
                                                                     try {
                                                                         await authFetch(`/api/approvals/${company.id}/policies/${policy.id}`, { method: 'DELETE' });
                                                                         setApprovalPolicies(prev => prev.filter(p => p.id !== policy.id));
                                                                     } catch (e) { console.error(e); }
                                                                 }}
                                                                 className="p-1.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded transition-colors"
-                                                                title="Delete policy"
+                                                                title={t('deletePolicy')}
                                                             >
                                                                 <Trash2 className="w-4 h-4" />
                                                             </button>
@@ -2465,23 +2602,23 @@ export function CompanyDetails() {
                         {/* How It Works Card */}
                         {editApprovalWorkflow && (
                             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">How It Works</h3>
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">{t('howItWorks')}</h3>
                                 <div className="space-y-3 text-xs text-gray-600 dark:text-gray-400">
                                     <div className="flex items-start space-x-3">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[10px] font-bold">1</span>
-                                        <p>An employee uploads a file that matches an active approval policy.</p>
+                                        <p>{t('workflowStep1')}</p>
                                     </div>
                                     <div className="flex items-start space-x-3">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[10px] font-bold">2</span>
-                                        <p>The file is stored but marked as "Pending Approval." It is only visible to the uploader and users with the <strong>Manage Approvals</strong> permission.</p>
+                                        <p>{t('workflowStep2')}</p>
                                     </div>
                                     <div className="flex items-start space-x-3">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[10px] font-bold">3</span>
-                                        <p>Managers and Admins receive a notification and can approve or reject the file from the <strong>Approvals</strong> page.</p>
+                                        <p>{t('workflowStep3')}</p>
                                     </div>
                                     <div className="flex items-start space-x-3">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[10px] font-bold">4</span>
-                                        <p>Once approved, the file becomes accessible. If rejected, the uploader is notified with a reason and can resubmit.</p>
+                                        <p>{t('workflowStep4')}</p>
                                     </div>
                                 </div>
                             </div>
@@ -2495,9 +2632,9 @@ export function CompanyDetails() {
                         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <h3 className="text-sm font-medium text-gray-900 dark:text-white">Backup & Restore</h3>
+                                    <h3 className="text-sm font-medium text-gray-900 dark:text-white">{t('tabBackup')}</h3>
                                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                        Enable backup and restore functionality for this tenant
+                                        {t('backupDesc')}
                                     </p>
                                 </div>
                                 <button
@@ -2543,65 +2680,65 @@ export function CompanyDetails() {
                             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
                                     <Activity className="w-5 h-5 text-primary-600" />
-                                    Audit Log Configuration
+                                    {t('auditTitle')}
                                 </h3>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    Configure which activities are tracked in your audit logs
+                                    {t('auditDesc')}
                                 </p>
                             </div>
                             <div className="p-6 space-y-4">
                                 <LockedToggle
-                                    label="Log Login Events"
-                                    description="Track user login attempts, successes, and failures"
+                                    label={t('auditLogLogins')}
+                                    description={t('auditLogLoginsDesc')}
                                     checked={auditLogLogins || auditSettingsLocked}
                                     onChange={setAuditLogLogins}
                                     locked={auditSettingsLocked}
-                                    reason="Audit logging is required by compliance mode and cannot be disabled."
+                                    reason={t('complianceLockedAudit')}
                                 />
 
                                 <LockedToggle
-                                    label="Log File Operations"
-                                    description="Track file uploads, downloads, deletions, and shares"
+                                    label={t('auditLogFiles')}
+                                    description={t('auditLogFilesDesc')}
                                     checked={auditLogFileOperations || auditSettingsLocked}
                                     onChange={setAuditLogFileOperations}
                                     locked={auditSettingsLocked}
-                                    reason="Audit logging is required by compliance mode and cannot be disabled."
+                                    reason={t('complianceLockedAudit')}
                                 />
 
                                 <LockedToggle
-                                    label="Log User Changes"
-                                    description="Track user creation, updates, and deletions"
+                                    label={t('auditLogUsers')}
+                                    description={t('auditLogUsersDesc')}
                                     checked={auditLogUserChanges || auditSettingsLocked}
                                     onChange={setAuditLogUserChanges}
                                     locked={auditSettingsLocked}
-                                    reason="Audit logging is required by compliance mode and cannot be disabled."
+                                    reason={t('complianceLockedAudit')}
                                 />
 
                                 <LockedToggle
-                                    label="Log Settings Changes"
-                                    description="Track changes to company and system settings"
+                                    label={t('auditLogSettings')}
+                                    description={t('auditLogSettingsDesc')}
                                     checked={auditLogSettingsChanges || auditSettingsLocked}
                                     onChange={setAuditLogSettingsChanges}
                                     locked={auditSettingsLocked}
-                                    reason="Audit logging is required by compliance mode and cannot be disabled."
+                                    reason={t('complianceLockedAudit')}
                                 />
 
                                 <LockedToggle
-                                    label="Log Role Changes"
-                                    description="Track role assignments and permission modifications"
+                                    label={t('auditLogRoles')}
+                                    description={t('auditLogRolesDesc')}
                                     checked={auditLogRoleChanges || auditSettingsLocked}
                                     onChange={setAuditLogRoleChanges}
                                     locked={auditSettingsLocked}
-                                    reason="Audit logging is required by compliance mode and cannot be disabled."
+                                    reason={t('complianceLockedAudit')}
                                 />
                             </div>
                         </div>
 
                         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Log Retention</h3>
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('logRetention')}</h3>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    How long to keep audit logs before automatic deletion
+                                    {t('logRetentionDesc')}
                                 </p>
                             </div>
                             <div className="p-6">
@@ -2618,7 +2755,7 @@ export function CompanyDetails() {
                                             )}
                                         >
                                             <span className="text-xl font-bold text-gray-900 dark:text-white">{days}</span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">days</span>
+                                            <span className="text-xs text-gray-500 dark:text-gray-400">{t('days')}</span>
                                             {auditRetentionDays === days && (
                                                 <div className="absolute top-1 right-1">
                                                     <CheckCircle className="h-4 w-4 text-primary-600 dark:text-primary-400" />
@@ -2637,14 +2774,13 @@ export function CompanyDetails() {
                                 className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                             >
                                 <Save className="w-4 h-4 mr-2" />
-                                {isSavingAudit ? 'Saving...' : 'Save Audit Settings'}
+                                {isSavingAudit ? t('savingAuditSettings') : t('saveAuditSettings')}
                             </button>
                         </div>
 
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                             <p className="text-sm text-blue-800 dark:text-blue-200">
-                                <strong>Note:</strong> View and export your audit logs from the{' '}
-                                <a href="/audit-logs" className="underline hover:no-underline">Audit Logs</a> page.
+                                {t('auditLogsPageHint')}
                             </p>
                         </div>
                     </div>

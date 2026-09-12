@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 
 // Permission keys mapping
 const PERMISSION_CONFIG: Record<string, { labelKey: string; descKey: string }> = {
@@ -35,6 +36,7 @@ export function Extensions() {
     const { formatDate } = useGlobalSettings();
     const t = useTranslations('Extensions');
     const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const {
         extensions,
         installedExtensions,
@@ -145,7 +147,13 @@ export function Extensions() {
 
     // Handle uninstall
     const handleUninstall = async (extensionId: string) => {
-        if (!confirm(t('confirmUninstall'))) return;
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Uninstall',
+            description: t('confirmUninstall'),
+            variant: 'destructive',
+            confirmText: tCommon('delete') || 'Uninstall'
+        });
+        if (!ok) return;
         await uninstallExtension(extensionId);
     };
 

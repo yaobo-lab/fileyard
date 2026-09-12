@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, ReactNode, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { useTenant } from './TenantContext';
+import { useModalDialog } from './ModalDialogContext';
 import { useNavigate } from 'react-router-dom';
 
 interface ComplianceContextType {
@@ -12,6 +13,7 @@ const ComplianceContext = createContext<ComplianceContextType | undefined>(undef
 export function ComplianceProvider({ children }: { children: ReactNode }) {
     const { user, logout } = useAuth();
     const { currentCompany } = useTenant();
+    const { alert: modalAlert } = useModalDialog();
     const navigate = useNavigate();
 
     // Idle timeout ref
@@ -35,7 +37,11 @@ export function ComplianceProvider({ children }: { children: ReactNode }) {
                 console.log('Idle timeout reached for compliance mode:', mode);
                 logout();
                 navigate('/login');
-                alert('You have been logged out due to inactivity for security compliance.');
+                modalAlert({
+                    title: 'Security Compliance',
+                    description: 'You have been logged out due to inactivity for security compliance.',
+                    variant: 'warning'
+                });
             }
         }
     };

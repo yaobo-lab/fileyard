@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Save, Loader2, Check, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 // Discord brand color
 const DISCORD_COLOR = '#5865F2';
@@ -15,6 +16,7 @@ interface DiscordSettings {
 }
 
 export function TenantDiscordSettings({ tenantId, authFetch }: TenantDiscordSettingsProps) {
+  const t = useTranslations('CompanyDetails');
   const [settings, setSettings] = useState<DiscordSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -95,9 +97,9 @@ export function TenantDiscordSettings({ tenantId, authFetch }: TenantDiscordSett
           </svg>
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Discord Notifications</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('discordTitle')}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Allow users to receive DM notifications via Discord
+            {t('discordDesc')}
           </p>
         </div>
       </div>
@@ -114,9 +116,9 @@ export function TenantDiscordSettings({ tenantId, authFetch }: TenantDiscordSett
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <label className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-gray-900 dark:text-white">Enable Discord Integration</p>
+            <p className="font-medium text-gray-900 dark:text-white">{t('enableDiscord')}</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              When enabled, users can connect their Discord accounts to receive DM notifications
+              {t('enableDiscordDesc')}
             </p>
           </div>
           <button
@@ -138,8 +140,7 @@ export function TenantDiscordSettings({ tenantId, authFetch }: TenantDiscordSett
         {enabled && (
           <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              <strong>Note:</strong> Users will be able to connect their Discord accounts from their Profile page. 
-              They'll receive DMs when files are shared with them, uploaded to their requests, and more.
+              {t('discordUserHint')}
             </p>
           </div>
         )}
@@ -164,7 +165,7 @@ export function TenantDiscordSettings({ tenantId, authFetch }: TenantDiscordSett
           ) : (
             <Save className="w-4 h-4" />
           )}
-          {saveSuccess ? 'Saved!' : 'Save Changes'}
+          {saveSuccess ? t('saveSuccess') : t('saveChanges')}
         </button>
       </div>
     </div>

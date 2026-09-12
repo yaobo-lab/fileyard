@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Upload, Trash2, Loader2, Save, Check } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
 import { useTranslations } from '../../context/I18nContext';
+import { useModalDialog } from '../../context/ModalDialogContext';
 import { Logo } from '../../components/Logo';
 import { ImageCropModal } from '../../components/ImageCropModal';
 import clsx from 'clsx';
@@ -9,6 +10,7 @@ import clsx from 'clsx';
 export function BrandingSettings() {
     const t = useTranslations('SettingsBranding');
     const tCommon = useTranslations('Common');
+    const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { settings, uploadLogo, deleteLogo, uploadFavicon, deleteFavicon, updateSettings } = useGlobalSettings();
     const logoInputRef = useRef<HTMLInputElement>(null);
     const faviconInputRef = useRef<HTMLInputElement>(null);
@@ -52,12 +54,20 @@ export function BrandingSettings() {
 
         const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
         if (!validTypes.includes(file.type)) {
-            alert('Please upload an SVG, PNG, JPEG, WebP, or GIF file');
+            modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'Please upload an SVG, PNG, JPEG, WebP, or GIF file',
+                variant: 'destructive'
+            });
             return;
         }
 
         if (file.size > 2 * 1024 * 1024) {
-            alert('Logo must be less than 2MB');
+            modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'Logo must be less than 2MB',
+                variant: 'destructive'
+            });
             return;
         }
 
@@ -93,12 +103,20 @@ export function BrandingSettings() {
 
         const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
         if (!validTypes.includes(file.type)) {
-            alert('Please upload an ICO, SVG, PNG, JPEG, WebP, or GIF file');
+            modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'Please upload an ICO, SVG, PNG, JPEG, WebP, or GIF file',
+                variant: 'destructive'
+            });
             return;
         }
 
         if (file.size > 1024 * 1024) {
-            alert('Favicon must be less than 1MB');
+            modalAlert({
+                title: tCommon('errorTitle') || 'Error',
+                description: 'Favicon must be less than 1MB',
+                variant: 'destructive'
+            });
             return;
         }
 
@@ -140,12 +158,26 @@ export function BrandingSettings() {
     };
 
     const handleLogoDelete = async () => {
-        if (!confirm('Are you sure you want to remove the custom logo?')) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: 'Are you sure you want to remove the custom logo?',
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
         await deleteLogo();
     };
 
     const handleFaviconDelete = async () => {
-        if (!confirm('Are you sure you want to remove the custom favicon?')) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: 'Are you sure you want to remove the custom favicon?',
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
         await deleteFavicon();
     };
 

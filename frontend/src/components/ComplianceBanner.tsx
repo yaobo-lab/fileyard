@@ -1,4 +1,5 @@
 import { Shield, AlertTriangle, Info } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface ComplianceBannerProps {
@@ -7,6 +8,8 @@ interface ComplianceBannerProps {
 }
 
 export function ComplianceBanner({ mode, className }: ComplianceBannerProps) {
+    const t = useTranslations('Compliance');
+
     // Don't show banner for standard mode
     if (!mode || mode === 'Standard' || mode === 'None' || mode === 'none') {
         return null;
@@ -16,30 +19,30 @@ export function ComplianceBanner({ mode, className }: ComplianceBannerProps) {
         switch (mode.toUpperCase()) {
             case 'HIPAA':
                 return {
-                    label: 'HIPAA Secure',
-                    description: 'Healthcare data protection mode is active. MFA required, public sharing disabled, all access logged.',
+                    label: t('hipaaLabel'),
+                    description: t('hipaaDesc'),
                     color: 'green',
                     icon: Shield,
                 };
             case 'SOX':
             case 'SOC2':
                 return {
-                    label: 'SOX Governed',
-                    description: 'Financial audit compliance mode is active. File versioning enabled, audit logging enforced.',
+                    label: t('soxLabel'),
+                    description: t('soxDesc'),
                     color: 'blue',
                     icon: Shield,
                 };
             case 'GDPR':
                 return {
-                    label: 'GDPR Active',
-                    description: 'European data protection mode is active. Consent tracking and data deletion requests enabled.',
+                    label: t('gdprLabel'),
+                    description: t('gdprDesc'),
                     color: 'purple',
                     icon: Shield,
                 };
             default:
                 return {
-                    label: 'Compliance Mode',
-                    description: 'Compliance mode is active.',
+                    label: t('complianceModeActive'),
+                    description: t('complianceDescActive'),
                     color: 'yellow',
                     icon: AlertTriangle,
                 };
@@ -73,14 +76,14 @@ export function ComplianceBanner({ mode, className }: ComplianceBannerProps) {
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{info.label}</span>
-                    <span className="text-xs opacity-75">— Compliance Enforcement Active</span>
+                    <span className="text-xs opacity-75">{t('complianceActiveSub')}</span>
                 </div>
                 <p className="text-sm mt-1 opacity-90">
                     {info.description}
                 </p>
                 <p className="text-xs mt-2 opacity-75 flex items-center gap-1">
                     <Info className="w-3 h-3" />
-                    Some settings are restricted due to compliance requirements.
+                    {t('complianceRestrictedHint')}
                 </p>
             </div>
         </div>

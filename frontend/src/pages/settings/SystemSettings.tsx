@@ -3,6 +3,7 @@ import { Save, Check, Loader2, AlertTriangle, Power, RefreshCw, ExternalLink, Gi
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslations } from '../../context/I18nContext';
+import { useModalDialog } from '../../context/ModalDialogContext';
 import clsx from 'clsx';
 
 interface VersionInfo {
@@ -18,6 +19,7 @@ interface VersionInfo {
 export function SystemSettings() {
     const t = useTranslations('SettingsSystem');
     const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const { settings, updateSettings } = useGlobalSettings();
     const { token } = useAuth();
     
@@ -93,13 +95,20 @@ export function SystemSettings() {
         }
     };
 
-    const handleToggleMaintenance = () => {
+    const handleToggleMaintenance = async () => {
         if (maintenanceMode) {
             // Turning off - just toggle
             setMaintenanceMode(false);
         } else {
             // Turning on - confirm first
-            if (confirm(t('confirmEnable'))) {
+            const confirmed = await modalConfirm({
+                title: tCommon('confirmTitle'),
+                description: t('confirmEnable'),
+                variant: 'warning',
+                confirmText: tCommon('ok'),
+                cancelText: tCommon('cancel')
+            });
+            if (confirmed) {
                 setMaintenanceMode(true);
             }
         }

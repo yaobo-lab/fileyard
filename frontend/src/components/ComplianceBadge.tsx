@@ -1,4 +1,5 @@
 import { Shield, Lock, ShieldCheck } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface ComplianceBadgeProps {
@@ -9,6 +10,8 @@ interface ComplianceBadgeProps {
 }
 
 export function ComplianceBadge({ mode, size = 'md', showLabel = true, className }: ComplianceBadgeProps) {
+    const t = useTranslations('Compliance');
+
     // Don't show badge for standard mode
     if (!mode || mode === 'Standard' || mode === 'None' || mode === 'none') {
         return null;
@@ -18,7 +21,7 @@ export function ComplianceBadge({ mode, size = 'md', showLabel = true, className
         switch (mode.toUpperCase()) {
             case 'HIPAA':
                 return {
-                    label: 'HIPAA Secure',
+                    label: t('hipaaLabel'),
                     shortLabel: 'HIPAA',
                     icon: ShieldCheck,
                     bgColor: 'bg-green-100 dark:bg-green-900/30',
@@ -28,7 +31,7 @@ export function ComplianceBadge({ mode, size = 'md', showLabel = true, className
             case 'SOX':
             case 'SOC2':
                 return {
-                    label: 'SOX Governed',
+                    label: t('soxLabel'),
                     shortLabel: 'SOX',
                     icon: Lock,
                     bgColor: 'bg-blue-100 dark:bg-blue-900/30',
@@ -37,7 +40,7 @@ export function ComplianceBadge({ mode, size = 'md', showLabel = true, className
                 };
             case 'GDPR':
                 return {
-                    label: 'GDPR Active',
+                    label: t('gdprLabel'),
                     shortLabel: 'GDPR',
                     icon: Shield,
                     bgColor: 'bg-purple-100 dark:bg-purple-900/30',
@@ -46,7 +49,7 @@ export function ComplianceBadge({ mode, size = 'md', showLabel = true, className
                 };
             default:
                 return {
-                    label: 'Compliance',
+                    label: t('complianceModeActive'),
                     shortLabel: mode,
                     icon: Shield,
                     bgColor: 'bg-gray-100 dark:bg-gray-800',

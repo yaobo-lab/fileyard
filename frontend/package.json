@@ -5,12 +5,11 @@
   "type": "module",
   "scripts": {
     "vite": "vite --port 8081",
-    "server": "cd storageui && node ../server.js",
-    "storageui-dev": "cd storageui && bun run dev",
-    "dev": "run-p vite server storageui-dev",
+    "server": "node server.js",
+    "dev": "run-p vite server",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production cd storageui && node ../server.js"
+    "start": "NODE_ENV=production node server.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -48,7 +47,6 @@
     "http-proxy-middleware": "^4.2.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
-    "next": "16.3.0",
     "npm-run-all": "^4.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Search, Filter, Link as LinkIcon, Calendar, Trash2, Eye, Copy, Check, Plus, Users, EyeOff, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { copyToClipboard } from '@/lib/utils';
 import { FilterModal } from '../components/FilterModal';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/table';
 
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 
 interface FileRequest {
     id: string;
@@ -37,6 +39,7 @@ interface FileRequest {
 export function FileRequests() {
     const t = useTranslations('FileRequests');
     const tCommon = useTranslations('Common');
+    const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const [requests, setRequests] = useState<FileRequest[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +50,7 @@ export function FileRequests() {
     const [selectedRequest, setSelectedRequest] = useState<FileRequest | null>(null);
     const [filters, setFilters] = useState<any>({});
     const authFetch = useAuthFetch();
+    const { currentCompany } = useTenant();
     const { formatDate } = useGlobalSettings();
 
     // Visibility mode: 'department' or 'private'
@@ -104,7 +108,12 @@ export function FileRequests() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to revoke this file request?')) return;
+        const ok = await modalConfirm({
+            title: tCommon('confirmTitle') || 'Confirm Action',
+            description: 'Are you sure you want to revoke this file request?',
+            variant: 'warning'
+        });
+        if (!ok) return;
 
         try {
             const response = await authFetch(`/api/file-requests/${id}`, {
@@ -120,7 +129,12 @@ export function FileRequests() {
     };
 
     const handlePermanentDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to PERMANENTLY DELETE this file request? This cannot be undone.')) return;
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Delete',
+            description: 'Are you sure you want to PERMANENTLY DELETE this file request? This cannot be undone.',
+            variant: 'destructive'
+        });
+        if (!ok) return;
 
         try {
             const response = await authFetch(`/api/file-requests/${id}/permanent`, {
@@ -131,7 +145,11 @@ export function FileRequests() {
                 fetchFileRequests();
             } else {
                 const error = await response.json();
-                alert(error.error || 'Failed to delete file request');
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: error.error || 'Failed to delete file request',
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Error permanently deleting file request:', error);
@@ -463,6 +481,7 @@ export function FileRequests() {
                 onClose={() => setIsCreateModalOpen(false)}
                 onSubmit={handleCreate}
                 defaultVisibility={fileViewMode}
+                currentCompanyId={currentCompany?.id}
             />
 
             <FileRequestDetailsModal

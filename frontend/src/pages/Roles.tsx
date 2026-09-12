@@ -19,6 +19,7 @@ import {
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import { Navigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { RolePermissionsModal } from '../components/RolePermissionsModal';
@@ -56,6 +57,7 @@ export function RolesPage() {
     const authFetch = useAuthFetch();
     const t = useTranslations('Roles');
     const tCommon = useTranslations('Common');
+    const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
 
     // Admin and SuperAdmin can access Roles page
     if (!user || !['SuperAdmin', 'Admin'].includes(user.role)) {
@@ -132,7 +134,12 @@ export function RolesPage() {
     };
 
     const handleDeleteRole = async (roleId: string) => {
-        if (!confirm(t('confirmDeleteRole'))) {
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Delete',
+            description: t('confirmDeleteRole'),
+            variant: 'destructive'
+        });
+        if (!ok) {
             return;
         }
 
@@ -144,7 +151,11 @@ export function RolesPage() {
             if (response.ok) {
                 fetchRoles();
             } else if (response.status === 409) {
-                alert(t('errCannotDeleteAssigned'));
+                await modalAlert({
+                    title: tCommon('errorTitle') || 'Error',
+                    description: t('errCannotDeleteAssigned'),
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Failed to delete role', error);

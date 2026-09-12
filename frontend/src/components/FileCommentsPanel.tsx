@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, Send, Trash2, Pencil, X, CornerDownRight, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useModalDialog } from '../context/ModalDialogContext';
+import { useTranslations } from '../context/I18nContext';
 import { format } from 'date-fns';
 
 interface Comment {
@@ -29,6 +31,8 @@ interface FileCommentsPanelProps {
 export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: FileCommentsPanelProps) {
     const authFetch = useAuthFetch();
     const { user } = useAuth();
+    const { confirm: modalConfirm } = useModalDialog();
+    const tCommon = useTranslations('Common');
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -180,7 +184,14 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
     };
 
     const handleDeleteComment = async (commentId: string, parentId?: string) => {
-        if (!window.confirm('Are you sure you want to delete this comment?')) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: 'Are you sure you want to delete this comment?',
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
 
         try {
             const res = await authFetch(`/api/files/${companyId}/${fileId}/comments/${commentId}`, {

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../../context/AuthContext';
 import { useTranslations } from '../../context/I18nContext';
+import { useModalDialog } from '../../context/ModalDialogContext';
 import clsx from 'clsx';
 
 interface TenantScanSettings {
@@ -86,6 +87,7 @@ export function VirusScanSettings() {
   const { user } = useAuth();
   const t = useTranslations('VirusScanSettings');
   const tCommon = useTranslations('Common');
+  const { confirm: modalConfirm } = useModalDialog();
   const isSuperAdmin = user?.role === 'SuperAdmin';
 
   // Settings state
@@ -285,7 +287,14 @@ export function VirusScanSettings() {
   };
 
   const handleDeleteQuarantined = async (id: string) => {
-    if (!confirm(t('confirmDeleteQuarantine'))) {
+    const confirmed = await modalConfirm({
+      title: tCommon('deleteConfirmTitle'),
+      description: t('confirmDeleteQuarantine'),
+      variant: 'destructive',
+      confirmText: tCommon('delete'),
+      cancelText: tCommon('cancel')
+    });
+    if (!confirmed) {
       return;
     }
 

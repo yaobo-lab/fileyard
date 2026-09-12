@@ -30,6 +30,7 @@ import clsx from 'clsx';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 
 interface SecurityAlert {
     id: string;
@@ -108,6 +109,8 @@ const ITEMS_PER_PAGE = 20;
 export function Security() {
     const t = useTranslations('Security');
     const tAlert = useTranslations('AlertDetail');
+    const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const { formatDateTime } = useGlobalSettings();
     const { user } = useAuth();
     const authFetch = useAuthFetch();
@@ -225,7 +228,13 @@ export function Security() {
     };
 
     const handleDismiss = async (alertId: string) => {
-        if (!confirm('Are you sure you want to dismiss this alert? This action cannot be undone.')) {
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Action',
+            description: 'Are you sure you want to dismiss this alert? This action cannot be undone.',
+            variant: 'destructive',
+            confirmText: 'Dismiss'
+        });
+        if (!ok) {
             return;
         }
         try {
@@ -249,7 +258,12 @@ export function Security() {
             ? `Mark ${selectedIds.size} alert(s) as resolved?`
             : `Dismiss ${selectedIds.size} alert(s)? This cannot be undone.`;
         
-        if (!confirm(confirmMessage)) return;
+        const ok = await modalConfirm({
+            title: action === 'resolve' ? (tCommon('confirmTitle') || 'Confirm Action') : (tCommon('deleteConfirmTitle') || 'Confirm Action'),
+            description: confirmMessage,
+            variant: action === 'dismiss' ? 'destructive' : 'default',
+        });
+        if (!ok) return;
 
         setBulkLoading(true);
         try {

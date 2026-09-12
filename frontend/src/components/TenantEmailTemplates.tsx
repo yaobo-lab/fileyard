@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { EmailTemplateEditor } from './EmailTemplateEditor';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 interface EmailTemplate {
     template_key: string;
@@ -25,20 +26,21 @@ interface TenantEmailTemplatesProps {
     authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
-// Template category icons and descriptions
-const TEMPLATE_CATEGORIES: Record<string, { Icon: LucideIcon; color: string; description: string }> = {
-    file_upload: { Icon: Upload, color: 'blue', description: 'Sent when files are uploaded to a request' },
-    request_expiring: { Icon: Clock, color: 'amber', description: 'Sent when file requests are about to expire' },
-    user_created: { Icon: UserPlus, color: 'green', description: 'Sent to admins when new users are added' },
-    role_changed: { Icon: RefreshCw, color: 'purple', description: 'Sent when user roles are updated' },
-    file_shared: { Icon: Share2, color: 'blue', description: 'Sent when files are shared with users' },
-    compliance_alert: { Icon: ShieldAlert, color: 'red', description: 'Sent for compliance-related alerts' },
-    storage_warning: { Icon: HardDrive, color: 'orange', description: 'Sent when storage quota is running low' },
-    password_reset: { Icon: KeyRound, color: 'indigo', description: 'Sent for password reset requests' },
-    welcome: { Icon: UserCheck, color: 'teal', description: 'Sent when new users are invited' },
+// Template category icons
+const TEMPLATE_CATEGORIES: Record<string, { Icon: LucideIcon; color: string }> = {
+    file_upload: { Icon: Upload, color: 'blue' },
+    request_expiring: { Icon: Clock, color: 'amber' },
+    user_created: { Icon: UserPlus, color: 'green' },
+    role_changed: { Icon: RefreshCw, color: 'purple' },
+    file_shared: { Icon: Share2, color: 'blue' },
+    compliance_alert: { Icon: ShieldAlert, color: 'red' },
+    storage_warning: { Icon: HardDrive, color: 'orange' },
+    password_reset: { Icon: KeyRound, color: 'indigo' },
+    welcome: { Icon: UserCheck, color: 'teal' },
 };
 
 export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplatesProps) {
+    const t = useTranslations('CompanyDetails');
     const [templates, setTemplates] = useState<EmailTemplate[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
             
             if (!response.ok) throw new Error('Failed to save template');
             
-            setSuccessMessage(`Template "${editingTemplate.name}" saved successfully`);
+            setSuccessMessage(t('templateSavedSuccess', { name: editingTemplate.name }));
             setTimeout(() => setSuccessMessage(null), 3000);
             setEditingTemplate(null);
             fetchTemplates();
@@ -99,7 +101,7 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
             
             if (!response.ok) throw new Error('Failed to reset template');
             
-            setSuccessMessage(`Template "${editingTemplate.name}" reset to default`);
+            setSuccessMessage(t('templateResetSuccess', { name: editingTemplate.name }));
             setTimeout(() => setSuccessMessage(null), 3000);
             setEditingTemplate(null);
             fetchTemplates();
@@ -108,8 +110,27 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
         }
     };
 
+    const getTemplateDesc = (key: string) => {
+        switch (key) {
+            case 'file_upload': return t('catFileUpload');
+            case 'request_expiring': return t('catRequestExpiring');
+            case 'user_created': return t('catUserCreated');
+            case 'role_changed': return t('catRoleChanged');
+            case 'file_shared': return t('catFileShared');
+            case 'compliance_alert': return t('catComplianceAlert');
+            case 'storage_warning': return t('catStorageWarning');
+            case 'password_reset': return t('catPasswordReset');
+            case 'welcome': return t('catWelcome');
+            default: return t('emailTemplatesHeaderDesc');
+        }
+    };
+
     const getTemplateInfo = (key: string) => {
-        return TEMPLATE_CATEGORIES[key] || { Icon: Mail, color: 'gray', description: 'Email notification template' };
+        const cat = TEMPLATE_CATEGORIES[key] || { Icon: Mail, color: 'gray' };
+        return {
+            ...cat,
+            description: getTemplateDesc(key)
+        };
     };
 
     if (isLoading) {
@@ -127,10 +148,10 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white flex items-center gap-2">
                         <Mail className="w-5 h-5 text-primary-600" />
-                        Email Templates
+                        {t('emailTemplatesHeader')}
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Customize email templates for this company. Templates can override global defaults or use the system defaults.
+                        {t('emailTemplatesHeaderDesc')}
                     </p>
                 </div>
 
@@ -183,11 +204,11 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
                                                 </h4>
                                                 {template.is_customized ? (
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                                        Customized
+                                                        {t('customized')}
                                                     </span>
                                                 ) : (
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                                                        Using Default
+                                                        {t('usingDefault')}
                                                     </span>
                                                 )}
                                             </div>
@@ -204,15 +225,15 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
                                                         await authFetch(`/api/settings/email-templates/${template.template_key}`, {
                                                             method: 'DELETE',
                                                         });
-                                                        setSuccessMessage(`Template "${template.name}" reset to default`);
+                                                        setSuccessMessage(t('templateResetSuccess', { name: template.name }));
                                                         setTimeout(() => setSuccessMessage(null), 3000);
                                                         fetchTemplates();
                                                     } catch (err) {
-                                                        setError('Failed to reset template');
+                                                        setError(t('failedToReset'));
                                                     }
                                                 }}
                                                 className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded transition-colors"
-                                                title="Reset to default"
+                                                title={t('resetToDefault')}
                                             >
                                                 <RotateCcw className="w-3 h-3" />
                                             </button>
@@ -222,7 +243,7 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
                                             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-colors"
                                         >
                                             <Edit2 className="w-4 h-4" />
-                                            Edit
+                                            {t('editTemplate')}
                                         </button>
                                     </div>
                                 </div>
@@ -230,7 +251,7 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
                                 {/* Subject Preview */}
                                 <div className="mt-3 ml-11">
                                     <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                                        Subject:
+                                        {t('templateSubject')}
                                     </div>
                                     <div className={clsx(
                                         "text-sm px-3 py-2 rounded-md font-mono",
@@ -263,11 +284,11 @@ export function TenantEmailTemplates({ tenantId, authFetch }: TenantEmailTemplat
 
             {/* Info Box */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">About Email Templates</h4>
+                <h4 className="text-sm font-medium text-blue-800 dark:text-blue-300">{t('aboutEmailTemplates')}</h4>
                 <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-                    <strong>Customized:</strong> Templates you've edited will be used for all emails sent from this company.<br/>
-                    <strong>Using Default:</strong> Templates using the global default set by the system administrator.<br/>
-                    <strong>Variables:</strong> Use {`{{variable_name}}`} to insert dynamic content like user names, file names, etc.
+                    <strong>{t('customized')}:</strong> {t('aboutCustomizedDesc')}<br/>
+                    <strong>{t('usingDefault')}:</strong> {t('aboutUsingDefaultDesc')}<br/>
+                    <strong>Variables:</strong> {t('aboutVariablesDesc')}
                 </p>
             </div>
 

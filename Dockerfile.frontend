@@ -6,17 +6,6 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun run build
 
-# ─── Build StorageUI ──────────────────────────────────────────────────────────
-FROM oven/bun:1.3.14 AS storageui-builder
-WORKDIR /app
-COPY storageui/package.json storageui/bun.lock ./
-RUN bun install --frozen-lockfile
-COPY storageui/ .
-# NEXT_PUBLIC_BASE_PATH must be inlined at build time for Next.js
-ARG NEXT_PUBLIC_BASE_PATH=/storage
-ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
-RUN bun run build
-
 # ─── Runtime ──────────────────────────────────────────────────────────────────
 FROM oven/bun:1.3.14 AS runner
 WORKDIR /app
@@ -29,13 +18,6 @@ COPY package.json ./
 COPY --from=frontend-builder /app/node_modules ./node_modules
 COPY --from=frontend-builder /app/server.js ./server.js
 COPY --from=frontend-builder /app/dist ./dist
-
-# Copy storageui Next.js server runtime files
-COPY --from=storageui-builder /app/storageui/package.json ./storageui/package.json
-COPY --from=storageui-builder /app/storageui/next.config.mjs ./storageui/next.config.mjs
-COPY --from=storageui-builder /app/storageui/node_modules ./storageui/node_modules
-COPY --from=storageui-builder /app/storageui/.next ./storageui/.next
-COPY --from=storageui-builder /app/storageui/public ./storageui/public
 
 EXPOSE 8080
 CMD ["bun", "run", "start"]

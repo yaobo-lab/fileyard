@@ -31,6 +31,7 @@ import { useTenant } from '../context/TenantContext';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 import { useKeyboardShortcuts, Shortcut } from '../hooks/useKeyboardShortcuts';
 import { useKeyboardShortcutsContext } from '../context/KeyboardShortcutsContext';
 import { ShortcutActionId } from '../hooks/shortcutPresets';
@@ -100,6 +101,7 @@ export function FileBrowser() {
     const t = useTranslations('Explorer');
     const tCommon = useTranslations('Common');
     const tProps = useTranslations('Properties');
+    const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { user } = useAuth();
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
@@ -514,7 +516,11 @@ export function FileBrowser() {
         const filesToDelete = getSelectedFilesForAction('delete');
         
         if (filesToDelete.length === 0) {
-            alert('You do not have permission to delete any of the selected files. Only file owners, Admins, and SuperAdmins can delete files.');
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: 'You do not have permission to delete any of the selected files. Only file owners, Admins, and SuperAdmins can delete files.',
+                variant: 'destructive'
+            });
             return;
         }
         
@@ -524,7 +530,14 @@ export function FileBrowser() {
             confirmMessage += `\n\n${skippedCount} item(s) will be skipped (locked or no permission).`;
         }
         
-        if (!confirm(confirmMessage)) {
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: confirmMessage,
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) {
             return;
         }
         
@@ -722,7 +735,11 @@ export function FileBrowser() {
     const handleGroupClick = async (group: FileItem) => {
         // SECURITY: Check if user can access locked group
         if (!canAccessLockedGroup(group)) {
-            alert(`Group is locked - access denied${group.lock_requires_role ? ` (requires ${group.lock_requires_role} or higher)` : ''}`);
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: `Group is locked - access denied${group.lock_requires_role ? ` (requires ${group.lock_requires_role} or higher)` : ''}`,
+                variant: 'destructive'
+            });
             return;
         }
 
@@ -752,7 +769,11 @@ export function FileBrowser() {
                 const data = await res.json();
                 // Check if backend returned access denied error
                 if (data.error) {
-                    alert(data.error);
+                    modalAlert({
+                        title: tCommon('errorTitle'),
+                        description: data.error,
+                        variant: 'destructive'
+                    });
                     setIsGroupViewerOpen(false);
                     setViewingGroup(null);
                     setIsLoadingGroupFiles(false);
@@ -779,7 +800,14 @@ export function FileBrowser() {
 
     // Group action handlers
     const handleDeleteGroup = async (group: FileItem) => {
-        if (!confirm(`Delete group "${group.name}"? Files will be unlinked but not deleted.`)) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: `Delete group "${group.name}"? Files will be unlinked but not deleted.`,
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
         
         try {
             const res = await authFetch(`/api/groups/${companyId}/${group.id}`, {
@@ -788,11 +816,19 @@ export function FileBrowser() {
             if (res.ok) {
                 fetchFiles();
             } else {
-                alert('Failed to delete group');
+                modalAlert({
+                    title: tCommon('errorTitle'),
+                    description: 'Failed to delete group',
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Error deleting group:', error);
-            alert('Failed to delete group');
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: 'Failed to delete group',
+                variant: 'destructive'
+            });
         }
         setActiveGroupMenu(null);
     };
@@ -824,11 +860,19 @@ export function FileBrowser() {
             if (res.ok) {
                 fetchFiles();
             } else {
-                alert('Failed to rename group');
+                modalAlert({
+                    title: tCommon('errorTitle'),
+                    description: 'Failed to rename group',
+                    variant: 'destructive'
+                });
             }
         } catch (error) {
             console.error('Error renaming group:', error);
-            alert('Failed to rename group');
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: 'Failed to rename group',
+                variant: 'destructive'
+            });
         }
         setActiveGroupMenu(null);
     };
@@ -871,7 +915,11 @@ export function FileBrowser() {
             
             // Handle visibility locked error with a user-friendly message
             if (result.visibility_locked) {
-                alert('Groups cannot be moved between Department Files and Private Files. They are locked to their original visibility.');
+                modalAlert({
+                    title: tCommon('infoTitle'),
+                    description: 'Groups cannot be moved between Department Files and Private Files. They are locked to their original visibility.',
+                    variant: 'warning'
+                });
                 return { success: false, error: result.error };
             }
             
@@ -1126,7 +1174,11 @@ export function FileBrowser() {
         
         // Check if file is locked
         if (fileToRename.is_locked) {
-            alert('Cannot rename a locked file. Please unlock it first.');
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: 'Cannot rename a locked file. Please unlock it first.',
+                variant: 'destructive'
+            });
             return;
         }
         
@@ -1149,7 +1201,14 @@ export function FileBrowser() {
     };
 
     const handleDelete = async (file: FileItem) => {
-        if (!confirm(`Are you sure you want to move "${file.name}" to the Recycle Bin?`)) return;
+        const confirmed = await modalConfirm({
+            title: tCommon('deleteConfirmTitle'),
+            description: `Are you sure you want to move "${file.name}" to the Recycle Bin?`,
+            variant: 'destructive',
+            confirmText: tCommon('delete'),
+            cancelText: tCommon('cancel')
+        });
+        if (!confirmed) return;
 
         // Construct full path
         const currentPathStr = currentPath.slice(1).join('/');
@@ -1311,7 +1370,11 @@ export function FileBrowser() {
             document.body.removeChild(a);
         } catch (error) {
             console.error('Download error:', error);
-            alert('Failed to download ' + (file.type === 'folder' ? 'folder' : 'file'));
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: 'Failed to download ' + (file.type === 'folder' ? 'folder' : 'file'),
+                variant: 'destructive'
+            });
         }
         setActiveMenu(null);
     };
@@ -1502,7 +1565,11 @@ export function FileBrowser() {
                 console.log('Group move to root response:', response.status, result);
                 
                 if (!response.ok || result.error) {
-                    alert(result.error || result.message || 'Failed to move group');
+                    modalAlert({
+                        title: tCommon('errorTitle'),
+                        description: result.error || result.message || 'Failed to move group',
+                        variant: 'destructive'
+                    });
                 } else {
                     fetchFiles();
                 }
@@ -1519,7 +1586,11 @@ export function FileBrowser() {
                 const result = await response.json();
                 
                 if (!response.ok || result.error) {
-                    alert(result.error || result.message || 'Failed to move file');
+                    modalAlert({
+                        title: tCommon('errorTitle'),
+                        description: result.error || result.message || 'Failed to move file',
+                        variant: 'destructive'
+                    });
                 } else {
                     fetchFiles();
                 }
@@ -2107,7 +2178,11 @@ export function FileBrowser() {
                     if (data.error === 'blocked_extension') {
                         const errorMsg = data.message || `File type .${data.extension} is not allowed`;
                         setUploadFilesList(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', error: errorMsg } : item));
-                        alert(errorMsg);
+                        modalAlert({
+                            title: tCommon('errorTitle'),
+                            description: errorMsg,
+                            variant: 'destructive'
+                        });
                     } else {
                         setUploadFilesList(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'completed', progress: 100 } : item));
                         fetchFiles();
@@ -2224,7 +2299,11 @@ export function FileBrowser() {
                 console.log('Group move response:', response.status, result);
                 
                 if (!response.ok || result.error) {
-                    alert(result.error || result.message || 'Failed to move group');
+                    modalAlert({
+                        title: tCommon('errorTitle'),
+                        description: result.error || result.message || 'Failed to move group',
+                        variant: 'destructive'
+                    });
                     fetchFiles(); // Revert
                     return;
                 }
@@ -2244,7 +2323,11 @@ export function FileBrowser() {
                 const result = await response.json();
                 
                 if (!response.ok || result.error) {
-                    alert(result.error || result.message || 'Failed to move file');
+                    modalAlert({
+                        title: tCommon('errorTitle'),
+                        description: result.error || result.message || 'Failed to move file',
+                        variant: 'destructive'
+                    });
                     fetchFiles(); // Revert
                     return;
                 }
@@ -2735,7 +2818,11 @@ export function FileBrowser() {
                         <button
                             onClick={() => {
                                 if (movableSelectedFiles.length === 0) {
-                                    alert('Cannot move any of the selected files. Locked files cannot be moved.');
+                                    modalAlert({
+                                        title: tCommon('infoTitle'),
+                                        description: 'Cannot move any of the selected files. Locked files cannot be moved.',
+                                        variant: 'warning'
+                                    });
                                     return;
                                 }
                                 setIsBulkMoveModalOpen(true);

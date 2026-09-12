@@ -44,6 +44,15 @@ interface AppSidebarProps {
   onSelectExtension?: (item: SidebarItem) => void
 }
 
+interface NavItem {
+  title: string
+  url: string
+  icon: any
+  visible: boolean
+  isExternal?: boolean
+  badge?: number
+}
+
 export function AppSidebar({
   securityAlertCount = 0,
   activeExtensionItem,
@@ -79,7 +88,7 @@ export function AppSidebar({
     },
   ]
 
-  const fileGroup = [
+  const fileGroup: NavItem[] = [
     {
       title: t('files'),
       url: '/files',
@@ -103,13 +112,6 @@ export function AppSidebar({
       url: '/shared-with-me',
       icon: Share2,
       visible: hasPermission('files.view'),
-    },
-    {
-      title: t('storage'),
-      url: '/storage',
-      icon: Folder,
-      visible: true,
-      isExternal: true,
     },
   ]
 

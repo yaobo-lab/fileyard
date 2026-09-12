@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import Cropper, { Area, MediaSize } from 'react-easy-crop';
 import { X, ZoomIn, ZoomOut, Check } from 'lucide-react';
+import { useModalDialog } from '../context/ModalDialogContext';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface ImageCropModalProps {
@@ -75,6 +77,8 @@ export function ImageCropModal({
     aspect = 1,
     title = 'Crop Avatar'
 }: ImageCropModalProps) {
+    const { alert: modalAlert } = useModalDialog();
+    const tCommon = useTranslations('Common');
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
@@ -129,7 +133,11 @@ export function ImageCropModal({
         console.log('Handle confirm called, croppedAreaPixels:', croppedAreaPixels);
         
         if (!croppedAreaPixels) {
-            alert('Please wait for the image to load or adjust the crop area');
+            modalAlert({
+                title: tCommon('infoTitle'),
+                description: 'Please wait for the image to load or adjust the crop area',
+                variant: 'warning'
+            });
             return;
         }
         
@@ -141,7 +149,11 @@ export function ImageCropModal({
             onCropComplete(croppedBlob);
         } catch (error) {
             console.error('Error cropping image:', error);
-            alert(`Error processing image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            modalAlert({
+                title: tCommon('errorTitle'),
+                description: `Error processing image: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                variant: 'destructive'
+            });
         } finally {
             setIsProcessing(false);
         }

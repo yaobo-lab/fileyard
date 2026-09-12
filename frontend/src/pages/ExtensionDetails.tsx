@@ -9,6 +9,8 @@ import clsx from 'clsx';
 import { useExtensions, InstalledExtension, AutomationJob } from '../hooks/useExtensions';
 import { useAuth } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
+import { useModalDialog } from '../context/ModalDialogContext';
 
 const TYPE_CONFIG: Record<string, { icon: typeof Puzzle; color: string; label: string }> = {
     ui: { icon: Puzzle, color: 'text-blue-500 bg-blue-100 dark:bg-blue-900/30', label: 'UI Extension' },
@@ -21,6 +23,8 @@ export function ExtensionDetails() {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { formatDate } = useGlobalSettings();
+    const tCommon = useTranslations('Common');
+    const { confirm: modalConfirm } = useModalDialog();
     const {
         installedExtensions,
         updateExtensionSettings,
@@ -113,7 +117,13 @@ export function ExtensionDetails() {
     // Handle uninstall
     const handleUninstall = async () => {
         if (!extension) return;
-        if (!confirm('Are you sure you want to uninstall this extension?')) return;
+        const ok = await modalConfirm({
+            title: tCommon('deleteConfirmTitle') || 'Confirm Uninstall',
+            description: 'Are you sure you want to uninstall this extension?',
+            variant: 'destructive',
+            confirmText: tCommon('delete') || 'Uninstall'
+        });
+        if (!ok) return;
         await uninstallExtension(extension.extension_id);
         navigate('/extensions');
     };

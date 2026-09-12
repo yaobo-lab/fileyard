@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Link2, Calendar, FolderOpen, FileText, Download, Clock, User } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useTranslations } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface FileRequest {
@@ -32,6 +33,8 @@ interface FileRequestDetailsModalProps {
 }
 
 export function FileRequestDetailsModal({ isOpen, onClose, request }: FileRequestDetailsModalProps) {
+    const t = useTranslations('FileRequests');
+    const tCommon = useTranslations('Common');
     const [uploads, setUploads] = useState<Upload[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const authFetch = useAuthFetch();
@@ -120,29 +123,29 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{tCommon('status')}</p>
                             <span className={clsx(
                                 "inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-xs font-medium",
                                 getStatusColor(request.status)
                             )}>
-                                {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                                {request.status === 'active' ? t('statusActive') : request.status === 'expired' ? t('statusExpired') : t('statusRevoked')}
                             </span>
                         </div>
                         <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Uploads</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('uploadsList')}</p>
                             <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-                                {request.upload_count} {request.max_uploads ? `/ ${request.max_uploads}` : ''} files
+                                {request.upload_count} {request.max_uploads ? `/ ${request.max_uploads}` : ''}
                             </p>
                         </div>
                         <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{tCommon('created')}</p>
                             <p className="mt-1 text-sm text-gray-900 dark:text-white flex items-center gap-1">
                                 <Calendar className="w-3 h-3 text-gray-400" />
                                 {globalFormatDate(request.created_at)}
                             </p>
                         </div>
                         <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Expires</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('expiresInDays')}</p>
                             <p className="mt-1 text-sm text-gray-900 dark:text-white flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-gray-400" />
                                 {globalFormatDate(request.expires_at)}
@@ -154,7 +157,7 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                 {/* Uploads List */}
                 <div className="flex-1 overflow-y-auto p-6">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-                        Uploaded Files ({uploads.length})
+                        {t('uploadsList')} ({uploads.length})
                     </h3>
                     
                     {isLoading ? (
@@ -164,7 +167,7 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                     ) : uploads.length === 0 ? (
                         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                             <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                            <p>No files uploaded yet</p>
+                            <p>{t('noUploads')}</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -183,7 +186,7 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
                                             <span>{formatFileSize(upload.size)}</span>
                                             <span>•</span>
-                                            <span>{formatDate(upload.uploaded_at)}</span>
+                                            <span>{globalFormatDate(upload.uploaded_at)}</span>
                                             {upload.uploader_name && (
                                                 <>
                                                     <span>•</span>
@@ -197,7 +200,7 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                                     </div>
                                     <button
                                         className="p-2 text-gray-400 hover:text-primary-600 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-                                        title="Download"
+                                        title={t('downloadFile')}
                                     >
                                         <Download className="w-4 h-4" />
                                     </button>
@@ -210,13 +213,13 @@ export function FileRequestDetailsModal({ isOpen, onClose, request }: FileReques
                 {/* Footer */}
                 <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                        Link: <code className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded">{request.link}</code>
+                        {t('shareLink')}: <code className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded">{request.link}</code>
                     </div>
                     <button
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                     >
-                        Close
+                        {tCommon('close')}
                     </button>
                 </div>
             </div>

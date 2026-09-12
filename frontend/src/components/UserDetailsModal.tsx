@@ -8,6 +8,8 @@ import {
 import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { useModalDialog } from '../context/ModalDialogContext';
+import { useTranslations } from '../context/I18nContext';
 import { MoveFileModal } from './MoveFileModal';
 import { Avatar } from './Avatar';
 import { FileSystemFolderGlyph } from './FileGlyphs';
@@ -76,6 +78,8 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
   const { user: currentUser } = useAuth();
   const { currentCompany } = useTenant();
   const { formatDate: globalFormatDate } = useGlobalSettings();
+  const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
+  const tCommon = useTranslations('Common');
   
   // Files tab state
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -277,12 +281,24 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download file');
+      modalAlert({
+        title: tCommon('errorTitle'),
+        description: 'Failed to download file',
+        variant: 'destructive'
+      });
     }
   };
   
   const handleDelete = async (file: FileItem) => {
-    if (!currentCompany?.id || !confirm(`Delete "${file.name}"? It will be moved to the user's Recycle Bin.`)) return;
+    if (!currentCompany?.id) return;
+    const confirmed = await modalConfirm({
+      title: tCommon('deleteConfirmTitle'),
+      description: `Delete "${file.name}"? It will be moved to the user's Recycle Bin.`,
+      variant: 'destructive',
+      confirmText: tCommon('delete'),
+      cancelText: tCommon('cancel')
+    });
+    if (!confirmed) return;
     
     const currentPathStr = filesPath.join('/');
     const fullPath = currentPathStr ? `${currentPathStr}/${file.name}` : file.name;
@@ -302,16 +318,31 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
         });
       } else {
         const data = await response.json().catch(() => ({}));
-        alert(data.error || 'Failed to delete file');
+        modalAlert({
+          title: tCommon('errorTitle'),
+          description: data.error || 'Failed to delete file',
+          variant: 'destructive'
+        });
       }
     } catch {
-      alert('Failed to delete file');
+      modalAlert({
+        title: tCommon('errorTitle'),
+        description: 'Failed to delete file',
+        variant: 'destructive'
+      });
     }
   };
   
   const handleBulkDelete = async () => {
     if (!currentCompany?.id || selectedFiles.size === 0) return;
-    if (!confirm(`Delete ${selectedFiles.size} item(s)? They will be moved to the user's Recycle Bin.`)) return;
+    const confirmed = await modalConfirm({
+      title: tCommon('deleteConfirmTitle'),
+      description: `Delete ${selectedFiles.size} item(s)? They will be moved to the user's Recycle Bin.`,
+      variant: 'destructive',
+      confirmText: tCommon('delete'),
+      cancelText: tCommon('cancel')
+    });
+    if (!confirmed) return;
     
     const currentPathStr = filesPath.join('/');
     let successCount = 0;
@@ -425,15 +456,31 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
       if (response.ok) {
         fetchUserTrash();
       } else {
-        alert('Failed to restore file');
+        modalAlert({
+          title: tCommon('errorTitle'),
+          description: 'Failed to restore file',
+          variant: 'destructive'
+        });
       }
     } catch {
-      alert('Failed to restore file');
+      modalAlert({
+        title: tCommon('errorTitle'),
+        description: 'Failed to restore file',
+        variant: 'destructive'
+      });
     }
   };
   
   const handlePermanentDelete = async (item: TrashItem) => {
-    if (!currentCompany?.id || !confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
+    if (!currentCompany?.id) return;
+    const confirmed = await modalConfirm({
+      title: tCommon('deleteConfirmTitle'),
+      description: `Permanently delete "${item.name}"? This cannot be undone.`,
+      variant: 'destructive',
+      confirmText: tCommon('delete'),
+      cancelText: tCommon('cancel')
+    });
+    if (!confirmed) return;
     
     try {
       const response = await authFetch(`/api/trash/${currentCompany.id}/delete/${encodeURIComponent(item.path)}`, {
@@ -443,10 +490,18 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
       if (response.ok) {
         fetchUserTrash();
       } else {
-        alert('Failed to permanently delete file');
+        modalAlert({
+          title: tCommon('errorTitle'),
+          description: 'Failed to permanently delete file',
+          variant: 'destructive'
+        });
       }
     } catch {
-      alert('Failed to permanently delete file');
+      modalAlert({
+        title: tCommon('errorTitle'),
+        description: 'Failed to permanently delete file',
+        variant: 'destructive'
+      });
     }
   };
   

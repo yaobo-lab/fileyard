@@ -3,6 +3,7 @@ import { X, Folder, Plus, ChevronRight, ShieldAlert, Lock, Users, EyeOff } from 
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import { useAuthFetch } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface CreateFileRequestModalProps {
     isOpen: boolean;
@@ -22,7 +23,8 @@ export interface FileRequestData {
 }
 
 export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath = '/', currentCompanyId, defaultVisibility = 'department' }: CreateFileRequestModalProps & { currentCompanyId?: string }) {
-    // console.log("VERSION 2 DEBUG: CreateFileRequestModal loaded");
+    const t = useTranslations('FileRequests');
+    const tCommon = useTranslations('Common');
     const { restrictions, complianceMode } = useSettings();
     const isPublicSharingBlocked = restrictions?.public_sharing_blocked || false;
     
@@ -79,7 +81,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
             });
             onClose();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to create file request');
+            setError(err instanceof Error ? err.message : t('failedToCreate'));
         } finally {
             setIsSubmitting(false);
         }
@@ -140,7 +142,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                     <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                         <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <ShieldAlert className="w-5 h-5 text-amber-500" />
-                            Feature Restricted
+                            {t('featureRestricted')}
                         </h2>
                         <button
                             onClick={onClose}
@@ -156,16 +158,16 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                             </div>
                             <div>
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                                    Public File Requests Disabled
+                                    {t('publicRequestsDisabled')}
                                 </h3>
                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                    Your organization has <strong>{complianceMode}</strong> compliance mode enabled, which restricts public file sharing for security reasons.
+                                    {t('complianceRestrictedDesc', { mode: complianceMode || 'Compliance' })}
                                 </p>
                             </div>
                         </div>
                         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Public file request links allow external users to upload files without authentication. This feature is disabled under {complianceMode} compliance to prevent unauthorized data access.
+                                {t('complianceRestrictedDetail', { mode: complianceMode || 'Compliance' })}
                             </p>
                         </div>
                         <div className="flex justify-end">
@@ -173,7 +175,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                 onClick={onClose}
                                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                             >
-                                Close
+                                {tCommon('close')}
                             </button>
                         </div>
                     </div>
@@ -186,7 +188,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-opacity animate-in fade-in duration-100">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Create File Request</h2>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('createTitle')}</h2>
                     <button
                         onClick={onClose}
                         className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
@@ -204,23 +206,23 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Request Name <span className="text-red-500">*</span>
+                            {t('nameLabel')} <span className="text-red-500">*</span>
                         </label>
                         <input
                             type="text"
                             required
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            placeholder="Q4 Financial Reports"
+                            placeholder={t('namePlaceholder')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                         />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">A descriptive name for this upload request</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('nameHint')}</p>
                     </div>
 
                     {/* Visibility Selector */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Visibility
+                            {t('visibilityLabel')}
                         </label>
                         <div className="flex gap-3">
                             <button
@@ -233,7 +235,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                 }`}
                             >
                                 <Users className="w-4 h-4 mr-2" />
-                                Department
+                                {t('visibilityDepartment')}
                             </button>
                             <button
                                 type="button"
@@ -245,38 +247,38 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                 }`}
                             >
                                 <EyeOff className="w-4 h-4 mr-2" />
-                                Private
+                                {t('visibilityPrivate')}
                             </button>
                         </div>
                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             {formData.visibility === 'department' 
-                                ? 'Visible to all members in your department'
-                                : 'Only visible to you'}
+                                ? t('visibilityDepartmentHint')
+                                : t('visibilityPrivateHint')}
                         </p>
                     </div>
 
                     {departments.length > 0 && formData.visibility === 'department' && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Department
+                                {t('departmentLabel')}
                             </label>
                             <select
                                 value={formData.department_id || ''}
                                 onChange={(e) => setFormData({ ...formData, department_id: e.target.value || undefined })}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                             >
-                                <option value="">All Departments</option>
+                                <option value="">{t('allDepartments')}</option>
                                 {departments.map((dept) => (
                                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                                 ))}
                             </select>
-                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional: Restrict access to a specific department</p>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('departmentHint')}</p>
                         </div>
                     )}
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Destination Folder <span className="text-red-500">*</span>
+                            {t('destinationFolder')} <span className="text-red-500">*</span>
                         </label>
                         <div className="relative">
                             <input
@@ -284,7 +286,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                 required
                                 value={formData.destination_path}
                                 onChange={(e) => setFormData({ ...formData, destination_path: e.target.value })}
-                                placeholder="/Finance/2024"
+                                placeholder={t('destinationPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 pr-10"
                                 onFocus={() => setShowFolderBrowser(true)}
                             />
@@ -294,14 +296,14 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                         {showFolderBrowser && (
                             <div className="mt-2 p-3 border border-gray-200 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700/50 max-h-48 overflow-y-auto">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Quick Select</span>
+                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('quickSelect')}</span>
                                     <button
                                         type="button"
                                         onClick={() => setShowNewFolderInput(!showNewFolderInput)}
                                         className="text-xs text-primary-600 dark:text-primary-400 hover:underline flex items-center"
                                     >
                                         <Plus className="w-3 h-3 mr-1" />
-                                        New Folder
+                                        {t('newFolder')}
                                     </button>
                                 </div>
 
@@ -311,7 +313,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                             type="text"
                                             value={newFolderName}
                                             onChange={(e) => setNewFolderName(e.target.value)}
-                                            placeholder="Folder name"
+                                            placeholder={t('folderNamePlaceholder')}
                                             className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                             onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleCreateFolder())}
                                         />
@@ -320,7 +322,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                             onClick={handleCreateFolder}
                                             className="px-3 py-1 text-sm bg-primary-600 text-white rounded hover:bg-primary-700"
                                         >
-                                            Create
+                                            {t('createFolder')}
                                         </button>
                                     </div>
                                 )}
@@ -337,19 +339,19 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                             className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center text-gray-700 dark:text-gray-300"
                                         >
                                             <FileSystemFolderGlyph size="xs" className="h-4 w-auto mr-2 shrink-0" />
-                                            {folder.label}
+                                            {folder.path === '/' ? t('rootFolder') : folder.label}
                                             <ChevronRight className="w-3 h-3 ml-auto text-gray-400" />
                                         </button>
                                     ))}
                                 </div>
                             </div>
                         )}
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Where uploaded files will be stored</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('destinationHint')}</p>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Expires In (Days) <span className="text-red-500">*</span>
+                            {t('expiresInDays')} <span className="text-red-500">*</span>
                         </label>
                         <input
                             type="number"
@@ -360,12 +362,12 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                             onChange={(e) => setFormData({ ...formData, expires_in_days: parseInt(e.target.value) })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Link will expire after this many days (1-365)</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('expiresInDaysHint')}</p>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Maximum Uploads (Optional)
+                            {t('maxUploads')}
                         </label>
                         <input
                             type="number"
@@ -375,10 +377,10 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                 ...formData,
                                 max_uploads: e.target.value ? parseInt(e.target.value) : undefined
                             })}
-                            placeholder="No limit"
+                            placeholder={t('maxUploadsPlaceholder')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                         />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Leave empty for unlimited uploads</p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('maxUploadsHint')}</p>
                     </div>
 
                     <div className="pt-4 flex justify-end space-x-3">
@@ -387,14 +389,14 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
-                            Cancel
+                            {t('cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmitting}
                             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isSubmitting ? 'Creating...' : 'Create Request'}
+                            {isSubmitting ? t('creating') : t('createBtn')}
                         </button>
                     </div>
                 </form>

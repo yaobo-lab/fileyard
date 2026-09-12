@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth, useAuthFetch } from './AuthContext';
+import { useModalDialog } from './ModalDialogContext';
 
 export interface Company {
     id: string;
@@ -26,6 +27,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     const [currentCompany, setCurrentCompanyState] = useState<Company>({ id: '', name: 'Loading...', role: 'Viewer' });
     const { tenant, switchTenant, refreshUser } = useAuth();
     const authFetch = useAuthFetch();
+    const { alert: modalAlert } = useModalDialog();
 
     // Update currentCompany when tenant changes from AuthContext
     useEffect(() => {
@@ -52,7 +54,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
             window.location.reload();
         } catch (error) {
             console.error("Failed to switch company", error);
-            alert("Failed to switch company. The company may be suspended or you may not have access.");
+            modalAlert({
+                title: "Error",
+                description: "Failed to switch company. The company may be suspended or you may not have access.",
+                variant: "destructive"
+            });
             // Revert on failure
             if (tenant) {
                 setCurrentCompanyState({

@@ -23,6 +23,7 @@ import {
   User,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 interface AiSettings {
   tenant_id: string;
@@ -77,6 +78,9 @@ interface TenantAiSettingsProps {
 }
 
 export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps) {
+  const t = useTranslations('CompanyDetails');
+  const tCommon = useTranslations('Common');
+
   // Settings state
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
@@ -274,10 +278,10 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary-500" />
-            AI Features
+            {t('aiFeaturesTitle')}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Configure AI-powered document summarization, Q&A, and search
+            {t('aiFeaturesDesc')}
           </p>
         </div>
         {activeTab === 'settings' && (
@@ -298,7 +302,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             ) : (
               <Save className="w-4 h-4 mr-2" />
             )}
-            {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+            {isSaving ? t('savingAiSettings') : saveSuccess ? t('aiSettingsSaved') : (tCommon('save') || 'Save')}
           </button>
         )}
       </div>
@@ -343,17 +347,17 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">
                 {!settings?.enabled
-                  ? 'AI Features Disabled'
+                  ? t('aiDisabled')
                   : settings?.api_key_masked
-                  ? 'AI Features Active'
-                  : 'API Key Required'}
+                  ? t('aiActive')
+                  : t('aiApiKeyRequired')}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {!settings?.enabled
-                  ? 'Enable AI features to use summarization, Q&A, and search'
+                  ? t('aiDisabledHint')
                   : settings?.api_key_masked
-                  ? `Using ${getSelectedProvider()?.name || provider} provider`
-                  : 'Configure your API key to activate AI features'}
+                  ? t('usingAiProvider', { provider: getSelectedProvider()?.name || provider })
+                  : t('configureApiKeyHint')}
               </p>
             </div>
           </div>
@@ -369,25 +373,25 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
         {settings?.enabled && settings?.api_key_masked && (
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Tokens This Month</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('tokensUsedThisMonth')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
                 {settings.tokens_used_this_month.toLocaleString()}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Requests Today</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('requestsToday')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
                 {settings.requests_today}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Monthly Limit</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('aiMonthlyLimit')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
                 {settings.monthly_token_limit.toLocaleString()}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Daily Limit</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('aiDailyLimit')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
                 {settings.daily_request_limit}
               </p>
@@ -400,8 +404,8 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-4">
           {[
-            { id: 'settings', label: 'Settings', icon: Shield },
-            { id: 'usage', label: 'Usage History', icon: Activity },
+            { id: 'settings', label: t('settings') || 'Settings', icon: Shield },
+            { id: 'usage', label: t('usageHistory'), icon: Activity },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -427,9 +431,9 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             {/* Enable Toggle */}
             <div className="flex items-center justify-between">
               <div>
-                <label className="font-medium text-gray-900 dark:text-white">Enable AI Features</label>
+                <label className="font-medium text-gray-900 dark:text-white">{t('enableAi')}</label>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Allow users to use AI-powered document features
+                  {t('enableAiDesc')}
                 </p>
               </div>
               <button
@@ -458,7 +462,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             {/* Provider Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                AI Provider
+                {t('aiProvider')}
               </label>
               <select
                 value={provider}
@@ -476,7 +480,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             {/* API Key */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                API Key
+                {t('aiApiKey')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -486,7 +490,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                   type={showApiKey ? 'text' : 'password'}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={settings?.api_key_masked || 'Enter your API key'}
+                  placeholder={settings?.api_key_masked || t('aiApiKeyPlaceholder')}
                   className="w-full pl-10 pr-20 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
                 />
                 <div className="absolute inset-y-0 right-0 flex items-center gap-1 pr-2">
@@ -524,13 +528,13 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                       ) : (
                         <TestTube className="w-3 h-3" />
                       )}
-                      {testStatus === 'testing' ? 'Testing...' : testStatus === 'success' ? 'Connected' : testStatus === 'error' ? 'Failed' : 'Test'}
+                      {testStatus === 'testing' ? t('testingAi') : testStatus === 'success' ? t('testSuccessLabel') : testStatus === 'error' ? t('testFailedLabel') : t('testLabel')}
                     </button>
                   )}
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Your API key is encrypted and stored securely.
+                {t('apiKeyEncryptedHint')}
               </p>
             </div>
 
@@ -539,38 +543,38 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
               <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg space-y-4">
                 <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
                   <Wrench className="w-4 h-4" />
-                  <span className="text-sm font-medium">Self-Hosted Configuration</span>
+                  <span className="text-sm font-medium">{t('selfHostedConfig')}</span>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Custom Endpoint URL
+                    {t('customEndpoint')}
                   </label>
                   <input
                     type="url"
                     value={customEndpoint}
                     onChange={(e) => setCustomEndpoint(e.target.value)}
-                    placeholder="http://localhost:11434/v1"
+                    placeholder={t('customEndpointPlaceholder')}
                     className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
                   />
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    e.g., http://localhost:11434/v1 for Ollama, or your custom LLM server endpoint
+                    {t('selfHostedEndpointDesc')}
                   </p>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Model Name
+                    {t('customModel')}
                   </label>
                   <input
                     type="text"
                     value={customModel}
                     onChange={(e) => setCustomModel(e.target.value)}
-                    placeholder="llama3"
+                    placeholder={t('customModelPlaceholder')}
                     className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500"
                   />
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    The model name to use on your server (e.g., llama3, mistral, codellama)
+                    {t('selfHostedModelDesc')}
                   </p>
                 </div>
               </div>
@@ -580,10 +584,10 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 mb-4">
                 <Users className="w-4 h-4 text-gray-500" />
-                <h4 className="font-medium text-gray-900 dark:text-white">Role Access</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white">{t('aiAllowedRoles')}</h4>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Select which roles can use AI features
+                {t('selectRolesHint')}
               </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {AVAILABLE_ROLES.map((role) => (
@@ -607,12 +611,12 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="w-4 h-4 text-gray-500" />
-                <h4 className="font-medium text-gray-900 dark:text-white">Usage Limits</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white">{t('usageLimitsTitle')}</h4>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Monthly Token Limit
+                    {t('aiMonthlyLimit')}
                   </label>
                   <input
                     type="number"
@@ -625,7 +629,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Daily Request Limit
+                    {t('aiDailyLimit')}
                   </label>
                   <input
                     type="number"
@@ -642,16 +646,16 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
             <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 mb-4">
                 <Wrench className="w-4 h-4 text-gray-500" />
-                <h4 className="font-medium text-gray-900 dark:text-white">Maintenance Mode</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white">{t('aiMaintenanceMode')}</h4>
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-900 dark:text-white">
-                      Enable Maintenance Mode
+                      {t('enableMaintenanceMode')}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Block new AI requests while serving cached summaries
+                      {t('maintenanceModeHint')}
                     </p>
                   </div>
                   <button
@@ -672,17 +676,17 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                 {maintenanceMode && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Maintenance Message
+                      {t('aiMaintenanceMessage')}
                     </label>
                     <textarea
                       value={maintenanceMessage}
                       onChange={(e) => setMaintenanceMessage(e.target.value)}
-                      placeholder="AI features are temporarily unavailable for maintenance. Please try again later."
+                      placeholder={t('maintenancePlaceholderDefault')}
                       rows={2}
                       className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 resize-none"
                     />
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      This message will be shown to users when they try to use AI features.
+                      {t('maintenanceMessageHint')}
                     </p>
                   </div>
                 )}
@@ -697,10 +701,10 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div>
-              <h3 className="font-medium text-gray-900 dark:text-white">Recent AI Activity</h3>
+              <h3 className="font-medium text-gray-900 dark:text-white">{t('recentAiActions')}</h3>
               {usage && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {usage.total_count.toLocaleString()} total actions
+                  {t('totalActionsCount', { count: usage.total_count.toLocaleString() })}
                 </p>
               )}
             </div>
@@ -716,22 +720,22 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    User
+                    {t('colAiUser')}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Action
+                    {t('colAiAction')}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    File
+                    {t('colAiFile')}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Status
+                    {t('colAiStatus')}
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Tokens
+                    {t('colAiTokens')}
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                    Time
+                    {t('colAiTime')}
                   </th>
                 </tr>
               </thead>
@@ -743,7 +747,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                         <div className="flex items-center gap-2">
                           <User className="w-4 h-4 text-gray-400" />
                           <span className="text-sm text-gray-900 dark:text-white">
-                            {action.user_name || 'Unknown'}
+                            {action.user_name || t('unknownUser')}
                           </span>
                         </div>
                       </td>
@@ -794,7 +798,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      No AI activity yet
+                      {t('noAiActions')}
                     </td>
                   </tr>
                 )}
@@ -806,7 +810,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
           {usage && usage.total_pages > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Page {usage.page} of {usage.total_pages}
+                {t('pageOf', { current: usage.page, total: usage.total_pages })}
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -857,18 +861,18 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                   <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  AI Provider Agreement Required
+                  {t('aiWarningModalTitle')}
                 </h3>
               </div>
               <p className="text-gray-600 dark:text-gray-300 mb-6">
-                Before enabling AI features, ensure you have a proper data processing agreement with your AI provider to protect sensitive documents. Your organization is responsible for compliance with applicable data protection regulations.
+                {t('aiWarningModalDesc')}
               </p>
               <div className="flex gap-3 justify-end">
                 <button
                   onClick={() => setShowEnableWarning(false)}
                   className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
-                  Cancel
+                  {tCommon('cancel') || 'Cancel'}
                 </button>
                 <button
                   onClick={() => {
@@ -877,7 +881,7 @@ export function TenantAiSettings({ tenantId, authFetch }: TenantAiSettingsProps)
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
                 >
-                  I Understand, Enable
+                  {t('iUnderstandEnable')}
                 </button>
               </div>
             </div>

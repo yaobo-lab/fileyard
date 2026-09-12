@@ -18,12 +18,20 @@ Manage your company documents and assets） [已完成]
 
 
 
-# 合并 storageui
+ 删除项目中
+ shadcn-admin [已完成]
+ 
+ 我要取消 storageui 的所有功能，，不需要用到 此文件夹内的功能与页面了 [已完成]
+ 
+ http://172.21.96.1:8081/file-requests 点击 新建收集，支持多语言 [已完成]
 
-# 将 storageui  的后端生成，api 需求文档，我要通过这个文档，
-使用RUST 去实现
+ http://172.21.96.1:8081/login 登录页面优化 [已完成]
+ - 支持中英文多语言切换及右上角切换器 [已完成]
+ - 移除 svg Logo [已完成]
+ - 移除 Privacy Policy / Terms of Service 链接 [已完成]
+ - 移除版权所有信息（© 2026 Fileyard...） [已完成]
+ - 增加企业微信、飞书、钉钉第三方登录按钮（点击弹出“功能开发中”提示） [已完成]
 
-# 让当前端项目，支持多语言，例如：中英文
 # 删除一些不必要的栏目
 
 
