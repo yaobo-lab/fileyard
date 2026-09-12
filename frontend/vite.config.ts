@@ -70,5 +70,8 @@ export default defineConfig({
         },
         // Increase chunk size warning limit since we're intentionally splitting
         chunkSizeWarningLimit: 600,
-    }
+    },
+    worker: {
+        format: 'es',
+    },
 })

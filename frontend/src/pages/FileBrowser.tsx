@@ -25,6 +25,8 @@ import { CreateGroupModal } from '../components/CreateGroupModal';
 import { FileGroupStack } from '../components/FileGroupStack';
 import { FileGroupViewer } from '../components/FileGroupViewer';
 import { Avatar } from '../components/Avatar';
+import { FileGlyphVisual, FileSystemIconSpriteSheet } from '../components/FileGlyphs';
+import { FileContextMenu, ContextMenuTarget } from '../components/FileContextMenu';
 import { useTenant } from '../context/TenantContext';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
@@ -106,6 +108,7 @@ export function FileBrowser() {
     const [isLoading, setIsLoading] = useState(true);
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const [activeGroupMenu, setActiveGroupMenu] = useState<string | null>(null);
+    const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
     const [showMoreStarred, setShowMoreStarred] = useState(false);
     const [previewFile, setPreviewFile] = useState<{ name: string, url: string, type: any } | null>(null);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -421,6 +424,17 @@ export function FileBrowser() {
     const clearSelection = () => {
         setSelectedFiles(new Set());
         setIsSelectionMode(false);
+    };
+
+    const handleItemContextMenu = (e: React.MouseEvent, file: FileItem) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedFiles(new Set([file.id]));
+        setContextMenuTarget({
+            x: e.clientX,
+            y: e.clientY,
+            file,
+        });
     };
 
     // Bulk move handler
@@ -2254,6 +2268,7 @@ export function FileBrowser() {
 
     return (
         <div className="h-full flex flex-col space-y-3 sm:space-y-4">
+            <FileSystemIconSpriteSheet />
             {/* Header & Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-1 sm:mb-2">
                 <div>
@@ -3064,39 +3079,156 @@ export function FileBrowser() {
                     )}
 
                     {paginatedFiles.length > 0 && (viewMode === 'grid' ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 min-[1800px]:grid-cols-10 min-[2200px]:grid-cols-12 min-[2800px]:grid-cols-14 min-[3200px]:grid-cols-16 gap-4 justify-items-center content-start">
-                            {paginatedFiles.map((file, index) => (
-                                file.type === 'group' ? (
-                                    // Render FileGroupStack for group items
-                                    <div key={file.id} className="w-full max-w-[180px] relative">
-                                        <FileGroupStack
-                                            id={file.id}
-                                            name={file.name}
-                                            color={file.color}
-                                            fileCount={file.file_count || 0}
-                                            totalSize={file.total_size}
-                                            owner={file.owner}
-                                            onClick={() => handleGroupClick(file)}
-                                            onMenuClick={() => setActiveGroupMenu(activeGroupMenu === file.id ? null : file.id)}
-                                            isSelected={selectedFiles.has(file.id)}
-                                            isDraggable={!isSelectionMode}
-                                            onDragStart={(e) => handleGroupDragStart(e, file)}
-                                            isLocked={file.is_locked}
-                                            lockRequiresRole={file.lock_requires_role}
-                                            isInsideCompanyFolder={isInsideCompanyFolder}
-                                        />
-                                        {/* Group context menu */}
-                                        {activeGroupMenu === file.id && (
-                                            <div className="absolute top-12 right-2 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]">
-                                                {/* If locked and user can't access, show access denied message */}
+                        <div
+                            className="grid gap-x-1 gap-y-3 justify-items-center content-start"
+                            style={{
+                                gridTemplateColumns: "repeat(auto-fill, minmax(6.5rem, 1fr))",
+                            }}
+                        >
+                            {paginatedFiles.map((file, index) => {
+                                const isSelected = selectedFiles.has(file.id);
+                                const isFocused = focusedFileIndex === (currentPage - 1) * itemsPerPage + index;
+                                const isGroup = file.type === 'group';
+
+                                return (
+                                    <div
+                                        key={file.id}
+                                        className={clsx(
+                                            "group relative flex flex-col items-center gap-1.5 outline-none w-full max-w-[104px] p-1 rounded-lg cursor-pointer transition-colors text-center select-none",
+                                            isSelected
+                                                ? "bg-primary-50/90 dark:bg-primary-950/50"
+                                                : isFocused
+                                                    ? "bg-gray-100/90 dark:bg-gray-800/70 ring-1 ring-primary-300 dark:ring-primary-600"
+                                                    : "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                                        )}
+                                        onContextMenu={(e) => handleItemContextMenu(e, file)}
+                                        draggable={!isSelectionMode}
+                                        onDragStart={(e) => {
+                                            if (isSelectionMode) return;
+                                            if (isGroup) {
+                                                handleGroupDragStart(e, file);
+                                            } else {
+                                                handleFileDragStart(e, file);
+                                            }
+                                        }}
+                                        onDragOver={(e) => file.type === 'folder' && handleFolderDragOver(e, file)}
+                                        onDragLeave={handleFolderDragLeave}
+                                        onDrop={(e) => file.type === 'folder' && handleFolderDrop(e, file)}
+                                        onClick={(e) => {
+                                            if (isSelectionMode) {
+                                                e.stopPropagation();
+                                                toggleFileSelection(file.id);
+                                            } else {
+                                                setFocusedFileIndex((currentPage - 1) * itemsPerPage + index);
+                                                if (isGroup) {
+                                                    handleGroupClick(file);
+                                                } else if (file.type === 'folder') {
+                                                    navigateToFolder(file);
+                                                } else {
+                                                    handlePreview(file);
+                                                }
+                                            }
+                                        }}
+                                        onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            if (isGroup) {
+                                                handleGroupClick(file);
+                                            } else if (file.type === 'folder') {
+                                                navigateToFolder(file);
+                                            } else {
+                                                handlePreview(file);
+                                            }
+                                        }}
+                                    >
+                                        {/* Selection Checkbox */}
+                                        {isSelectionMode && (
+                                            <div
+                                                className="absolute top-1 left-1 z-20"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleFileSelection(file.id);
+                                                }}
+                                            >
+                                                {isSelected ? (
+                                                    <CheckSquare className="w-4 h-4 text-primary-600" />
+                                                ) : (
+                                                    <Square className="w-4 h-4 text-gray-400 hover:text-primary-500" />
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Glyph / Icon box */}
+                                        <div
+                                            className={clsx(
+                                                "relative flex h-16 w-20 shrink-0 items-center justify-center rounded-lg p-1 transition-colors",
+                                                isSelected && "bg-primary-100/60 dark:bg-primary-900/40"
+                                            )}
+                                        >
+                                            <FileGlyphVisual
+                                                file={file}
+                                                companyId={companyId}
+                                            />
+                                        </div>
+
+                                        {/* Name Label */}
+                                        <span
+                                            className={clsx(
+                                                "max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-all",
+                                                isSelected
+                                                    ? "bg-primary-600 text-white"
+                                                    : "text-gray-900 dark:text-gray-100"
+                                            )}
+                                            title={file.name}
+                                        >
+                                            <span className="line-clamp-2">{file.name}</span>
+                                        </span>
+
+                                        {/* Hover badges and Action Menu */}
+                                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-0.5 z-20">
+                                            {file.visibility === 'private' && (
+                                                <span title="Private - only visible to you">
+                                                    <EyeOff className="w-3.5 h-3.5 text-purple-500" />
+                                                </span>
+                                            )}
+                                            {file.is_locked && (
+                                                <span title="Locked">
+                                                    <Lock className="w-3.5 h-3.5 text-orange-500" />
+                                                </span>
+                                            )}
+                                            {file.is_starred && (
+                                                <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                                            )}
+                                            <button
+                                                ref={(el) => {
+                                                    if (el) menuButtonRefs.current.set(`grid-${file.id}`, el);
+                                                }}
+                                                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                    setSelectedFiles(new Set([file.id]));
+                                                    setContextMenuTarget({
+                                                        x: rect.left,
+                                                        y: rect.bottom + 4,
+                                                        file,
+                                                    });
+                                                }}
+                                            >
+                                                <MoreVertical className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                                            </button>
+                                        </div>
+
+                                        {/* Group Context Menu */}
+                                        {isGroup && activeGroupMenu === file.id && (
+                                            <div
+                                                className="absolute top-8 right-1 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[160px] text-left"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
                                                 {file.is_locked && !canAccessLockedGroup(file) ? (
-                                                    <>
-                                                        {/* Show locked/access denied message */}
-                                                        <div className="px-4 py-3 text-sm text-red-500 flex items-center">
-                                                            <Lock className="w-4 h-4 mr-2" />
-                                                            <span>Access denied{file.lock_requires_role ? ` - requires ${file.lock_requires_role}` : ''}</span>
-                                                        </div>
-                                                    </>
+                                                    <div className="px-4 py-3 text-sm text-red-500 flex items-center">
+                                                        <Lock className="w-4 h-4 mr-2" />
+                                                        <span>Access denied{file.lock_requires_role ? ` - requires ${file.lock_requires_role}` : ''}</span>
+                                                    </div>
                                                 ) : (
                                                     <>
                                                         <button
@@ -3112,7 +3244,6 @@ export function FileBrowser() {
                                                             <Star className={clsx("w-4 h-4 mr-2", file.is_starred ? "text-yellow-400 fill-yellow-400" : "text-gray-400")} />
                                                             {file.is_starred ? 'Unstar' : 'Star'}
                                                         </button>
-                                                        {/* Edit actions - hidden for non-admins in company folders */}
                                                         {(!isInsideCompanyFolder || isAdminOrHigher) && (
                                                             <>
                                                                 <button
@@ -3127,7 +3258,6 @@ export function FileBrowser() {
                                                                 >
                                                                     <Move className="w-4 h-4 mr-2 text-gray-400" /> Move Group
                                                                 </button>
-                                                                {/* Lock/Unlock Group */}
                                                                 {file.is_locked ? (
                                                                     <button
                                                                         className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
@@ -3155,108 +3285,9 @@ export function FileBrowser() {
                                                 )}
                                             </div>
                                         )}
-                                    </div>
-                                ) : (
-                                <div
-                                    key={file.id}
-                                    className={clsx(
-                                        "group relative bg-white dark:bg-gray-800 border rounded-xl p-4 hover:shadow-lg transition-all cursor-pointer flex flex-col items-center text-center h-44 w-full max-w-[180px]",
-                                        selectedFiles.has(file.id)
-                                            ? "border-primary-400 dark:border-primary-500 ring-2 ring-primary-200 dark:ring-primary-800"
-                                            : focusedFileIndex === (currentPage - 1) * itemsPerPage + index
-                                                ? "border-primary-300 dark:border-primary-600 ring-2 ring-primary-100 dark:ring-primary-900/50"
-                                                : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-500"
-                                    )}
-                                    draggable={!isSelectionMode}
-                                    onDragStart={(e) => {
-                                        if (isSelectionMode) return;
-                                        // Use correct handler for groups vs files
-                                        if (file.type === 'group') {
-                                            handleGroupDragStart(e, file);
-                                        } else {
-                                            handleFileDragStart(e, file);
-                                        }
-                                    }}
-                                    onDragOver={(e) => file.type === 'folder' && handleFolderDragOver(e, file)}
-                                    onDragLeave={handleFolderDragLeave}
-                                    onDrop={(e) => file.type === 'folder' && handleFolderDrop(e, file)}
-                                    onClick={(e) => {
-                                        if (isSelectionMode) {
-                                            e.stopPropagation();
-                                            toggleFileSelection(file.id);
-                                        }
-                                    }}
-                                >
-                                    {/* Selection Checkbox */}
-                                    {isSelectionMode && (
-                                        <div 
-                                            className="absolute top-2 left-2 z-10"
-                                            onClick={(e) => { e.stopPropagation(); toggleFileSelection(file.id); }}
-                                        >
-                                            {selectedFiles.has(file.id) ? (
-                                                <CheckSquare className="w-5 h-5 text-primary-600" />
-                                            ) : (
-                                                <Square className="w-5 h-5 text-gray-400 hover:text-primary-500" />
-                                            )}
-                                        </div>
-                                    )}
-                                    <div
-                                        className="flex-1 flex items-center justify-center w-full mb-3 cursor-pointer"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (isSelectionMode) return;
-                                            if (file.type === 'group') {
-                                                handleGroupClick(file);
-                                            } else if (file.type === 'folder') {
-                                                navigateToFolder(file);
-                                            } else {
-                                                handlePreview(file);
-                                            }
-                                        }}
-                                    >
-                                        {getIcon(file)}
-                                    </div>
-                                    <div className="w-full">
-                                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate w-full" title={file.name}>{file.name}</p>
-                                        <div className="flex items-center justify-between mt-1">
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">{file.size}</p>
-                                            {/* Owner avatar or company icon with styled hover tooltip */}
-                                            <div className="relative group/avatar">
-                                                {(file.type === 'folder' && file.is_company_folder) || isInsideCompanyFolder ? (
-                                                    <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center ring-2 ring-white dark:ring-gray-800 shadow-sm">
-                                                        <Building2 className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                                                    </div>
-                                                ) : (
-                                                    <Avatar 
-                                                        src={file.owner_avatar} 
-                                                        name={file.owner || 'Unknown'} 
-                                                        size="md"
-                                                        className="ring-2 ring-white dark:ring-gray-800 shadow-sm hover:ring-primary-300 dark:hover:ring-primary-600 transition-all cursor-default"
-                                                    />
-                                                )}
-                                                {/* Styled tooltip */}
-                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg opacity-0 group-hover/avatar:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-lg z-10">
-                                                    <div className="font-medium">{(file.type === 'folder' && file.is_company_folder) || isInsideCompanyFolder ? 'Company' : (file.owner || 'Unknown')}</div>
-                                                    <div className="text-gray-400 text-[10px]">{(file.type === 'folder' && file.is_company_folder) || isInsideCompanyFolder ? 'Company Files' : 'Owner'}</div>
-                                                    {/* Tooltip arrow */}
-                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
 
-                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                                        {file.visibility === 'private' && <span title="Private - only visible to you"><EyeOff className="w-4 h-4 text-purple-500" /></span>}
-                                        {file.is_locked && <span title="Locked"><Lock className="w-4 h-4 text-orange-500" /></span>}
-                                        {file.is_starred && <Star className="w-4 h-4 text-yellow-400 fill-current" />}
-                                        <button
-                                            ref={(el) => { if (el) menuButtonRefs.current.set(`grid-${file.id}`, el); }}
-                                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700"
-                                            onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === file.id ? null : file.id); }}
-                                        >
-                                            <MoreVertical className="w-4 h-4 text-gray-500" />
-                                        </button>
-                                        {activeMenu === file.id && (
+                                        {/* Regular File Action Menu */}
+                                        {!isGroup && activeMenu === file.id && (
                                             <FileActionMenu
                                                 file={file}
                                                 companyId={companyId || ''}
@@ -3297,9 +3328,8 @@ export function FileBrowser() {
                                             />
                                         )}
                                     </div>
-                                </div>
-                                )
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
@@ -3397,6 +3427,7 @@ export function FileBrowser() {
                                                         ? "bg-primary-50/50 dark:bg-primary-900/10"
                                                         : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
                                             )}
+                                            onContextMenu={(e) => handleItemContextMenu(e, file)}
                                             draggable={!isSelectionMode}
                                             onDragStart={(e) => {
                                                 if (isSelectionMode) return;
@@ -3638,6 +3669,49 @@ export function FileBrowser() {
                 authFetch={authFetch}
                 isInsideCompanyFolder={isInsideCompanyFolder}
                 isAdminOrHigher={isAdminOrHigher}
+            />
+
+            {/* Context Menu (Right Click & Action Menu) */}
+            <FileContextMenu
+                target={contextMenuTarget}
+                onClose={() => setContextMenuTarget(null)}
+                onOpen={(file) => {
+                    if (file.type === 'group') {
+                        handleGroupClick(file);
+                    } else if (file.type === 'folder') {
+                        navigateToFolder(file);
+                    } else {
+                        handlePreview(file);
+                    }
+                }}
+                onProperties={(file) => handleViewProperties(file)}
+                onDownload={(file) => handleDownload(file)}
+                onRename={(file) => {
+                    if (file.type === 'group') {
+                        handleRenameGroup(file);
+                    } else {
+                        setFileToRename(file);
+                        setIsRenameOpen(true);
+                    }
+                }}
+                onMove={(file) => {
+                    if (file.type === 'group') {
+                        handleMoveGroup(file);
+                    } else {
+                        openMoveModal(file);
+                    }
+                }}
+                onDelete={(file) => {
+                    if (file.type === 'group') {
+                        handleDeleteGroup(file);
+                    } else {
+                        handleDelete(file);
+                    }
+                }}
+                onStar={(file) => toggleStar(file)}
+                onShare={(file) => handleShare(file)}
+                canDelete={contextMenuTarget?.file ? canDeleteFile(contextMenuTarget.file) : true}
+                canShare={contextMenuTarget?.file ? canShareFile(contextMenuTarget.file) : false}
             />
         </div>
     );
