@@ -24,7 +24,28 @@ export default defineConfig({
                 secure: false,
             },
             '/storage': {
-                target: 'http://localhost:3000',
+                target: 'http://127.0.0.1:3001',
+                changeOrigin: true,
+                ws: true,
+                secure: false,
+                configure: (proxy) => {
+                    proxy.on('proxyReq', (proxyReq, req) => {
+                        proxyReq.setHeader('host', 'localhost:3001');
+                        proxyReq.setHeader('origin', 'http://localhost:3001');
+                        if (req.headers.referer) {
+                            proxyReq.setHeader('referer', req.headers.referer.replace(/^https?:\/\/[^/]+/, 'http://localhost:3001'));
+                        }
+                    });
+                }
+            },
+            '/_next': {
+                target: 'http://127.0.0.1:3001',
+                changeOrigin: true,
+                ws: true,
+                secure: false,
+            },
+            '/__nextjs_font': {
+                target: 'http://127.0.0.1:3001',
                 changeOrigin: true,
                 secure: false,
             }

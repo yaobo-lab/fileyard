@@ -22,10 +22,11 @@ const startServer = async () => {
 
     // 2. Route routing for Next.js /storage, /_next, and /__nextjs_font requests
     if (dev) {
-        // Dev: proxy everything to Next.js dev server on port 3000 with complete header rewrite
+        // Dev: proxy everything to Next.js dev server on port 3001 with complete header rewrite
         // This completely bypasses Turbopack CORS/Cross-Origin Referer 403 Forbidden checks
+        const storageDevUrl = process.env.STORAGE_DEV_URL || 'http://127.0.0.1:3001';
         app.use(createProxyMiddleware({
-            target: 'http://localhost:3000',
+            target: storageDevUrl,
             changeOrigin: true,
             ws: true,
             filter: (pathname) => (
@@ -35,10 +36,10 @@ const startServer = async () => {
             ),
             on: {
                 proxyReq: (proxyReq, req) => {
-                    proxyReq.setHeader('host', 'localhost:3000');
-                    proxyReq.setHeader('origin', 'http://localhost:3000');
+                    proxyReq.setHeader('host', 'localhost:3001');
+                    proxyReq.setHeader('origin', 'http://localhost:3001');
                     if (req.headers.referer) {
-                        proxyReq.setHeader('referer', req.headers.referer.replace(/^https?:\/\/[^/]+/, 'http://localhost:3000'));
+                        proxyReq.setHeader('referer', req.headers.referer.replace(/^https?:\/\/[^/]+/, 'http://localhost:3001'));
                     }
                 }
             }

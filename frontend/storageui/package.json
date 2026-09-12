@@ -6,10 +6,10 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "dev": "next dev --turbopack --port 3000",
+    "dev": "next dev --turbopack --port 3001",
     "build": "next build",
-    "start": "next start --port 3000",
-    "preview": "next build && next start --port 3000",
+    "start": "next start --port 3001",
+    "preview": "next build && next start --port 3001",
     "lint": "eslint . --cache --cache-location .eslintcache",
     "lint:fix": "eslint --fix . --cache --cache-location .eslintcache",
     "typecheck": "tsc --noEmit",
