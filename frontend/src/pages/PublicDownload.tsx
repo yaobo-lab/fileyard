@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Download, FileText, Shield, AlertCircle, Loader2, Lock, Clock, Users, Folder, Archive } from 'lucide-react';
+import { FileSystemFolderGlyph, FileGenericPaper } from '../components/FileGlyphs';
 import clsx from 'clsx';
 import { Logo } from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
@@ -113,25 +114,13 @@ export function PublicDownload() {
     const getFileIcon = () => {
         // Folder icon for directories
         if (shareInfo?.is_directory) {
-            return <Folder className="w-16 h-16 text-yellow-500" />;
+            return <FileSystemFolderGlyph size="lg" className="h-16 w-auto" />;
         }
         
-        if (!shareInfo?.content_type) return <FileText className="w-16 h-16 text-gray-400" />;
-        
-        const type = shareInfo.content_type;
-        if (type.startsWith('image/')) {
-            return <FileText className="w-16 h-16 text-purple-500" />;
-        } else if (type === 'application/pdf') {
-            return <FileText className="w-16 h-16 text-red-500" />;
-        } else if (type.includes('word') || type.includes('document')) {
-            return <FileText className="w-16 h-16 text-blue-500" />;
-        } else if (type.includes('sheet') || type.includes('excel')) {
-            return <FileText className="w-16 h-16 text-green-500" />;
-        } else if (type.startsWith('video/')) {
-            return <FileText className="w-16 h-16 text-pink-500" />;
-        } else if (type.startsWith('audio/')) {
-            return <FileText className="w-16 h-16 text-orange-500" />;
+        if (shareInfo?.file_name) {
+            return <FileGenericPaper fileName={shareInfo.file_name} className="w-16 h-20" size="lg" />;
         }
+        
         return <FileText className="w-16 h-16 text-gray-400" />;
     };
 

@@ -11,6 +11,7 @@ import {
   Star,
   Share2,
 } from 'lucide-react';
+import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 
 export interface ContextMenuTarget {
@@ -118,7 +119,7 @@ export function FileContextMenu({
         }}
       >
         {isFolder ? (
-          <Folder className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
+          <FileSystemFolderGlyph size="xs" className="h-3.5 w-auto shrink-0" />
         ) : (
           <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
         )}

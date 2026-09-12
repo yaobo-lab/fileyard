@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { Folder, FileText, Image, Film, MoreVertical, Download, Trash2, Search, Filter, ChevronRight, Home } from 'lucide-react';
+import { FileSystemFolderGlyph } from '../components/FileGlyphs';
 import { formatDistanceToNow } from 'date-fns';
 
 interface FileItem {
@@ -74,7 +75,7 @@ export function Files() {
 
     const getFileIcon = (type: string) => {
         switch (type) {
-            case 'folder': return <Folder className="w-4 h-4 text-amber-500" />;
+            case 'folder': return <FileSystemFolderGlyph size="xs" className="h-4 w-auto" />;
             case 'image': return <Image className="w-4 h-4 text-violet-500" />;
             case 'video': return <Film className="w-4 h-4 text-rose-500" />;
             default: return <FileText className="w-4 h-4 text-sky-500" />;
@@ -163,7 +164,7 @@ export function Files() {
                                 <tr>
                                     <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">
                                         <div className="flex flex-col items-center justify-center">
-                                            <Folder className="w-10 h-10 text-muted-foreground/40 mb-3" />
+                                            <FileSystemFolderGlyph size="lg" className="h-10 w-auto opacity-40 mb-3" />
                                             <p className="text-sm font-medium text-foreground">No files found</p>
                                             <p className="text-xs text-muted-foreground mt-1">Upload a file to get started</p>
                                         </div>

@@ -1,6 +1,7 @@
 import { X, Folder, FileText, Image, Film, Music, Lock, Eye, EyeOff, Calendar, User, HardDrive, Building } from 'lucide-react';
 import { format } from 'date-fns';
 import { FileCommentsPanel } from './FileCommentsPanel';
+import { FileGlyphVisual } from './FileGlyphs';
 
 interface FileItem {
     id: string;
@@ -33,19 +34,8 @@ interface FilePropertiesModalProps {
     companyId?: string;
 }
 
-const getFileIcon = (type: string) => {
-    switch (type) {
-        case 'folder':
-            return <Folder className="w-12 h-12 text-yellow-500" />;
-        case 'image':
-            return <Image className="w-12 h-12 text-green-500" />;
-        case 'video':
-            return <Film className="w-12 h-12 text-purple-500" />;
-        case 'audio':
-            return <Music className="w-12 h-12 text-pink-500" />;
-        default:
-            return <FileText className="w-12 h-12 text-blue-500" />;
-    }
+const getFileIcon = (file: FileItem, companyId?: string) => {
+    return <FileGlyphVisual file={file} companyId={companyId} size="md" />;
 };
 
 export function FilePropertiesModal({ isOpen, onClose, file, departmentName, companyId }: FilePropertiesModalProps) {
@@ -99,7 +89,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                         {/* File Icon and Name */}
                         <div className="flex items-center space-x-4 pb-4 border-b border-gray-200 dark:border-gray-700 mb-4">
                             <div className="flex-shrink-0 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                                {getFileIcon(file.type)}
+                                {getFileIcon(file, companyId)}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h3 className="text-base font-medium text-gray-900 dark:text-white truncate" title={file.name}>

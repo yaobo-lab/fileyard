@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Building2, User, Folder, FileText, Loader2 } from 'lucide-react'
+import { FileSystemFolderGlyph } from '@/components/FileGlyphs'
 import {
   Dialog,
   DialogContent,
@@ -106,7 +107,8 @@ export function SearchDialog({
       case 'user':
         return <User className='size-4 text-emerald-500' />
       case 'file':
-        return <Folder className='size-4 text-amber-500' />
+      case 'folder':
+        return <FileSystemFolderGlyph size='xs' className='h-4 w-auto shrink-0' />
       default:
         return <FileText className='size-4 text-muted-foreground' />
     }

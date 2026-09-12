@@ -100,6 +100,52 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   const [isStarred, setIsStarred] = useState(false);
   const codeViewerRef = useRef<CodeViewerHandle>(null);
 
+  // Drag position state
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
+
+  // Reset position when closed, file changed, or fullscreen
+  useEffect(() => {
+    if (!isOpen || isFullscreen) {
+      setPosition({ x: 0, y: 0 });
+    }
+  }, [isOpen, file?.name, isFullscreen]);
+
+  const handleHeaderPointerDown = (e: React.PointerEvent) => {
+    if (isFullscreen) return;
+    if ((e.target as HTMLElement).closest('button, a, input')) return;
+
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      posX: position.x,
+      posY: position.y,
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!dragStartRef.current) return;
+      const dx = moveEvent.clientX - dragStartRef.current.startX;
+      const dy = moveEvent.clientY - dragStartRef.current.startY;
+      setPosition({
+        x: dragStartRef.current.posX + dx,
+        y: dragStartRef.current.posY + dy,
+      });
+    };
+
+    const handlePointerUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
   // Detect dark mode from document
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
@@ -189,15 +235,32 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-100">
+    <div
+      className={clsx(
+        "fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-100",
+        isFullscreen ? "p-0" : "p-3 sm:p-5"
+      )}
+    >
       <div
+        style={!isFullscreen ? { transform: `translate3d(${position.x}px, ${position.y}px, 0)` } : undefined}
         className={clsx(
-          'relative flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200/80 dark:border-gray-800 overflow-hidden transition-all duration-150',
-          isFullscreen ? 'w-full h-full rounded-none' : MODAL_SIZES[kind]
+          'relative flex flex-col bg-white dark:bg-gray-900 shadow-2xl border border-gray-200/80 dark:border-gray-800 overflow-hidden',
+          isFullscreen
+            ? 'w-screen h-screen rounded-none border-0'
+            : `${MODAL_SIZES[kind]} rounded-2xl`,
+          isDragging ? 'transition-none select-none' : 'transition-all duration-150'
         )}
       >
-        {/* Top Header Bar (Matching screenshot 1:1) */}
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-gray-200/80 dark:border-gray-800 px-4 bg-white dark:bg-gray-900 select-none">
+        {/* Top Header Bar (Matching screenshot 1:1, draggable) */}
+        <div
+          onPointerDown={handleHeaderPointerDown}
+          onDoubleClick={() => setIsFullscreen(!isFullscreen)}
+          className={clsx(
+            "flex h-11 shrink-0 items-center justify-between border-b border-gray-200/80 dark:border-gray-800 px-4 bg-white dark:bg-gray-900 select-none",
+            !isFullscreen ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
+          )}
+          title={!isFullscreen ? "按住可拖动窗口，双击全屏" : "双击还原窗口"}
+        >
           <div className="flex items-center min-w-0 pr-3">
             <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" title={file.name}>
               {file.name}
@@ -225,6 +288,20 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
               title={isStarred ? '取消收藏' : '添加收藏'}
             >
               <Star className={clsx("w-3.5 h-3.5", isStarred ? "fill-amber-400 text-amber-500" : "text-gray-500 dark:text-gray-400")} />
+            </button>
+
+            {/* Fullscreen Maximize / Minimize Button */}
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-1.5 rounded-md border border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors shadow-2xs"
+              title={isFullscreen ? '还原窗口' : '全屏放大'}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
             </button>
 
             {/* Close Button (matching screenshot) */}

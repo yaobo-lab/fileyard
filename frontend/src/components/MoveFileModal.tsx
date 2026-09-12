@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Folder, FolderOpen, Home, ChevronRight, ChevronDown, Building2, Users, EyeOff } from 'lucide-react';
+import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
@@ -229,11 +230,7 @@ export function MoveFileModal({
                     ) : (
                         <span className="w-5" />
                     )}
-                    {node.isExpanded ? (
-                        <FolderOpen className="w-5 h-5 text-yellow-500" />
-                    ) : (
-                        <Folder className="w-5 h-5 text-yellow-500" />
-                    )}
+                    <FileSystemFolderGlyph size="xs" className="h-4 w-auto shrink-0" />
                     <span className={clsx(
                         "text-sm truncate",
                         isSelected ? "text-primary-700 dark:text-primary-300 font-medium" : "text-gray-700 dark:text-gray-200"

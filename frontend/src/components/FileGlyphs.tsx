@@ -11,14 +11,29 @@ export const FOLDER_GLYPH_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox
 
 export const FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(FOLDER_GLYPH_SVG)}`;
 
-export function FileSystemFolderGlyph({ className }: { className?: string }) {
+export function FileSystemFolderGlyph({
+  className,
+  size = 'lg',
+}: {
+  className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+}) {
+  const sizeClass =
+    size === 'xs'
+      ? 'h-4 w-auto'
+      : size === 'sm'
+      ? 'h-7 w-auto'
+      : size === 'md'
+      ? 'h-9 w-auto'
+      : 'h-13 w-auto';
+
   return (
     <img
       src={FOLDER_GLYPH_DATA_URL}
       alt="Folder"
       aria-hidden="true"
       draggable={false}
-      className={clsx("select-none pointer-events-none drop-shadow-sm", className)}
+      className={clsx("select-none pointer-events-none drop-shadow-sm", sizeClass, className)}
     />
   );
 }
@@ -154,11 +169,65 @@ const thumbnailCache = new Map<string, string>();
 export function FileGenericPaper({
   fileName,
   className,
+  size = 'lg',
 }: {
   fileName: string;
   className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }) {
   const ext = fileExtension(fileName);
+
+  if (size === 'xs') {
+    return (
+      <div
+        data-file-system-on-light=""
+        className={clsx(
+          "relative flex h-5 w-4 shrink-0 flex-col items-center justify-center rounded-[2px] border border-gray-200/90 bg-white dark:bg-neutral-100 shadow-xs select-none",
+          className
+        )}
+      >
+        <FileTypeIcon fileName={fileName} className="w-2.5 h-2.5" />
+      </div>
+    );
+  }
+
+  if (size === 'sm') {
+    return (
+      <div
+        data-file-system-on-light=""
+        className={clsx(
+          "relative flex h-7 w-5.5 shrink-0 flex-col items-center justify-center gap-0.5 rounded-[3px] border border-gray-200/90 bg-white dark:bg-neutral-100 shadow-xs select-none",
+          className
+        )}
+      >
+        <FileTypeIcon fileName={fileName} className="w-3.5 h-3.5 min-w-3" />
+        {ext ? (
+          <span className="text-[7px] font-bold tracking-tight uppercase text-neutral-400 dark:text-neutral-500 leading-none">
+            {ext.length > 4 ? ext.slice(0, 3) : ext}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (size === 'md') {
+    return (
+      <div
+        data-file-system-on-light=""
+        className={clsx(
+          "relative flex h-9 w-7 shrink-0 flex-col items-center justify-center gap-0.5 rounded-[4px] border border-gray-200/90 bg-white dark:bg-neutral-100 shadow-xs select-none",
+          className
+        )}
+      >
+        <FileTypeIcon fileName={fileName} className="w-4 h-4 min-w-3.5" />
+        {ext ? (
+          <span className="text-[8px] font-bold tracking-tight uppercase text-neutral-400 dark:text-neutral-500 leading-none">
+            {ext.length > 4 ? ext.slice(0, 3) : ext}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -184,11 +253,13 @@ export function FileThumbnailImage({
   fileName,
   companyId,
   className,
+  size = 'lg',
 }: {
   fileId: string;
   fileName: string;
   companyId?: string;
   className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(() => thumbnailCache.get(fileId) || null);
   const [hasError, setHasError] = useState(false);
@@ -222,16 +293,26 @@ export function FileThumbnailImage({
   }, [fileId, companyId, blobUrl, hasError]);
 
   if (hasError || !blobUrl) {
-    return <FileGenericPaper fileName={fileName} className={className} />;
+    return <FileGenericPaper fileName={fileName} className={className} size={size} />;
   }
+
+  const containerSizeClass =
+    size === 'xs'
+      ? 'h-5 w-5 rounded-[2px]'
+      : size === 'sm'
+      ? 'h-7 w-7 rounded-sm'
+      : size === 'md'
+      ? 'h-9 w-9 rounded-[4px]'
+      : 'w-12 h-15 rounded-[4px]';
 
   return (
     <div
       className={clsx(
-        "relative flex w-12 h-15 shrink-0 items-center justify-center overflow-hidden rounded-[4px] border border-gray-200/90 bg-white dark:bg-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+        "relative flex shrink-0 items-center justify-center overflow-hidden border border-gray-200/90 bg-white dark:bg-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+        containerSizeClass,
         className
       )}
-      style={{ aspectRatio: "0.78" }}
+      style={size === 'lg' ? { aspectRatio: "0.78" } : undefined}
     >
       <img
         src={blobUrl}
@@ -248,6 +329,7 @@ export function FileGlyphVisual({
   file,
   companyId,
   className,
+  size = 'lg',
 }: {
   file: {
     id: string;
@@ -257,17 +339,27 @@ export function FileGlyphVisual({
   };
   companyId?: string;
   className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }) {
   if (file.type === 'folder') {
-    return <FileSystemFolderGlyph className={clsx("h-13 w-auto", className)} />;
+    return <FileSystemFolderGlyph className={className} size={size} />;
   }
 
   if (file.type === 'group') {
+    const iconSize =
+      size === 'xs'
+        ? 'w-2.5 h-2.5'
+        : size === 'sm'
+        ? 'w-3.5 h-3.5'
+        : size === 'md'
+        ? 'w-4 h-4'
+        : 'w-5 h-5';
+
     return (
-      <div className="relative flex items-center justify-center">
-        <FileSystemFolderGlyph className={clsx("h-13 w-auto opacity-85", className)} />
+      <div className="relative flex items-center justify-center shrink-0">
+        <FileSystemFolderGlyph className={className} size={size} />
         <Layers
-          className="absolute inset-0 m-auto w-5 h-5 drop-shadow"
+          className={clsx("absolute inset-0 m-auto drop-shadow", iconSize)}
           style={{ color: file.color || '#3B82F6' }}
         />
       </div>
@@ -282,10 +374,11 @@ export function FileGlyphVisual({
         fileName={file.name}
         companyId={companyId}
         className={className}
+        size={size}
       />
     );
   }
 
   // Default file generic paper card
-  return <FileGenericPaper fileName={file.name} className={className} />;
+  return <FileGenericPaper fileName={file.name} className={className} size={size} />;
 }

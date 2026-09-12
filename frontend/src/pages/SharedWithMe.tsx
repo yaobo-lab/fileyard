@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { FilePreviewModal } from '../components/FilePreviewModal';
+import { FileGlyphVisual, FileSystemFolderGlyph } from '../components/FileGlyphs';
 
 interface SharedFile {
     id: string;
@@ -19,25 +20,9 @@ interface SharedFile {
     expires_at: string | null;
 }
 
-const getFileIcon = (contentType: string | null, name: string) => {
-    if (!contentType) {
-        const ext = name.split('.').pop()?.toLowerCase();
-        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '')) {
-            return <Image className="w-8 h-8 text-green-500" />;
-        }
-        if (['mp4', 'mov', 'avi', 'webm'].includes(ext || '')) {
-            return <Film className="w-8 h-8 text-purple-500" />;
-        }
-        if (['mp3', 'wav', 'flac', 'aac'].includes(ext || '')) {
-            return <Music className="w-8 h-8 text-pink-500" />;
-        }
-        return <FileText className="w-8 h-8 text-blue-500" />;
-    }
-    
-    if (contentType.startsWith('image/')) return <Image className="w-8 h-8 text-green-500" />;
-    if (contentType.startsWith('video/')) return <Film className="w-8 h-8 text-purple-500" />;
-    if (contentType.startsWith('audio/')) return <Music className="w-8 h-8 text-pink-500" />;
-    return <FileText className="w-8 h-8 text-blue-500" />;
+const getFileIcon = (file: SharedFile) => {
+    const fileType = getFileType(file.content_type, file.name);
+    return <FileGlyphVisual file={{ id: file.id, name: file.name, type: fileType }} size="sm" />;
 };
 
 const getFileType = (contentType: string | null, name: string): 'image' | 'document' | 'video' | 'audio' | 'folder' => {
@@ -202,7 +187,7 @@ export function SharedWithMe() {
                             onClick={handleMyFilesClick}
                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                         >
-                            <Folder className="w-4 h-4" />
+                            <FileSystemFolderGlyph size="xs" className="h-4 w-auto" />
                             My Files
                         </button>
                     </div>
@@ -266,8 +251,8 @@ export function SharedWithMe() {
                                 >
                                     {/* File Info */}
                                     <div className="col-span-5 flex items-center gap-3">
-                                        <div className="flex-shrink-0 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                            {getFileIcon(file.content_type, file.name)}
+                                        <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+                                            {getFileIcon(file)}
                                         </div>
                                         <div className="min-w-0">
                                             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Link2, Copy, Check, Globe, Lock, Calendar, AlertCircle, Loader2, Folder, FileText, Users, User, Search, X as XIcon, Building } from 'lucide-react';
+import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 
@@ -156,7 +157,7 @@ export function ShareFileModal({ isOpen, onClose, file, companyId, complianceMod
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
                                 {isFolder ? (
-                                    <Folder className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                                    <FileSystemFolderGlyph size="xs" className="h-5 w-auto" />
                                 ) : (
                                     <Link2 className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                                 )}

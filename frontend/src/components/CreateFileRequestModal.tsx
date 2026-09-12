@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Folder, Plus, ChevronRight, ShieldAlert, Lock, Users, EyeOff } from 'lucide-react';
+import { FileSystemFolderGlyph } from './FileGlyphs';
 import { useAuthFetch } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 
@@ -335,7 +336,7 @@ export function CreateFileRequestModal({ isOpen, onClose, onSubmit, initialPath 
                                             }}
                                             className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center text-gray-700 dark:text-gray-300"
                                         >
-                                            <Folder className="w-4 h-4 mr-2 text-primary-600 dark:text-primary-400" />
+                                            <FileSystemFolderGlyph size="xs" className="h-4 w-auto mr-2 shrink-0" />
                                             {folder.label}
                                             <ChevronRight className="w-3 h-3 ml-auto text-gray-400" />
                                         </button>

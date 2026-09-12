@@ -10,6 +10,7 @@ import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { MoveFileModal } from './MoveFileModal';
 import { Avatar } from './Avatar';
+import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 
 interface UserData {
@@ -244,7 +245,7 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
   const getFileIcon = (type: FileItem['type'], size: 'sm' | 'lg' = 'sm') => {
     const sizeClass = size === 'lg' ? 'w-10 h-10' : 'w-5 h-5';
     switch (type) {
-      case 'folder': return <Folder className={clsx(sizeClass, "text-yellow-500")} />;
+      case 'folder': return <FileSystemFolderGlyph size={size === 'lg' ? 'md' : 'xs'} className={clsx(size === 'lg' ? 'h-9 w-auto' : 'h-5 w-auto')} />;
       case 'image': return <Image className={clsx(sizeClass, "text-purple-500")} />;
       case 'pdf': return <FileText className={clsx(sizeClass, "text-red-500")} />;
       case 'document': return <FileText className={clsx(sizeClass, "text-blue-500")} />;
@@ -1065,7 +1066,7 @@ export function UserDetailsModal({ isOpen, onClose, user }: UserDetailsModalProp
                                 <td className="px-4 py-3 whitespace-nowrap">
                                   <div className="flex items-center gap-3">
                                     {item.is_directory ? (
-                                      <Folder className="w-5 h-5 text-yellow-500 opacity-50" />
+                                      <FileSystemFolderGlyph size="xs" className="h-5 w-auto opacity-70" />
                                     ) : (
                                       <File className="w-5 h-5 text-gray-400" />
                                     )}

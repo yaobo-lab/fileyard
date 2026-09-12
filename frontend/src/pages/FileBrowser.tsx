@@ -25,7 +25,7 @@ import { CreateGroupModal } from '../components/CreateGroupModal';
 import { FileGroupStack } from '../components/FileGroupStack';
 import { FileGroupViewer } from '../components/FileGroupViewer';
 import { Avatar } from '../components/Avatar';
-import { FileGlyphVisual, FileSystemIconSpriteSheet } from '../components/FileGlyphs';
+import { FileGlyphVisual, FileSystemIconSpriteSheet, FileSystemFolderGlyph } from '../components/FileGlyphs';
 import { FileContextMenu, ContextMenuTarget } from '../components/FileContextMenu';
 import { useTenant } from '../context/TenantContext';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
@@ -2008,26 +2008,12 @@ export function FileBrowser() {
     }, [files.length, currentPath]);
 
     const getIcon = (file: FileItem) => {
-        switch (file.type) {
-            case 'group': return <Layers className="w-16 h-16" style={{ color: file.color || '#3B82F6' }} />;
-            case 'folder': return <Folder className="w-16 h-16 text-blue-500" />;
-            case 'image': return <ImageIcon className="w-16 h-16 text-purple-500" />;
-            case 'video': return <ImageIcon className="w-16 h-16 text-red-500" />;
-            case 'audio': return <ImageIcon className="w-16 h-16 text-yellow-500" />;
-            default: return <FileText className="w-16 h-16 text-gray-500" />;
-        }
+        return <FileGlyphVisual file={file} companyId={companyId} size="sm" />;
     };
 
-    // Smaller icons for Quick Access section
+    // Medium icons for Quick Access section
     const getSmallIcon = (file: FileItem) => {
-        switch (file.type) {
-            case 'group': return <Layers className="w-8 h-8" style={{ color: file.color || '#3B82F6' }} />;
-            case 'folder': return <Folder className="w-8 h-8 text-blue-500" />;
-            case 'image': return <ImageIcon className="w-8 h-8 text-purple-500" />;
-            case 'video': return <ImageIcon className="w-8 h-8 text-red-500" />;
-            case 'audio': return <ImageIcon className="w-8 h-8 text-yellow-500" />;
-            default: return <FileText className="w-8 h-8 text-gray-500" />;
-        }
+        return <FileGlyphVisual file={file} companyId={companyId} size="md" />;
     };
 
     const handleDrag = (e: React.DragEvent) => {
@@ -2825,7 +2811,7 @@ export function FileBrowser() {
                                                             }
                                                         }}
                                                     >
-                                                        <div className="p-1.5 bg-primary-50 dark:bg-primary-900/30 rounded flex-shrink-0">
+                                                        <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
                                                             {getSmallIcon(file)}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
@@ -2856,7 +2842,7 @@ export function FileBrowser() {
                                         }
                                     }}
                                 >
-                                    <div className="p-2 bg-primary-50 dark:bg-primary-900/30 rounded-lg flex-shrink-0">
+                                    <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
                                         {getSmallIcon(file)}
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -3035,8 +3021,8 @@ export function FileBrowser() {
 
             <div
                 className={clsx(
-                    "bg-white dark:bg-gray-800 border rounded-lg shadow-sm flex-1 flex flex-col transition-colors mt-2",
-                    isDragging ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 border-2 border-dashed" : "border-gray-200 dark:border-gray-700"
+                    "bg-white dark:bg-gray-800 rounded-lg flex-1 flex flex-col transition-colors mt-2",
+                    isDragging && "border-2 border-dashed border-primary-500 bg-primary-50 dark:bg-primary-900/20"
                 )}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -3057,8 +3043,8 @@ export function FileBrowser() {
                     {/* Empty State */}
                     {!isLoading && filteredFiles.length === 0 && !isDragging && (
                         <div className="flex flex-col items-center justify-center flex-1 py-16 text-center">
-                            <div className="p-6 rounded-full bg-gray-100 dark:bg-gray-800 mb-6">
-                                <Folder className="w-16 h-16 text-gray-400 dark:text-gray-500" />
+                            <div className="p-5 rounded-full bg-gray-50 dark:bg-gray-700/50 mb-6 flex items-center justify-center">
+                                <FileSystemFolderGlyph size="lg" className="h-16 w-auto opacity-50" />
                             </div>
                             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
                                 {searchQuery ? 'No files found' : 'No files yet'}
