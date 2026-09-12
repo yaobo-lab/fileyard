@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { useTenant } from '../context/TenantContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -28,6 +29,8 @@ interface DepartmentOption {
 }
 
 export default function RecycleBin() {
+    const t = useTranslations('RecycleBin');
+    const tCommon = useTranslations('Common');
     const [items, setItems] = useState<TrashItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -183,10 +186,10 @@ export default function RecycleBin() {
                     <div>
                         <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground flex items-center">
                             <Trash2 className="w-5 h-5 mr-2 text-destructive" />
-                            Recycle Bin
+                            {t('title')}
                         </h1>
                         <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
-                            Items will be permanently deleted after {currentCompany?.retention_policy_days || 30} days.
+                            {t('retentionHint', { days: currentCompany?.retention_policy_days || 30 })}
                         </p>
                     </div>
                 </div>
@@ -201,7 +204,7 @@ export default function RecycleBin() {
                                 onChange={(e) => setSelectedDepartment(e.target.value)}
                                 className="text-sm border border-input rounded-md px-2.5 py-1.5 bg-background text-foreground focus:ring-1 focus:ring-ring w-full sm:w-auto h-9"
                             >
-                                <option value="all">All Departments</option>
+                                <option value="all">{t('allDepartments')}</option>
                                 {departments.map(d => (
                                     <option key={d.id} value={d.id}>{d.name}</option>
                                 ))}
@@ -215,7 +218,7 @@ export default function RecycleBin() {
                         onClick={fetchTrash}
                         disabled={isLoading}
                         className="h-9 w-9 shrink-0"
-                        title="Refresh"
+                        title={t('refresh')}
                     >
                         <RefreshCw className={clsx("w-4 h-4", isLoading && "animate-spin")} />
                     </Button>
@@ -242,13 +245,13 @@ export default function RecycleBin() {
             {isLoading ? (
                 <div className="text-center py-20">
                     <Loader2 className="w-10 h-10 text-primary mx-auto animate-spin" />
-                    <p className="mt-3 text-sm text-muted-foreground">Loading recycle bin...</p>
+                    <p className="mt-3 text-sm text-muted-foreground">{t('loading')}</p>
                 </div>
             ) : items.length === 0 ? (
                 <Card className="text-center py-16 shadow-xs">
                     <Trash2 className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
                     <p className="text-muted-foreground text-sm font-medium">
-                        {selectedDepartment !== 'all' ? 'No deleted files for this department' : 'Recycle bin is empty'}
+                        {selectedDepartment !== 'all' ? t('emptyDepartment') : t('empty')}
                     </p>
                     {selectedDepartment !== 'all' && (
                         <Button
@@ -257,7 +260,7 @@ export default function RecycleBin() {
                             onClick={() => setSelectedDepartment('all')}
                             className="mt-2 text-primary"
                         >
-                            Show all departments
+                            {t('showAllDepartments')}
                         </Button>
                     )}
                 </Card>
@@ -266,10 +269,10 @@ export default function RecycleBin() {
                     {/* Table Header for Admins - Hidden on mobile */}
                     {isAdmin && (
                         <div className="hidden md:grid px-6 py-3 bg-muted/40 border-b border-border grid-cols-12 gap-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            <div className="col-span-5">File</div>
-                            <div className="col-span-2">Owner</div>
-                            <div className="col-span-2">Deleted</div>
-                            <div className="col-span-3 text-right">Actions</div>
+                            <div className="col-span-5">{t('colFile')}</div>
+                            <div className="col-span-2">{t('colOwner')}</div>
+                            <div className="col-span-2">{t('colDeleted')}</div>
+                            <div className="col-span-3 text-right">{t('colActions')}</div>
                         </div>
                     )}
                     
@@ -295,7 +298,7 @@ export default function RecycleBin() {
                                             {item.size || formatFileSize(item.size_bytes)}
                                             {item.original_path && (
                                                 <span className="ml-2 text-muted-foreground/60 hidden sm:inline">
-                                                    from {item.original_path}
+                                                    {t('fromPath', { path: item.original_path })}
                                                 </span>
                                             )}
                                         </div>
@@ -308,7 +311,7 @@ export default function RecycleBin() {
                                         {/* Owner */}
                                         <div className="flex items-center md:col-span-2">
                                             <User className="w-3.5 h-3.5 mr-1.5 text-muted-foreground/60" />
-                                            <span className="truncate">{item.owner_name || 'Unknown'}</span>
+                                            <span className="truncate">{item.owner_name || t('unknown')}</span>
                                         </div>
                                         {/* Deleted Date */}
                                         <div className="md:col-span-2 text-xs">
@@ -317,7 +320,7 @@ export default function RecycleBin() {
                                     </div>
                                 ) : (
                                     <div className="text-xs text-muted-foreground pl-12 md:pl-0 md:mx-4">
-                                        Deleted {safeFormatDate(item.deleted_at || item.modified)}
+                                        {t('deletedAt', { date: safeFormatDate(item.deleted_at || item.modified) })}
                                     </div>
                                 )}
                                 
@@ -335,7 +338,7 @@ export default function RecycleBin() {
                                         ) : (
                                             <RotateCcw className="w-3.5 h-3.5" />
                                         )}
-                                        <span>Restore</span>
+                                        <span>{t('restore')}</span>
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -349,7 +352,7 @@ export default function RecycleBin() {
                                         ) : (
                                             <Trash className="w-3.5 h-3.5" />
                                         )}
-                                        <span>Delete</span>
+                                        <span>{t('deletePermanently')}</span>
                                     </Button>
                                 </div>
                             </div>
@@ -361,7 +364,7 @@ export default function RecycleBin() {
             {/* Item count */}
             {!isLoading && items.length > 0 && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
-                    {items.length} {items.length === 1 ? 'item' : 'items'} in recycle bin
+                    {t('itemCount', { count: items.length })}
                 </p>
             )}
         </div>

@@ -107,6 +107,7 @@ const ITEMS_PER_PAGE = 20;
 
 export function Security() {
     const t = useTranslations('Security');
+    const tAlert = useTranslations('AlertDetail');
     const { formatDateTime } = useGlobalSettings();
     const { user } = useAuth();
     const authFetch = useAuthFetch();
@@ -300,7 +301,10 @@ export function Security() {
     };
 
     const getAlertTypeInfo = (type: string) => {
-        return alertTypeConfig[type] || { icon: Shield, label: type.replace(/_/g, ' ') };
+        return {
+            icon: alertTypeConfig[type]?.icon || Shield,
+            label: getAlertTypeName(type),
+        };
     };
 
     // Pagination helpers
@@ -686,7 +690,7 @@ export function Security() {
                                                 severityConfig[selectedAlert.severity].bg,
                                                 severityConfig[selectedAlert.severity].color
                                             )}>
-                                                {severityConfig[selectedAlert.severity].label}
+                                                {getSeverityLabel(selectedAlert.severity)}
                                             </span>
                                             <span className="text-xs text-gray-500 dark:text-gray-400">
                                                 {getAlertTypeInfo(selectedAlert.alert_type).label}
@@ -705,37 +709,37 @@ export function Security() {
                         <div className="p-6 space-y-4">
                             {selectedAlert.description && (
                                 <div>
-                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</h3>
+                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tAlert('description')}</h3>
                                     <p className="text-gray-600 dark:text-gray-400">{selectedAlert.description}</p>
                                 </div>
                             )}
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time</h3>
+                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tAlert('time')}</h3>
                                     <p className="text-gray-600 dark:text-gray-400">{formatDate(selectedAlert.created_at)}</p>
                                 </div>
                                 {selectedAlert.user_email && (
                                     <div>
-                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">User</h3>
+                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tAlert('user')}</h3>
                                         <p className="text-gray-600 dark:text-gray-400">{selectedAlert.user_email}</p>
                                     </div>
                                 )}
                                 {isSuperAdmin && selectedAlert.tenant_name && (
                                     <div>
-                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company</h3>
+                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tAlert('company')}</h3>
                                         <p className="text-gray-600 dark:text-gray-400">{selectedAlert.tenant_name}</p>
                                     </div>
                                 )}
                                 {selectedAlert.ip_address && (
                                     <div>
-                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IP Address</h3>
+                                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{tAlert('ipAddress')}</h3>
                                         <p className="text-gray-600 dark:text-gray-400">{selectedAlert.ip_address}</p>
                                     </div>
                                 )}
                             </div>
                             {Object.keys(selectedAlert.metadata).length > 0 && (
                                 <div>
-                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Details</h3>
+                                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{tAlert('details')}</h3>
                                     <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 space-y-2">
                                         {Object.entries(selectedAlert.metadata).map(([key, value]) => (
                                             <div key={key} className="flex justify-between text-sm">
@@ -754,11 +758,14 @@ export function Security() {
                                 <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
                                     <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
                                         <CheckCircle className="w-5 h-5" />
-                                        <span className="font-medium">Resolved</span>
+                                        <span className="font-medium">{tAlert('resolved')}</span>
                                     </div>
                                     {selectedAlert.resolved_by_email && (
                                         <p className="text-sm text-green-600 dark:text-green-500 mt-1">
-                                            By {selectedAlert.resolved_by_email} on {selectedAlert.resolved_at ? formatDate(selectedAlert.resolved_at) : 'unknown'}
+                                            {tAlert('resolvedBy', {
+                                                email: selectedAlert.resolved_by_email,
+                                                date: selectedAlert.resolved_at ? formatDate(selectedAlert.resolved_at) : 'unknown'
+                                            })}
                                         </p>
                                     )}
                                 </div>
@@ -771,14 +778,14 @@ export function Security() {
                                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                                 >
                                     <CheckCircle className="w-4 h-4" />
-                                    Mark as Resolved
+                                    {tAlert('markResolved')}
                                 </button>
                                 <button
                                     onClick={() => handleDismiss(selectedAlert.id)}
                                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
                                 >
                                     <X className="w-4 h-4" />
-                                    Dismiss (False Positive)
+                                    {tAlert('dismiss')}
                                 </button>
                             </div>
                         )}

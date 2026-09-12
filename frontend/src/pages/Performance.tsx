@@ -195,6 +195,7 @@ function formatNumber(num: number): string {
 
 export default function Performance() {
   const t = useTranslations('Performance');
+  const tTabs = useTranslations('PerformanceTabs');
   const authFetch = useAuthFetch();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -636,13 +637,13 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <AlertTriangle className="w-4 h-4" />
-            Errors
+            {tTabs('colErrors')}
           </div>
           <p className="text-2xl font-bold text-red-600 dark:text-red-400">
             {formatNumber(summary?.total_errors || 0)}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {(summary?.error_rate || 0).toFixed(2)}% error rate
+            {(summary?.error_rate || 0).toFixed(2)}% {tTabs('errorRate')}
           </p>
         </div>
         
@@ -659,7 +660,7 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <TrendingUp className="w-4 h-4" />
-            Req/min
+            {tTabs('reqPerMin')}
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {(summary?.requests_per_minute || 0).toFixed(1)}
@@ -669,7 +670,7 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <Users className="w-4 h-4" />
-            Active Users
+            {tTabs('activeUsers')}
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {summary?.unique_users || 0}
@@ -679,7 +680,7 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <Wifi className="w-4 h-4" />
-            Data Transfer
+            {tTabs('dataTransfer')}
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {formatBytes((summary?.total_request_bytes || 0) + (summary?.total_response_bytes || 0))}
@@ -691,11 +692,11 @@ export default function Performance() {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-4 overflow-x-auto">
           {[
-            { id: 'overview', label: 'Overview', icon: BarChart3 },
-            { id: 'endpoints', label: 'Endpoints', icon: Activity },
-            { id: 'tenants', label: 'Tenants', icon: Building2 },
-            { id: 'errors', label: 'Errors', icon: AlertTriangle, count: summary?.total_errors || 0 },
-            { id: 'backups', label: 'Backups', icon: HardDrive },
+            { id: 'overview', label: tTabs('overview'), icon: BarChart3 },
+            { id: 'endpoints', label: tTabs('endpoints'), icon: Activity },
+            { id: 'tenants', label: tTabs('tenants'), icon: Building2 },
+            { id: 'errors', label: tTabs('errors'), icon: AlertTriangle, count: summary?.total_errors || 0 },
+            { id: 'backups', label: tTabs('backups'), icon: HardDrive },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -725,16 +726,16 @@ export default function Performance() {
           {/* Request Timeline */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 dark:text-white">Request Volume</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-white">{tTabs('reqVolume')}</h3>
               {timeseries.length > 0 && (
                 <div className="flex items-center gap-4 text-xs">
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded-sm bg-primary-500" />
-                    <span className="text-gray-500 dark:text-gray-400">Requests</span>
+                    <span className="text-gray-500 dark:text-gray-400">{tTabs('requests')}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded-sm bg-red-500" />
-                    <span className="text-gray-500 dark:text-gray-400">Errors</span>
+                    <span className="text-gray-500 dark:text-gray-400">{tTabs('colErrors')}</span>
                   </div>
                 </div>
               )}
@@ -784,7 +785,7 @@ export default function Performance() {
                       itemStyle={{ color: '#d1d5db' }}
                       formatter={(value: number, name: string) => [
                         value,
-                        name === 'request_count' ? 'Requests' : 'Errors'
+                        name === 'request_count' ? tTabs('requests') : tTabs('colErrors')
                       ]}
                     />
                     <Area
@@ -808,7 +809,7 @@ export default function Performance() {
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  No data available
+                  {tTabs('noData')}
                 </div>
               )}
             </div>
@@ -816,7 +817,7 @@ export default function Performance() {
 
           {/* Slow Requests */}
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Slowest Endpoints</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">{tTabs('slowestEndpoints')}</h3>
             <div className="space-y-3 max-h-48 overflow-y-auto">
               {slowRequests.length > 0 ? slowRequests.slice(0, 5).map((req, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm">
@@ -844,7 +845,7 @@ export default function Performance() {
                 </div>
               )) : (
                 <div className="text-gray-500 dark:text-gray-400 text-center py-4">
-                  No slow requests detected
+                  {tTabs('noSlowRequests')}
                 </div>
               )}
             </div>
@@ -858,12 +859,12 @@ export default function Performance() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Endpoint</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Method</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Requests</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Errors</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Avg Time</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">P95 Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colPath')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colMethod')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colRequests')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colErrors')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colAvgTime')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('p95Time')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -896,7 +897,7 @@ export default function Performance() {
                 )) : (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                      No endpoint data available
+                      {tTabs('noData')}
                     </td>
                   </tr>
                 )}
@@ -912,12 +913,12 @@ export default function Performance() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Tenant</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Requests</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Errors</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Error Rate</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Avg Time</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Data Transfer</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colTenant')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colRequests')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colErrors')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colErrorRate')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colAvgTime')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colDataTransfer')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -938,7 +939,7 @@ export default function Performance() {
                     : tenant.category === 'unauthenticated'
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-500 dark:text-gray-400 italic';
-                  const displayName = tenant.tenant_name || (tenant.category === 'unauthenticated' ? 'Unauthenticated' : 'Unknown');
+                  const displayName = tenant.tenant_name || (tenant.category === 'unauthenticated' ? (tenant.category === 'unauthenticated' ? tTabs('public') : 'Unknown') : 'Unknown');
                   
                   return (
                     <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
@@ -953,7 +954,7 @@ export default function Performance() {
                                 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                 : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                             )}>
-                              {tenant.category === 'unauthenticated' ? 'Public' : 'Untracked'}
+                              {tenant.category === 'unauthenticated' ? tTabs('public') : tTabs('untracked')}
                             </span>
                           )}
                         </div>
@@ -986,7 +987,7 @@ export default function Performance() {
                 }) : (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                      No tenant data available
+                      {tTabs('noData')}
                     </td>
                   </tr>
                 )}
@@ -1000,11 +1001,15 @@ export default function Performance() {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">Recent Errors</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-white">{tTabs('recentErrors')}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {errorsTotal > 0 
-                  ? `Showing ${((errorsPage - 1) * errorsPerPage) + 1}-${Math.min(errorsPage * errorsPerPage, errorsTotal)} of ${errorsTotal} errors`
-                  : 'No errors in the selected time range'}
+                  ? tTabs('showingErrors', {
+                      from: ((errorsPage - 1) * errorsPerPage) + 1,
+                      to: Math.min(errorsPage * errorsPerPage, errorsTotal),
+                      total: errorsTotal
+                    })
+                  : tTabs('noErrorsRange')}
               </p>
             </div>
             {errorsLoading && (
@@ -1015,13 +1020,13 @@ export default function Performance() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Endpoint</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Error</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User/Tenant</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">IP</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('time')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colPath')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colStatus')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('errorMsg')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('userTenant')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('ip')}</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tTabs('colAvgTime')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1086,7 +1091,7 @@ export default function Performance() {
                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <CheckCircle className="w-8 h-8 text-green-500" />
-                        <span>No errors in the selected time range</span>
+                        <span>{tTabs('noErrorsRange')}</span>
                       </div>
                     </td>
                   </tr>
@@ -1099,7 +1104,7 @@ export default function Performance() {
           {errorsTotalPages > 1 && (
             <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                Page {errorsPage} of {errorsTotalPages}
+                {tTabs('pageOf', { page: errorsPage, total: errorsTotalPages })}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -1107,14 +1112,14 @@ export default function Performance() {
                   disabled={errorsPage === 1 || errorsLoading}
                   className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  First
+                  {tTabs('first')}
                 </button>
                 <button
                   onClick={() => setErrorsPage(p => Math.max(1, p - 1))}
                   disabled={errorsPage === 1 || errorsLoading}
                   className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Previous
+                  {tTabs('prev')}
                 </button>
                 
                 {/* Page number buttons */}
@@ -1153,14 +1158,14 @@ export default function Performance() {
                   disabled={errorsPage === errorsTotalPages || errorsLoading}
                   className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Next
+                  {tTabs('next')}
                 </button>
                 <button
                   onClick={() => setErrorsPage(errorsTotalPages)}
                   disabled={errorsPage === errorsTotalPages || errorsLoading}
                   className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  Last
+                  {tTabs('last')}
                 </button>
               </div>
             </div>

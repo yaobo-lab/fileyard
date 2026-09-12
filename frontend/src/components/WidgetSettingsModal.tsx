@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff, Settings2, Plus, Building2, Users, HardDrive, FileText, Activity, FolderOpen, Link as LinkIcon, BarChart3, Clock, Calendar, Bell, Shield, TrendingUp } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface WidgetConfig {
     visible_widgets: string[];
@@ -55,6 +56,8 @@ interface WidgetSettingsModalProps {
 }
 
 export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: WidgetSettingsModalProps) {
+    const t = useTranslations('Widgets');
+    const tCommon = useTranslations('Common');
     const [config, setConfig] = useState<WidgetConfig>(currentConfig || DEFAULT_CONFIG);
     const [activeTab, setActiveTab] = useState<'visibility' | 'settings' | 'add'>('visibility');
     const [isSaving, setIsSaving] = useState(false);
@@ -117,6 +120,18 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
 
     const configurableWidgets = AVAILABLE_WIDGETS.filter(w => w.configurable && config.visible_widgets.includes(w.id));
 
+    const getWidgetName = (w: WidgetDefinition) => {
+        const key = `widget_${w.id}`;
+        const translated = t(key);
+        return translated !== key ? translated : w.name;
+    };
+
+    const getWidgetDesc = (w: WidgetDefinition) => {
+        const key = `widget_${w.id}_desc`;
+        const translated = t(key);
+        return translated !== key ? translated : w.description;
+    };
+
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
@@ -130,8 +145,8 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                 <Settings2 className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                             </div>
                             <div>
-                                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Dashboard Settings</h2>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Customize your dashboard widgets</p>
+                                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">{t('subtitle')}</p>
                             </div>
                         </div>
                         <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-500 dark:hover:text-gray-300">
@@ -150,7 +165,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                             }`}
                         >
                             <Eye className="w-4 h-4 inline-block mr-2" />
-                            Visibility
+                            {t('visibility')}
                         </button>
                         <button
                             onClick={() => setActiveTab('settings')}
@@ -161,7 +176,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                             }`}
                         >
                             <Settings2 className="w-4 h-4 inline-block mr-2" />
-                            Settings
+                            {t('settings')}
                         </button>
                         <button
                             onClick={() => setActiveTab('add')}
@@ -172,7 +187,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                             }`}
                         >
                             <Plus className="w-4 h-4 inline-block mr-2" />
-                            Add Widgets
+                            {t('addWidgets')}
                         </button>
                     </div>
 
@@ -181,7 +196,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                         {activeTab === 'visibility' && (
                             <div className="space-y-3">
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    Toggle widgets on or off to customize your dashboard view.
+                                    {t('visibilityHint')}
                                 </p>
                                 {AVAILABLE_WIDGETS.map((widget) => {
                                     const Icon = widget.icon;
@@ -208,8 +223,8 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                     }`} />
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{widget.name}</p>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400">{widget.description}</p>
+                                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{getWidgetName(widget)}</p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400">{getWidgetDesc(widget)}</p>
                                                 </div>
                                             </div>
                                             <button
@@ -233,8 +248,8 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                 {configurableWidgets.length === 0 ? (
                                     <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                                         <Settings2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                        <p className="text-sm">No configurable widgets are currently visible.</p>
-                                        <p className="text-xs mt-1">Enable widgets in the Visibility tab first.</p>
+                                        <p className="text-sm">{t('noConfigurable')}</p>
+                                        <p className="text-xs mt-1">{t('enableInVisibility')}</p>
                                     </div>
                                 ) : (
                                     configurableWidgets.map((widget) => {
@@ -248,22 +263,24 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                         <Icon className="w-4 h-4 text-primary-600 dark:text-primary-400" />
                                                     </div>
                                                     <div>
-                                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{widget.name}</p>
+                                                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">{getWidgetName(widget)}</h3>
+                                                        <p className="text-xs text-gray-500 dark:text-gray-400">{getWidgetDesc(widget)}</p>
                                                     </div>
                                                 </div>
                                                 
+                                                {/* Widget-specific settings */}
                                                 {widget.id === 'activity' && (
                                                     <div className="space-y-3">
                                                         <label className="block">
-                                                            <span className="text-sm text-gray-600 dark:text-gray-400">Items to show</span>
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('activityItemsCount')}</span>
                                                             <select
-                                                                value={settings.limit || 10}
-                                                                onChange={(e) => updateWidgetSetting(widget.id, 'limit', parseInt(e.target.value))}
-                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                                                value={settings.max_items || 5}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'max_items', parseInt(e.target.value))}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
                                                             >
-                                                                <option value={5}>5 items</option>
-                                                                <option value={10}>10 items</option>
-                                                                <option value={20}>20 items</option>
+                                                                <option value={5}>{t('numItems', { count: 5 })}</option>
+                                                                <option value={10}>{t('numItems', { count: 10 })}</option>
+                                                                <option value={15}>{t('numItems', { count: 15 })}</option>
                                                             </select>
                                                         </label>
                                                     </div>
@@ -271,14 +288,14 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                 
                                                 {widget.id === 'requests' && (
                                                     <div className="space-y-3">
-                                                        <label className="flex items-center">
+                                                        <label className="flex items-center cursor-pointer">
                                                             <input
                                                                 type="checkbox"
                                                                 checked={settings.show_expired || false}
                                                                 onChange={(e) => updateWidgetSetting(widget.id, 'show_expired', e.target.checked)}
                                                                 className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                                                             />
-                                                            <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">Show expired requests</span>
+                                                            <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">{t('showExpiredRequests')}</span>
                                                         </label>
                                                     </div>
                                                 )}
@@ -286,16 +303,16 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                 {widget.id === 'departments' && (
                                                     <div className="space-y-3">
                                                         <label className="block">
-                                                            <span className="text-sm text-gray-600 dark:text-gray-400">Max departments to show</span>
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('maxDepartmentsToShow')}</span>
                                                             <select
                                                                 value={settings.max_shown || 6}
                                                                 onChange={(e) => updateWidgetSetting(widget.id, 'max_shown', parseInt(e.target.value))}
-                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
                                                             >
-                                                                <option value={4}>4 departments</option>
-                                                                <option value={6}>6 departments</option>
-                                                                <option value={8}>8 departments</option>
-                                                                <option value={12}>12 departments</option>
+                                                                <option value={4}>{t('numDepartments', { count: 4 })}</option>
+                                                                <option value={6}>{t('numDepartments', { count: 6 })}</option>
+                                                                <option value={8}>{t('numDepartments', { count: 8 })}</option>
+                                                                <option value={12}>{t('numDepartments', { count: 12 })}</option>
                                                             </select>
                                                         </label>
                                                     </div>
@@ -340,9 +357,9 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center justify-between">
-                                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{widget.name}</p>
+                                                        <p className="text-sm font-medium text-gray-900 dark:text-white">{getWidgetName(widget)}</p>
                                                         {isAdded ? (
-                                                            <span className="text-xs text-green-600 dark:text-green-400 font-medium">Added</span>
+                                                            <span className="text-xs text-green-600 dark:text-green-400 font-medium">{t('added')}</span>
                                                         ) : (
                                                             <button
                                                                 onClick={() => {
@@ -355,15 +372,15 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                                 className="text-xs text-primary-600 dark:text-primary-400 font-medium hover:text-primary-700 dark:hover:text-primary-300 flex items-center"
                                                             >
                                                                 <Plus className="w-3 h-3 mr-1" />
-                                                                Add
+                                                                {t('add')}
                                                             </button>
                                                         )}
                                                     </div>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{widget.description}</p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{getWidgetDesc(widget)}</p>
                                                     {widget.configurable && (
                                                         <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                                                             <Settings2 className="w-3 h-3 mr-1" />
-                                                            Configurable
+                                                            {t('configurable')}
                                                         </span>
                                                     )}
                                                 </div>
@@ -374,7 +391,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
 
                                 <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
                                     <p className="text-sm text-blue-800 dark:text-blue-300">
-                                        <strong>Note:</strong> Some additional widgets are coming soon. After adding a widget, you can configure it in the Settings tab and toggle its visibility in the Visibility tab.
+                                        {t('comingSoonNote')}
                                     </p>
                                 </div>
                             </div>
@@ -387,21 +404,21 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                             onClick={handleReset}
                             className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
                         >
-                            Reset to Default
+                            {t('resetDefault')}
                         </button>
                         <div className="flex space-x-3">
                             <button
                                 onClick={onClose}
                                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600"
                             >
-                                Cancel
+                                {tCommon('cancel')}
                             </button>
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving}
                                 className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {isSaving ? 'Saving...' : 'Save Changes'}
+                                {isSaving ? tCommon('saving') : t('saveChanges')}
                             </button>
                         </div>
                     </div>

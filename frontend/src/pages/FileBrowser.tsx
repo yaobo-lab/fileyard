@@ -99,6 +99,7 @@ interface UserPrefs {
 export function FileBrowser() {
     const t = useTranslations('Explorer');
     const tCommon = useTranslations('Common');
+    const tProps = useTranslations('Properties');
     const { user } = useAuth();
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
@@ -138,7 +139,9 @@ export function FileBrowser() {
     const perPageKey = `file-per-page-${user?.id ?? 'default'}`;
     const [itemsPerPageOverride, setItemsPerPageOverride] = useState<number | null>(() => {
         const saved = localStorage.getItem(`file-per-page-${user?.id ?? 'default'}`);
-        return saved ? parseInt(saved, 10) : null;
+        if (!saved) return null;
+        const val = parseInt(saved, 10);
+        return val === 25 ? 30 : val;
     });
     
     // Display density (list view)
@@ -2399,7 +2402,7 @@ export function FileBrowser() {
                         </button>
                         {isPerPageMenuOpen && (
                             <div className="absolute right-0 mt-1 w-28 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700">
-                                {([null, 10, 25, 50, 100] as (number | null)[]).map((count) => (
+                                {([null, 10, 30, 50, 100] as (number | null)[]).map((count) => (
                                     <button
                                         key={count ?? 'auto'}
                                         onClick={() => {
@@ -3345,7 +3348,7 @@ export function FileBrowser() {
                                             onClick={() => handleSort('name')}
                                         >
                                             <div className="flex items-center">
-                                                Name
+                                                {tCommon('name')}
                                                 {sortBy === 'name' && (sortOrder === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>)}
                                             </div>
                                         </th>
@@ -3355,7 +3358,7 @@ export function FileBrowser() {
                                             onClick={() => handleSort('size')}
                                         >
                                             <div className="flex items-center">
-                                                Size
+                                                {tCommon('size')}
                                                 {sortBy === 'size' && (sortOrder === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>)}
                                             </div>
                                             <div
@@ -3372,7 +3375,7 @@ export function FileBrowser() {
                                             onClick={() => handleSort('modified')}
                                         >
                                             <div className="flex items-center">
-                                                Modified
+                                                {tCommon('modified')}
                                                 {sortBy === 'modified' && (sortOrder === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>)}
                                             </div>
                                             <div
@@ -3387,7 +3390,7 @@ export function FileBrowser() {
                                             className="relative px-4 py-2.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden lg:table-cell"
                                             style={{ width: colWidths.owner }}
                                         >
-                                            Owner
+                                            {tProps('owner')}
                                             <div
                                                 className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary-400/50 active:bg-primary-500 z-10 group"
                                                 onMouseDown={(e) => onResizeStart('owner', e)}
@@ -3396,7 +3399,7 @@ export function FileBrowser() {
                                                 <div className="absolute right-0 top-1/4 bottom-1/4 w-px bg-gray-300 dark:bg-gray-600 group-hover:bg-primary-400" />
                                             </div>
                                         </th>
-                                        <th className="relative px-4 py-2.5 w-[48px]"><span className="sr-only">Actions</span></th>
+                                        <th className="relative px-4 py-2.5 w-[48px]"><span className="sr-only">{tCommon('actions')}</span></th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">

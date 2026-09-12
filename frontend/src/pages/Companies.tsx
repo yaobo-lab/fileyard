@@ -166,7 +166,7 @@ export function Companies() {
                         className="h-9 gap-1.5"
                     >
                         <HelpCircle className="w-4 h-4 text-muted-foreground" />
-                        <span className="hidden sm:inline">Help & Roles</span>
+                        <span className="hidden sm:inline">{t('helpAndRoles')}</span>
                     </Button>
                     {isSuperAdmin && (
                         <Button

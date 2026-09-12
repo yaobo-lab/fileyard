@@ -1,4 +1,5 @@
 import { X, Shield, Users, Briefcase, User } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 
 interface HelpPanelProps {
     isOpen: boolean;
@@ -6,15 +7,25 @@ interface HelpPanelProps {
 }
 
 export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
+    const t = useTranslations('Companies');
+    const tUsers = useTranslations('Users');
     if (!isOpen) return null;
+
+    const isZh = t('rolesTitle') === '用户角色与权限说明';
 
     const roles = [
         {
-            name: 'SuperAdmin',
+            name: tUsers('roleSuperAdmin'),
             icon: Shield,
             color: 'text-purple-600 dark:text-purple-300',
             bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-            permissions: [
+            permissions: isZh ? [
+                '管理系统内全部企业与多租户空间',
+                '创建、编辑与暂停企业空间',
+                '访问与维护全局系统数据',
+                '配置系统底层与全局偏好',
+                '拥有最高管理员控制权限'
+            ] : [
                 'Manage all companies/tenants',
                 'Create and delete companies',
                 'Access all company data',
@@ -23,11 +34,17 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
             ]
         },
         {
-            name: 'Admin',
+            name: tUsers('roleAdmin'),
             icon: Users,
             color: 'text-blue-600 dark:text-blue-300',
             bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-            permissions: [
+            permissions: isZh ? [
+                '管理所属企业成员及部门划分',
+                '创建与管理文件收集上传任务',
+                '查看企业内部全部文件资源',
+                '配置企业专属规则与合规模式',
+                '无法跨企业访问其他租户空间'
+            ] : [
                 'Manage company users',
                 'Create file requests',
                 'View all company files',
@@ -36,11 +53,17 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
             ]
         },
         {
-            name: 'Manager',
+            name: tUsers('roleManager'),
             icon: Briefcase,
             color: 'text-green-600 dark:text-green-300',
             bgColor: 'bg-green-50 dark:bg-green-900/20',
-            permissions: [
+            permissions: isZh ? [
+                '发起团队文件收集链接',
+                '管理并查看团队部门文件',
+                '上传、下载及审批文件',
+                '与部门内外成员共享协作',
+                '无企业级用户管理权限'
+            ] : [
                 'Create file requests',
                 'View team files',
                 'Upload and download files',
@@ -49,11 +72,17 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
             ]
         },
         {
-            name: 'Employee',
+            name: tUsers('roleEmployee'),
             icon: User,
             color: 'text-gray-600 dark:text-gray-300',
             bgColor: 'bg-gray-50 dark:bg-gray-700',
-            permissions: [
+            permissions: isZh ? [
+                '通过有效收集链接上传文件',
+                '查看分配给个人的文件与目录',
+                '下载与查看被共享的文件',
+                '基础文件个人操作',
+                '受限只读与个人操作权限'
+            ] : [
                 'Upload files via requests',
                 'View assigned files',
                 'Download shared files',
@@ -75,7 +104,7 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
             <div className="fixed right-0 top-0 h-full w-full max-w-md bg-white dark:bg-gray-800 shadow-2xl z-50 overflow-y-auto">
                 {/* Header */}
                 <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">User Roles & Permissions</h2>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('rolesTitle')}</h2>
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -114,7 +143,7 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
                 {/* Footer */}
                 <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
                     <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-                        Contact your administrator to change your role
+                        {isZh ? '如需调整您的角色与访问权限，请联系企业超级管理员' : 'Contact your administrator to change your role'}
                     </p>
                 </div>
             </div>

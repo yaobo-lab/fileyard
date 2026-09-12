@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 
 interface RenameModalProps {
     isOpen: boolean;
@@ -9,6 +10,8 @@ interface RenameModalProps {
 }
 
 export function RenameModal({ isOpen, onClose, onRename, currentName }: RenameModalProps) {
+    const t = useTranslations('Rename');
+    const tCommon = useTranslations('Common');
     const [newName, setNewName] = useState(currentName);
 
     useEffect(() => {
@@ -27,7 +30,7 @@ export function RenameModal({ isOpen, onClose, onRename, currentName }: RenameMo
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-100">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-100 dark:border-gray-700 w-full max-w-md mx-4 overflow-hidden">
                 <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Rename</h3>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('title')}</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
                         <X className="w-5 h-5" />
                     </button>
@@ -35,7 +38,7 @@ export function RenameModal({ isOpen, onClose, onRename, currentName }: RenameMo
                 <form onSubmit={handleSubmit} className="p-4">
                     <div className="mb-4">
                         <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Name
+                            {t('label')}
                         </label>
                         <input
                             type="text"
@@ -52,13 +55,13 @@ export function RenameModal({ isOpen, onClose, onRename, currentName }: RenameMo
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         <button
                             type="submit"
                             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700"
                         >
-                            Rename
+                            {t('confirm')}
                         </button>
                     </div>
                 </form>

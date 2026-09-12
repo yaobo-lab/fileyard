@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 export interface ContextMenuTarget {
   x: number;
@@ -49,6 +50,7 @@ export function FileContextMenu({
   canDelete = true,
   canShare = false,
 }: FileContextMenuProps) {
+  const t = useTranslations('ContextMenu');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -123,7 +125,7 @@ export function FileContextMenu({
         ) : (
           <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
         )}
-        <span>打开</span>
+        <span>{t('open')}</span>
       </button>
 
       <div className="my-1 border-t border-gray-100 dark:border-gray-700/60" />
@@ -139,7 +141,7 @@ export function FileContextMenu({
         }}
       >
         <Info className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
-        <span>查看信息</span>
+        <span>{t('viewInfo')}</span>
       </button>
 
       {/* 下载 */}
@@ -153,7 +155,7 @@ export function FileContextMenu({
         }}
       >
         <Download className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
-        <span>下载</span>
+        <span>{t('download')}</span>
       </button>
 
       {/* 重命名 */}
@@ -167,7 +169,7 @@ export function FileContextMenu({
         }}
       >
         <Edit2 className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
-        <span>重命名</span>
+        <span>{t('rename')}</span>
       </button>
 
       {/* 移动 */}
@@ -181,7 +183,7 @@ export function FileContextMenu({
         }}
       >
         <Move className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
-        <span>移动</span>
+        <span>{t('move')}</span>
       </button>
 
       {/* 收藏 / 星标 */}
@@ -201,7 +203,7 @@ export function FileContextMenu({
               file.is_starred ? "text-yellow-400 fill-yellow-400" : "text-gray-500 dark:text-gray-400"
             )}
           />
-          <span>{file.is_starred ? '取消星标' : '添加星标'}</span>
+          <span>{file.is_starred ? t('removeStar') : t('addStar')}</span>
         </button>
       )}
 
@@ -217,7 +219,7 @@ export function FileContextMenu({
           }}
         >
           <Share2 className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
-          <span>分享</span>
+          <span>{t('share')}</span>
         </button>
       )}
 
@@ -235,7 +237,7 @@ export function FileContextMenu({
             }}
           >
             <Trash2 className="w-3.5 h-3.5 text-red-500 shrink-0" />
-            <span>删除</span>
+            <span>{t('delete')}</span>
           </button>
         </>
       )}

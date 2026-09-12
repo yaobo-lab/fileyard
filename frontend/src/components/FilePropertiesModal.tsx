@@ -2,6 +2,7 @@ import { X, Folder, FileText, Image, Film, Music, Lock, Eye, EyeOff, Calendar, U
 import { format } from 'date-fns';
 import { FileCommentsPanel } from './FileCommentsPanel';
 import { FileGlyphVisual } from './FileGlyphs';
+import { useTranslations } from '../context/I18nContext';
 
 interface FileItem {
     id: string;
@@ -39,10 +40,12 @@ const getFileIcon = (file: FileItem, companyId?: string) => {
 };
 
 export function FilePropertiesModal({ isOpen, onClose, file, departmentName, companyId }: FilePropertiesModalProps) {
+    const t = useTranslations('Properties');
+    const tCommon = useTranslations('Common');
     if (!isOpen || !file) return null;
 
     const formatDate = (dateStr?: string) => {
-        if (!dateStr) return 'Unknown';
+        if (!dateStr) return t('unknown');
         try {
             return format(new Date(dateStr), 'PPpp');
         } catch {
@@ -73,7 +76,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                     {/* Header */}
                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                            Properties
+                            {t('title')}
                         </h2>
                         <button
                             onClick={onClose}
@@ -95,7 +98,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                                     {file.name}
                                 </h3>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">
-                                    {file.type === 'folder' ? 'Folder' : file.content_type || `${file.type} file`}
+                                    {file.type === 'folder' ? t('folder') : file.content_type || t('fileType', { type: file.type })}
                                 </p>
                             </div>
                         </div>
@@ -106,7 +109,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                             <div className="flex items-start py-3 border-b border-gray-100 dark:border-gray-700">
                                 <User className="w-4 h-4 text-gray-400 mt-0.5 mr-3 flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Owner</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t('owner')}</p>
                                     <div className="flex items-center">
                                         {file.owner_avatar ? (
                                             <img 
@@ -119,7 +122,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                                                 {file.owner?.charAt(0)?.toUpperCase() || '?'}
                                             </div>
                                         )}
-                                        <span className="text-sm text-gray-900 dark:text-white">{file.owner || 'Unknown'}</span>
+                                        <span className="text-sm text-gray-900 dark:text-white">{file.owner || t('unknown')}</span>
                                     </div>
                                 </div>
                             </div>
@@ -127,8 +130,8 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                             {/* Size */}
                             <PropertyRow 
                                 icon={HardDrive} 
-                                label="Size" 
-                                value={file.size || (file.type === 'folder' ? 'Calculating...' : 'Unknown')} 
+                                label={t('size')} 
+                                value={file.size || (file.type === 'folder' ? t('calculating') : t('unknown'))} 
                             />
 
                             {/* Visibility */}
@@ -139,15 +142,15 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                                     <Eye className="w-4 h-4 text-gray-400 mt-0.5 mr-3 flex-shrink-0" />
                                 )}
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Visibility</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t('visibility')}</p>
                                     <p className="text-sm text-gray-900 dark:text-white">
                                         {file.visibility === 'private' ? (
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300">
-                                                Private
+                                                {t('private')}
                                             </span>
                                         ) : (
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">
-                                                Department
+                                                {t('department')}
                                             </span>
                                         )}
                                     </p>
@@ -158,7 +161,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                             {file.visibility === 'department' && departmentName && (
                                 <PropertyRow 
                                     icon={Building} 
-                                    label="Department" 
+                                    label={t('department')} 
                                     value={departmentName} 
                                 />
                             )}
@@ -168,20 +171,20 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                                 <div className="flex items-start py-3 border-b border-gray-100 dark:border-gray-700">
                                     <Lock className="w-4 h-4 text-orange-500 mt-0.5 mr-3 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">Lock Status</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t('lockStatus')}</p>
                                         <p className="text-sm text-gray-900 dark:text-white">
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300">
-                                                Locked
+                                                {t('locked')}
                                             </span>
                                             {file.lock_requires_role && (
                                                 <span className="ml-2 text-xs text-gray-500">
-                                                    ({file.lock_requires_role}+ required)
+                                                    ({t('requiredRole', { role: file.lock_requires_role })})
                                                 </span>
                                             )}
                                         </p>
                                         {file.locked_at && (
                                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                Locked on {formatDate(file.locked_at)}
+                                                {t('lockedOn', { time: formatDate(file.locked_at) })}
                                             </p>
                                         )}
                                     </div>
@@ -191,14 +194,14 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                             {/* Created Date */}
                             <PropertyRow 
                                 icon={Calendar} 
-                                label="Created" 
+                                label={t('created')} 
                                 value={formatDate(file.created_at)} 
                             />
 
                             {/* Modified Date */}
                             <PropertyRow 
                                 icon={Calendar} 
-                                label="Modified" 
+                                label={t('modified')} 
                                 value={formatDate(file.modified)} 
                             />
                         </div>
@@ -215,7 +218,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                         >
-                            Close
+                            {t('close')}
                         </button>
                     </div>
                 </div>

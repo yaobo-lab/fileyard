@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { useTranslations } from '../context/I18nContext';
 
 interface AddCompanyModalProps {
     isOpen: boolean;
@@ -17,6 +18,8 @@ export interface CompanyData {
 }
 
 export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddCompanyModalProps) {
+    const t = useTranslations('Companies');
+    const tCommon = useTranslations('Common');
     const [formData, setFormData] = useState<CompanyData>({
         name: '',
         domain: '',
@@ -78,7 +81,7 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        {initialData ? 'Edit Company' : 'Add New Company'}
+                        {initialData ? t('editCompany') : t('createCompany')}
                     </h2>
                     <button
                         onClick={onClose}
@@ -97,7 +100,7 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Company Name <span className="text-red-500">*</span>
+                            {t('companyName')} <span className="text-red-500">*</span>
                         </label>
                         <input
                             type="text"
@@ -111,7 +114,7 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Domain {initialData && <span className="text-xs text-gray-500 font-normal">(Cannot be changed)</span>} {!initialData && <span className="text-red-500">*</span>}
+                            {t('domain')} {initialData && <span className="text-xs text-gray-500 font-normal">({tCommon('delete') ? '不可修改' : 'Cannot be changed'})</span>} {!initialData && <span className="text-red-500">*</span>}
                         </label>
                         <input
                             type="text"
@@ -122,14 +125,14 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
                             placeholder="acme.com"
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500"
                         />
-                        {!initialData && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Company domain (used for branding and email)</p>}
+                        {!initialData && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('domain')}</p>}
                     </div>
 
                     {/* Plan selection removed, defaults to enterprise */}
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Storage Quota (TB)
+                            {t('storageQuota')}
                         </label>
                         <input
                             type="number"
@@ -139,13 +142,12 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
                             onChange={(e) => setFormData({ ...formData, storageQuota: parseInt(e.target.value) })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Allocated storage limit</p>
                     </div>
 
                     {!initialData && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Departments
+                                {t('departments')}
                             </label>
                             <div className="flex space-x-2 mb-2">
                                 <input
@@ -180,7 +182,7 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
                                     }}
                                     className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
                                 >
-                                    Add
+                                    {t('addDepartment')}
                                 </button>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -211,14 +213,14 @@ export function AddCompanyModal({ isOpen, onClose, onSubmit, initialData }: AddC
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmitting}
                             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isSubmitting ? (initialData ? 'Saving...' : 'Adding...') : (initialData ? 'Save Changes' : 'Add Company')}
+                            {isSubmitting ? (initialData ? tCommon('saving') : tCommon('saving')) : (initialData ? tCommon('save') : t('addCompany'))}
                         </button>
                     </div>
                 </form>

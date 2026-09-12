@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Layers, Palette } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 interface CreateGroupModalProps {
     isOpen: boolean;
@@ -22,6 +23,8 @@ const PRESET_COLORS = [
 ];
 
 export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }: CreateGroupModalProps) {
+    const t = useTranslations('CreateGroup');
+    const tCommon = useTranslations('Common');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [color, setColor] = useState('#3B82F6');
@@ -31,7 +34,7 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) {
-            setError('Group name is required');
+            setError(t('nameRequired'));
             return;
         }
 
@@ -62,7 +65,7 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
                             <Layers className="w-5 h-5" style={{ color }} />
                         </div>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                            Create File Group
+                            {t('title')}
                         </h2>
                     </div>
                     <button
@@ -82,19 +85,19 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
 
                     {initialFileName && (
                         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-blue-700 dark:text-blue-300 text-sm">
-                            <strong>"{initialFileName}"</strong> will be added to this group after creation.
+                            {t('initialFileHint', { name: initialFileName })}
                         </div>
                     )}
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Group Name *
+                            {t('groupName')} *
                         </label>
                         <input
                             type="text"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            placeholder="e.g., Q4 Reports, Client Assets"
+                            placeholder={t('placeholder')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             autoFocus
                         />
@@ -102,12 +105,12 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Description (optional)
+                            {t('description')}
                         </label>
                         <textarea
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Brief description of this group..."
+                            placeholder={t('descPlaceholder')}
                             rows={2}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                         />
@@ -116,7 +119,7 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             <Palette className="w-4 h-4 inline mr-1" />
-                            Color
+                            {t('color')}
                         </label>
                         <div className="flex flex-wrap gap-2">
                             {PRESET_COLORS.map((c) => (
@@ -140,7 +143,7 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
                             onClick={onClose}
                             className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         <button
                             type="submit"
@@ -150,12 +153,12 @@ export function CreateGroupModal({ isOpen, onClose, onCreate, initialFileName }:
                             {isSubmitting ? (
                                 <>
                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    Creating...
+                                    {t('creating')}
                                 </>
                             ) : (
                                 <>
                                     <Layers className="w-4 h-4" />
-                                    Create Group
+                                    {t('create')}
                                 </>
                             )}
                         </button>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslations } from '../context/I18nContext';
 
 interface FilterOption {
     label: string;
@@ -36,6 +37,7 @@ interface FilterModalProps {
 }
 
 export function FilterModal({ isOpen, onClose, onApply, config, initialValues = {} }: FilterModalProps) {
+    const t = useTranslations('Filters');
     const [filters, setFilters] = useState<FilterValues>(initialValues);
 
     const handleApply = () => {
@@ -55,7 +57,7 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-opacity animate-in fade-in duration-100">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between sticky top-0 bg-white dark:bg-gray-800">
-                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Filter Results</h2>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('title')}</h2>
                     <button
                         onClick={onClose}
                         className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -69,13 +71,13 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                     {config.search && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Search
+                                {t('search')}
                             </label>
                             <input
                                 type="text"
                                 value={filters.search || ''}
                                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                                placeholder="Search..."
+                                placeholder={t('searchPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                             />
                         </div>
@@ -85,14 +87,14 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                     {config.status && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Status
+                                {t('status')}
                             </label>
                             <select
                                 value={filters.status || ''}
                                 onChange={(e) => setFilters({ ...filters, status: e.target.value })}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                             >
-                                <option value="">All Statuses</option>
+                                <option value="">{t('allStatuses')}</option>
                                 {config.status.map((option) => (
                                     <option key={option.value} value={option.value}>
                                         {option.label}
@@ -107,14 +109,14 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                     {config.role && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Role
+                                {t('role')}
                             </label>
                             <select
                                 value={filters.role || ''}
                                 onChange={(e) => setFilters({ ...filters, role: e.target.value })}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                             >
-                                <option value="">All Roles</option>
+                                <option value="">{t('allRoles')}</option>
                                 {config.role.map((option) => (
                                     <option key={option.value} value={option.value}>
                                         {option.label}
@@ -128,14 +130,14 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                     {config.department && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Department
+                                {t('department')}
                             </label>
                             <select
                                 value={filters.department || ''}
                                 onChange={(e) => setFilters({ ...filters, department: e.target.value })}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                             >
-                                <option value="">All Departments</option>
+                                <option value="">{t('allDepartments')}</option>
                                 {config.department.map((option) => (
                                     <option key={option.value} value={option.value}>
                                         {option.label}
@@ -145,15 +147,13 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                         </div>
                     )}
 
-
-
                     {/* Date Range */}
                     {(config.dateFrom || config.dateTo) && (
                         <div className="grid grid-cols-2 gap-4">
                             {config.dateFrom && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        From Date
+                                        {t('fromDate')}
                                     </label>
                                     <input
                                         type="date"
@@ -166,7 +166,7 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                             {config.dateTo && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        To Date
+                                        {t('toDate')}
                                     </label>
                                     <input
                                         type="date"
@@ -185,13 +185,13 @@ export function FilterModal({ isOpen, onClose, onApply, config, initialValues = 
                         onClick={handleClear}
                         className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                     >
-                        Clear All
+                        {t('clearAll')}
                     </button>
                     <button
                         onClick={handleApply}
                         className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700"
                     >
-                        Apply Filters
+                        {t('applyFilters')}
                     </button>
                 </div>
             </div>

@@ -3,6 +3,7 @@ import { X, Lock, RefreshCw, Eye, EyeOff, User, Shield, Building2, Key, ChevronD
 import clsx from 'clsx';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { usePasswordPolicy, validatePassword, PasswordPolicy } from './PasswordInput';
+import { useTranslations } from '../context/I18nContext';
 
 // Generate a secure random password
 const generatePassword = (length = 12): string => {
@@ -129,6 +130,8 @@ const roleHierarchy: Record<string, number> = {
 };
 
 export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, targetTenantId }: InviteUserModalProps) {
+    const t = useTranslations('Users');
+    const tCommon = useTranslations('Common');
     const [formData, setFormData] = useState<UserData>({
         name: '',
         email: '',
@@ -439,10 +442,10 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                 <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
                     <div>
                         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                            {initialData ? 'Edit User' : 'Invite New User'}
+                            {initialData ? (t('edit') + ' ' + t('colUser')) : t('inviteUser')}
                         </h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                            {initialData ? 'Update user information and access' : 'Add a new team member to your organization'}
+                            {initialData ? '更新成员基本信息与访问权限' : '向您的企业组织中添加新成员'}
                         </p>
                     </div>
                     <button
@@ -464,7 +467,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                         {/* Basic Information */}
                         <AccordionSection
-                            title="Basic Information"
+                            title="基本信息"
                             icon={<User className="w-4 h-4" />}
                             isOpen={openSections.has('basic')}
                             onToggle={() => toggleSection('basic')}
@@ -474,7 +477,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                        Full Name
+                                        {tCommon('name')}
                                     </label>
                                     <input
                                         type="text"
@@ -487,8 +490,8 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                        Email Address
-                                        {initialData && <span className="text-xs text-gray-400 font-normal ml-2">(Cannot be changed)</span>}
+                                        邮箱地址
+                                        {initialData && <span className="text-xs text-gray-400 font-normal ml-2">(不可修改)</span>}
                                     </label>
                                     <input
                                         type="email"
@@ -505,7 +508,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                         {/* Role & Department */}
                         <AccordionSection
-                            title="Role & Department"
+                            title="角色与所属部门"
                             icon={<Shield className="w-4 h-4" />}
                             isOpen={openSections.has('role')}
                             onToggle={() => toggleSection('role')}
@@ -515,7 +518,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                        Role
+                                        {t('colRole')}
                                     </label>
                                     <select
                                         required
@@ -536,18 +539,18 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         <div className="flex items-center gap-2 mb-2">
                                             <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                                             <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                                                Confirm Role Change
+                                                确认角色权限变更
                                             </span>
                                         </div>
                                         <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">
-                                            Changing from "{originalRole}" to "{formData.role}"
+                                            正在由 "{originalRole}" 变更为 "{formData.role}"
                                         </p>
                                         <input
                                             type="password"
                                             required={roleChanged}
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
-                                            placeholder="Enter your password"
+                                            placeholder="请输入您的登录密码以确认操作"
                                             className="w-full px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
                                         />
                                     </div>
@@ -555,15 +558,15 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                                        Primary Department
-                                        <span className="text-xs text-gray-400 font-normal ml-2">(Optional)</span>
+                                        {t('colDepartment')}
+                                        <span className="text-xs text-gray-400 font-normal ml-2">(选填)</span>
                                     </label>
                                     <select
                                         value={formData.department_id}
                                         onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
                                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     >
-                                        <option value="">No department</option>
+                                        <option value="">未分配部门</option>
                                         {departments.map((dept) => (
                                             <option key={dept.id} value={dept.id}>
                                                 {dept.name}
@@ -577,7 +580,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {/* Extended Access (only show if there's something to configure) */}
                         {(departments.length > 1 || (isSuperAdmin && tenants.length > 1)) && (
                             <AccordionSection
-                                title="Extended Access"
+                                title="扩展访问权限"
                                 icon={<Building2 className="w-4 h-4" />}
                                 isOpen={openSections.has('access')}
                                 onToggle={() => toggleSection('access')}
@@ -836,7 +839,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         onClick={onClose}
                         className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                     >
-                        Cancel
+                        {tCommon('cancel')}
                     </button>
                     <button
                         onClick={handleSubmit}
@@ -846,10 +849,10 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {isSubmitting ? (
                             <>
                                 <RefreshCw className="w-4 h-4 animate-spin" />
-                                {initialData ? 'Saving...' : 'Inviting...'}
+                                {tCommon('saving')}
                             </>
                         ) : (
-                            initialData ? 'Save Changes' : 'Invite User'
+                            initialData ? tCommon('save') : t('inviteUser')
                         )}
                     </button>
                 </div>
