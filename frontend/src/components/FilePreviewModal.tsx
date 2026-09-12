@@ -10,6 +10,7 @@ import {
   FileText,
   FileSpreadsheet,
   AlertCircle,
+  Star,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { CodeViewer, CodeViewerHandle } from './viewers/CodeViewer';
@@ -79,16 +80,16 @@ export function detectFileKind(fileName: string, type?: string): SupportedKind {
 }
 
 const MODAL_SIZES: Record<SupportedKind, string> = {
-  text: 'w-[min(96vw,84rem)] h-[86vh]',
-  pdf: 'w-[min(96vw,72rem)] h-[88vh]',
-  docx: 'w-[min(96vw,72rem)] h-[88vh]',
-  pptx: 'w-[min(96vw,84rem)] h-[88vh]',
-  xlsx: 'w-[min(96vw,98rem)] h-[88vh]',
-  drawio: 'w-[min(96vw,86rem)] h-[88vh]',
-  image: 'w-auto max-w-[min(96vw,72rem)] max-h-[88vh]',
-  video: 'w-[min(96vw,72rem)] h-auto max-h-[88vh]',
-  audio: 'w-[min(96vw,36rem)] h-auto',
-  other: 'w-[min(96vw,36rem)] h-auto',
+  text: 'h-[85vh] w-[min(96vw,80rem)]',
+  pdf: 'h-[88vh] w-[min(96vw,68rem)]',
+  docx: 'h-[88vh] w-[min(96vw,68rem)]',
+  pptx: 'h-[88vh] w-[min(96vw,84rem)]',
+  xlsx: 'h-[85vh] w-[min(96vw,100rem)]',
+  drawio: 'h-[88vh] w-[min(96vw,84rem)]',
+  image: 'max-h-[88vh] w-fit min-w-[18rem] max-w-[min(96vw,64rem)]',
+  video: 'w-[min(96vw,72rem)] max-w-none',
+  audio: 'w-[min(96vw,36rem)] max-w-none',
+  other: 'max-w-md',
 };
 
 export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProps) {
@@ -96,6 +97,7 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isStarred, setIsStarred] = useState(false);
   const codeViewerRef = useRef<CodeViewerHandle>(null);
 
   // Detect dark mode from document
@@ -187,79 +189,52 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-xs transition-opacity animate-in fade-in duration-100">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-100">
       <div
         className={clsx(
-          'relative flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700/80 overflow-hidden transition-all duration-150',
+          'relative flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200/80 dark:border-gray-800 overflow-hidden transition-all duration-150',
           isFullscreen ? 'w-full h-full rounded-none' : MODAL_SIZES[kind]
         )}
       >
-        {/* Top Header Bar */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-gray-100 dark:border-gray-700/80 px-4 bg-gray-50/70 dark:bg-gray-900/50 backdrop-blur-xs">
-          <div className="flex items-center gap-2.5 min-w-0 pr-3">
-            <div className="shrink-0 flex items-center justify-center">
-              <FileGlyphVisual file={{ id: file.id || 'preview', name: file.name, type: file.type }} className="h-6 w-auto" />
-            </div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate" title={file.name}>
+        {/* Top Header Bar (Matching screenshot 1:1) */}
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-gray-200/80 dark:border-gray-800 px-4 bg-white dark:bg-gray-900 select-none">
+          <div className="flex items-center min-w-0 pr-3">
+            <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" title={file.name}>
               {file.name}
             </h3>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {/* Search (for code/text) */}
             {kind === 'text' && (
               <button
                 type="button"
                 onClick={() => codeViewerRef.current?.toggleSearch()}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
+                className="p-1 rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 title="搜索 (Ctrl+F)"
               >
                 <Search className="w-4 h-4" />
               </button>
             )}
 
-            {/* Open in new tab */}
-            {blobUrl && (
-              <button
-                type="button"
-                onClick={handleOpenInNewTab}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
-                title="在新标签页中打开"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </button>
-            )}
-
-            {/* Download */}
+            {/* Favorite Star Button (matching screenshot) */}
             <button
               type="button"
-              onClick={handleDownload}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
-              title="下载文件"
+              onClick={() => setIsStarred(!isStarred)}
+              className="p-1.5 rounded-md border border-gray-250 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 transition-colors shadow-2xs"
+              title={isStarred ? '取消收藏' : '添加收藏'}
             >
-              <Download className="w-4 h-4" />
+              <Star className={clsx("w-3.5 h-3.5", isStarred ? "fill-amber-400 text-amber-500" : "text-gray-500 dark:text-gray-400")} />
             </button>
 
-            {/* Toggle Fullscreen */}
-            {!['audio', 'other'].includes(kind) && (
-              <button
-                type="button"
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
-                title={isFullscreen ? '还原窗口' : '全屏显示'}
-              >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-            )}
-
-            {/* Close */}
+            {/* Close Button (matching screenshot) */}
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors ml-1"
+              className="p-1 rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               title="关闭 (Esc)"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
