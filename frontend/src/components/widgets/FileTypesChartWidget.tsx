@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { FileText } from 'lucide-react';
 import { useAuthFetch } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 
 interface FileTypeData {
     name: string;
@@ -21,32 +22,33 @@ const COLORS = [
     '#84CC16', // lime
 ];
 
-const FILE_TYPE_LABELS: Record<string, string> = {
-    'application/pdf': 'PDF',
-    'image/jpeg': 'Images',
-    'image/png': 'Images',
-    'image/gif': 'Images',
-    'image/webp': 'Images',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Documents',
-    'application/msword': 'Documents',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Spreadsheets',
-    'application/vnd.ms-excel': 'Spreadsheets',
-    'text/plain': 'Text Files',
-    'text/csv': 'CSV',
-    'application/json': 'JSON',
-    'application/zip': 'Archives',
-    'application/x-rar-compressed': 'Archives',
-    'video/mp4': 'Videos',
-    'video/quicktime': 'Videos',
-    'audio/mpeg': 'Audio',
-    'audio/wav': 'Audio',
-};
-
 export function FileTypesChartWidget() {
+    const t = useTranslations('Dashboard');
     const [fileTypes, setFileTypes] = useState<FileTypeData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [totalFiles, setTotalFiles] = useState(0);
     const authFetch = useAuthFetch();
+
+    const FILE_TYPE_LABELS: Record<string, string> = {
+        'application/pdf': t('typePdf'),
+        'image/jpeg': t('typeImages'),
+        'image/png': t('typeImages'),
+        'image/gif': t('typeImages'),
+        'image/webp': t('typeImages'),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': t('typeDocuments'),
+        'application/msword': t('typeDocuments'),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': t('typeSpreadsheets'),
+        'application/vnd.ms-excel': t('typeSpreadsheets'),
+        'text/plain': t('typeText'),
+        'text/csv': t('typeCsv'),
+        'application/json': t('typeJson'),
+        'application/zip': t('typeArchives'),
+        'application/x-rar-compressed': t('typeArchives'),
+        'video/mp4': t('typeVideos'),
+        'video/quicktime': t('typeVideos'),
+        'audio/mpeg': t('typeAudio'),
+        'audio/wav': t('typeAudio'),
+    };
 
     useEffect(() => {
         fetchFileTypes();
@@ -76,11 +78,11 @@ export function FileTypesChartWidget() {
         if (FILE_TYPE_LABELS[contentType]) {
             return FILE_TYPE_LABELS[contentType];
         }
-        if (contentType.startsWith('image/')) return 'Images';
-        if (contentType.startsWith('video/')) return 'Videos';
-        if (contentType.startsWith('audio/')) return 'Audio';
-        if (contentType.startsWith('text/')) return 'Text Files';
-        return 'Other';
+        if (contentType.startsWith('image/')) return t('typeImages');
+        if (contentType.startsWith('video/')) return t('typeVideos');
+        if (contentType.startsWith('audio/')) return t('typeAudio');
+        if (contentType.startsWith('text/')) return t('typeText');
+        return t('typeOther');
     };
 
     const CustomTooltip = ({ active, payload }: any) => {
@@ -90,7 +92,7 @@ export function FileTypesChartWidget() {
             return (
                 <div className="bg-gray-900 dark:bg-gray-700 text-white px-3 py-2 rounded-lg shadow-lg text-sm">
                     <p className="font-medium">{data.name}</p>
-                    <p className="text-gray-300">{data.value} files ({percentage}%)</p>
+                    <p className="text-gray-300">{t('filesPercentageCount', { count: data.value, percentage })}</p>
                 </div>
             );
         }
@@ -122,8 +124,8 @@ export function FileTypesChartWidget() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">File Types</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Distribution by type</p>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('fileTypesTitle')}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('distributionByType')}</p>
                 </div>
                 <div className="flex items-center space-x-2">
                     <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
@@ -131,7 +133,7 @@ export function FileTypesChartWidget() {
                     </div>
                     <div className="text-right">
                         <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalFiles}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('total')}</p>
                     </div>
                 </div>
             </div>
@@ -144,7 +146,7 @@ export function FileTypesChartWidget() {
                 <div className="h-48 flex items-center justify-center text-gray-500 dark:text-gray-400">
                     <div className="text-center">
                         <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No files uploaded yet</p>
+                        <p className="text-sm">{t('noFilesUploaded')}</p>
                     </div>
                 </div>
             ) : (
@@ -191,7 +193,7 @@ export function FileTypesChartWidget() {
                     ))}
                     {fileTypes.length > 4 && (
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                            +{fileTypes.length - 4} more
+                            {t('moreTypes', { count: fileTypes.length - 4 })}
                         </span>
                     )}
                 </div>

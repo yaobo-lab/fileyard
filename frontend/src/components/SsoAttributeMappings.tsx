@@ -407,7 +407,7 @@ export function SsoAttributeMappings({ oidcProviders, samlProviders }: Props) {
                     <ArrowUpDown className="w-10 h-10 mx-auto text-gray-400 dark:text-gray-500 mb-2" />
                     <h3 className="text-sm font-medium text-gray-900 dark:text-white">No Attribute Mappings</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Map IdP attributes (groups, roles) to ClovaLink roles and departments.
+                        Map IdP attributes (groups, roles) to Fileyard roles and departments.
                     </p>
                 </div>
             ) : mappings.length > 0 && (

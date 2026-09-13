@@ -3064,7 +3064,7 @@ export function FileBrowser() {
                 onDrop={handleDrop}
             >
                 {/* File Area */}
-                <div className="p-4 relative flex flex-col flex-1 min-h-[400px]">
+                <div className="px-3 py-4 sm:px-4 relative flex flex-col flex-1 min-h-[400px]">
                     {isDragging && !draggedFile && (
                         <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 bg-opacity-90 dark:bg-opacity-90 z-50 backdrop-blur-sm">
                             <div className="text-center p-8 border-4 border-dashed border-primary-400 rounded-xl bg-primary-50 dark:bg-primary-900/30">
@@ -3111,7 +3111,7 @@ export function FileBrowser() {
 
                     {paginatedFiles.length > 0 && (viewMode === 'grid' ? (
                         <div
-                            className="grid gap-x-1 gap-y-3 justify-items-center content-start"
+                            className="grid gap-x-1 gap-y-3 justify-items-start content-start"
                             style={{
                                 gridTemplateColumns: "repeat(auto-fill, minmax(6.5rem, 1fr))",
                             }}

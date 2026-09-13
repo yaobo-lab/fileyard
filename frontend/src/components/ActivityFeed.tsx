@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Activity {
@@ -29,6 +30,7 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
+    const t = useTranslations('Dashboard');
     const [activities, setActivities] = useState<Activity[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
@@ -62,7 +64,7 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
     const handleExport = async () => {
         // Only admins can export
         if (!user || !['Admin', 'SuperAdmin'].includes(user.role)) {
-            setExportError('Only admins can export audit logs');
+            setExportError(t('onlyAdminsExport'));
             return;
         }
 
@@ -82,11 +84,11 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
                 URL.revokeObjectURL(url);
             } else {
                 const error = await response.text();
-                setExportError(error || 'Failed to export audit trail');
+                setExportError(error || t('exportFailed'));
             }
         } catch (error) {
             console.error('Failed to export audit logs', error);
-            setExportError('Failed to export audit trail');
+            setExportError(t('exportFailed'));
         } finally {
             setIsExporting(false);
         }
@@ -164,12 +166,12 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-colors duration-200 h-full flex flex-col">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Activity Log</h3>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('activityLog')}</h3>
                     <button 
                         onClick={handleRefresh}
                         disabled={isRefreshing}
                         className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                        title="Refresh"
+                        title={t('refresh')}
                     >
                         <RefreshCw className={clsx("w-4 h-4", isRefreshing && "animate-spin")} />
                     </button>
@@ -190,10 +192,10 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
                             {isExporting ? (
                                 <>
                                     <Loader2 className="w-3 h-3 animate-spin" />
-                                    Exporting...
+                                    {t('exporting')}
                                 </>
                             ) : (
-                                'Export Audit Trail'
+                                t('exportAuditTrail')
                             )}
                         </button>
                     </div>
@@ -235,7 +237,7 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
                         ))}
                         {activities.length === 0 && (
                             <li className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                                No recent activity found.
+                                {t('noRecentActivity')}
                             </li>
                         )}
                     </ul>

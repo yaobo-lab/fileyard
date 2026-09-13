@@ -12,16 +12,16 @@ export function Logo({ className, forceDefault = false, compact = false }: LogoP
     // If there's a custom logo and we're not forcing default, show it
     if (settings.logo_url && !forceDefault) {
         return (
-            <img 
-                src={settings.logo_url} 
-                alt={settings.app_name || 'Logo'} 
+            <img
+                src={settings.logo_url}
+                alt={settings.app_name || 'Logo'}
                 className={className}
                 style={{ objectFit: 'contain' }}
             />
         );
     }
 
-    // Default ClovaLink SVG logo
+    // Default Fileyard SVG logo
     // compact mode uses cropped viewBox for footer (removes dead space above/below text)
     return (
         <svg

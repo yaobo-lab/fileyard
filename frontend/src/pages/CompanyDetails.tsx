@@ -31,7 +31,6 @@ import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useSettings, getComplianceEnforcementSummary, ComplianceMode } from '../context/SettingsContext';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
-import { ComplianceBanner } from '../components/ComplianceBanner';
 import { ComplianceBadge } from '../components/ComplianceBadge';
 import { LockedToggle } from '../components/LockedField';
 import { TenantEmailTemplates } from '../components/TenantEmailTemplates';
@@ -1002,11 +1001,6 @@ export function CompanyDetails() {
 
                 {activeTab === 'settings' && (
                     <div className="max-w-6xl mx-auto space-y-6">
-                        {/* Compliance Banner */}
-                        {editCompliance && editCompliance !== 'none' && editCompliance !== 'Standard' && (
-                            <ComplianceBanner mode={editCompliance} />
-                        )}
-
                         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('generalSettings')}</h3>

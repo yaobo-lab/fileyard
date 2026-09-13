@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Check, Loader2, AlertTriangle, Power, RefreshCw, ExternalLink, Github, Package, ArrowUp, CheckCircle2 } from 'lucide-react';
+import { Save, Check, Loader2, AlertTriangle, Power, RefreshCw, ExternalLink, Package, ArrowUp, CheckCircle2 } from 'lucide-react';
 import { useGlobalSettings } from '../../context/GlobalSettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslations } from '../../context/I18nContext';
@@ -22,27 +22,24 @@ export function SystemSettings() {
     const { confirm: modalConfirm } = useModalDialog();
     const { settings, updateSettings } = useGlobalSettings();
     const { token } = useAuth();
-    
+
     const [maintenanceMode, setMaintenanceMode] = useState(settings.maintenance_mode);
     const [maintenanceMessage, setMaintenanceMessage] = useState(settings.maintenance_message);
-    const [githubRepo, setGithubRepo] = useState(settings.github_repo || '');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
-    
+
     // Version check state
     const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
     const [isCheckingVersion, setIsCheckingVersion] = useState(false);
     const [versionError, setVersionError] = useState<string | null>(null);
 
-    const hasChanges = 
+    const hasChanges =
         maintenanceMode !== settings.maintenance_mode ||
-        maintenanceMessage !== settings.maintenance_message ||
-        githubRepo !== (settings.github_repo || '');
+        maintenanceMessage !== settings.maintenance_message;
 
     useEffect(() => {
         setMaintenanceMode(settings.maintenance_mode);
         setMaintenanceMessage(settings.maintenance_message);
-        setGithubRepo(settings.github_repo || '');
     }, [settings]);
 
     // Check version on mount
@@ -53,18 +50,18 @@ export function SystemSettings() {
     const checkVersion = async () => {
         setIsCheckingVersion(true);
         setVersionError(null);
-        
+
         try {
             const response = await fetch('/api/admin/version', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
             });
-            
+
             if (!response.ok) {
                 throw new Error('Failed to check version');
             }
-            
+
             const data = await response.json();
             setVersionInfo(data);
         } catch (err) {
@@ -77,21 +74,16 @@ export function SystemSettings() {
     const handleSave = async () => {
         setIsSaving(true);
         setSaveSuccess(false);
-        
+
         const success = await updateSettings({
             maintenance_mode: maintenanceMode,
             maintenance_message: maintenanceMessage,
-            github_repo: githubRepo || null,
         });
-        
+
         setIsSaving(false);
         if (success) {
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
-            // Refresh version info after saving repo
-            if (githubRepo) {
-                checkVersion();
-            }
         }
     };
 
@@ -145,7 +137,7 @@ export function SystemSettings() {
             {/* Maintenance Mode Card */}
             <div className={clsx(
                 "rounded-xl border shadow-sm overflow-hidden transition-colors",
-                maintenanceMode 
+                maintenanceMode
                     ? "bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700"
                     : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
             )}>
@@ -171,7 +163,7 @@ export function SystemSettings() {
                             </p>
                         </div>
                     </div>
-                    
+
                     {/* Toggle Switch */}
                     <button
                         onClick={handleToggleMaintenance}
@@ -195,7 +187,7 @@ export function SystemSettings() {
                         </span>
                     </button>
                 </div>
-                
+
                 <div className="p-6 space-y-4">
                     {maintenanceMode && (
                         <div className="flex items-start gap-3 p-4 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
@@ -210,7 +202,7 @@ export function SystemSettings() {
                             </div>
                         </div>
                     )}
-                    
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             {t('maintenanceMsgLabel')}
@@ -262,7 +254,7 @@ export function SystemSettings() {
                         </div>
                     </div>
                 </div>
-                
+
                 <div className="p-6 space-y-6">
                     {/* Current Version Display */}
                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
@@ -271,7 +263,7 @@ export function SystemSettings() {
                                 <span className="text-white font-bold text-lg">CL</span>
                             </div>
                             <div>
-                                <h4 className="font-semibold text-gray-900 dark:text-white">ClovaLink</h4>
+                                <h4 className="font-semibold text-gray-900 dark:text-white">Fileyard</h4>
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="text-sm text-gray-600 dark:text-gray-400">{t('currentVersion')}</span>
                                     <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded text-sm font-mono font-medium">
@@ -280,7 +272,7 @@ export function SystemSettings() {
                                 </div>
                             </div>
                         </div>
-                        
+
                         <button
                             onClick={checkVersion}
                             disabled={isCheckingVersion}
@@ -337,7 +329,7 @@ export function SystemSettings() {
                                             {t('upToDate')}
                                         </p>
                                         <p className="text-xs text-green-700 dark:text-green-300 mt-1">
-                                            ClovaLink v{versionInfo.current_version}
+                                            Fileyard v{versionInfo.current_version}
                                         </p>
                                     </div>
                                 </>
@@ -345,39 +337,6 @@ export function SystemSettings() {
                         </div>
                     )}
 
-                    {/* Error State */}
-                    {(versionError || versionInfo?.check_error) && (
-                        <div className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                            <AlertTriangle className="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-gray-600 dark:text-gray-400">
-                                    {versionError || versionInfo?.check_error}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* GitHub Repository Configuration */}
-                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <div className="flex items-center gap-2">
-                                <Github className="w-4 h-4" />
-                                {t('githubRepo')}
-                            </div>
-                        </label>
-                        <div className="flex gap-3">
-                            <input
-                                type="text"
-                                value={githubRepo}
-                                onChange={(e) => setGithubRepo(e.target.value)}
-                                placeholder="owner/repository (e.g., clovalink/clovalink)"
-                                className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
-                            />
-                        </div>
-                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            {t('githubRepoDesc')}
-                        </p>
-                    </div>
                 </div>
             </div>
 

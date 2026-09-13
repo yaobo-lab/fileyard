@@ -27,9 +27,9 @@ const defaultSettings: GlobalSettings = {
     time_format: '12h',
     timezone: 'America/New_York',
     language: (typeof window !== 'undefined' && localStorage.getItem('app_language') === 'en' ? 'en' : 'zh'),
-    footer_attribution: 'An open source project by ClovaLink.org',
-    footer_disclaimer: 'ClovaLink is provided "as is" without warranty of any kind. The authors and contributors are not liable for any damages arising from use of this software.',
-    app_name: 'ClovaLink',
+    footer_attribution: 'An open source project by Fileyard.org',
+    footer_disclaimer: 'Fileyard is provided "as is" without warranty of any kind. The authors and contributors are not liable for any damages arising from use of this software.',
+    app_name: 'Fileyard',
     logo_url: null,
     favicon_url: null,
     // Page content defaults
@@ -267,11 +267,11 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
         const d = typeof date === 'string' ? new Date(date) : date;
         if (isNaN(d.getTime())) return 'Invalid date';
         const format = settings.date_format;
-        
+
         const day = d.getDate().toString().padStart(2, '0');
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const year = d.getFullYear().toString();
-        
+
         switch (format) {
             case 'DD/MM/YYYY':
                 return `${day}/${month}/${year}`;
@@ -287,19 +287,19 @@ export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
         if (!date) return '';
         const d = typeof date === 'string' ? new Date(date) : date;
         if (isNaN(d.getTime())) return '';
-        
+
         if (settings.time_format === '24h') {
-            return d.toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
+            return d.toLocaleTimeString('en-US', {
+                hour: '2-digit',
                 minute: '2-digit',
-                hour12: false 
+                hour12: false
             });
         }
-        
-        return d.toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
+
+        return d.toLocaleTimeString('en-US', {
+            hour: 'numeric',
             minute: '2-digit',
-            hour12: true 
+            hour12: true
         });
     }, [settings.time_format]);
 

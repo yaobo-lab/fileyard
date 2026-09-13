@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { useAuthFetch } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Notification {
@@ -16,6 +17,7 @@ interface NotificationsWidgetProps {
 }
 
 export function NotificationsWidget({ limit = 5 }: NotificationsWidgetProps) {
+    const t = useTranslations('Dashboard');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const authFetch = useAuthFetch();
@@ -32,23 +34,23 @@ export function NotificationsWidget({ limit = 5 }: NotificationsWidgetProps) {
                 const data = await res.json();
                 const notifs: Notification[] = (data.logs || []).slice(0, limit).map((log: any) => {
                     let type: 'info' | 'success' | 'warning' | 'error' = 'info';
-                    let title = log.action || 'Activity';
+                    let titleKey = 'notifActivity';
                     
                     if (log.action?.includes('error') || log.action?.includes('failed')) {
                         type = 'error';
-                        title = 'Error';
+                        titleKey = 'notifError';
                     } else if (log.action?.includes('warning') || log.action?.includes('alert')) {
                         type = 'warning';
-                        title = 'Warning';
+                        titleKey = 'notifWarning';
                     } else if (log.action?.includes('success') || log.action?.includes('created') || log.action?.includes('completed')) {
                         type = 'success';
-                        title = 'Success';
+                        titleKey = 'notifSuccess';
                     }
                     
                     return {
                         id: log.id,
                         type,
-                        title: title.charAt(0).toUpperCase() + title.slice(1).replace(/_/g, ' '),
+                        title: t(titleKey),
                         message: `${log.user || 'System'}: ${log.action?.replace(/_/g, ' ')} ${log.resource || ''}`.trim(),
                         timestamp: log.timestamp
                     };
@@ -91,7 +93,7 @@ export function NotificationsWidget({ limit = 5 }: NotificationsWidgetProps) {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Notifications</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('notificationsTitle')}</h3>
                 <Bell className="w-5 h-5 text-gray-400" />
             </div>
             
@@ -104,7 +106,7 @@ export function NotificationsWidget({ limit = 5 }: NotificationsWidgetProps) {
             ) : notifications.length === 0 ? (
                 <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                     <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No notifications</p>
+                    <p className="text-sm">{t('noNotifications')}</p>
                 </div>
             ) : (
                 <div className="space-y-3">

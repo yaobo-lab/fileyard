@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, AlertTriangle, FileText, Link as LinkIcon } from 'lucide-react';
 import { useAuthFetch } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ExpiringItem {
@@ -16,6 +17,7 @@ interface ExpiringWidgetProps {
 }
 
 export function ExpiringWidget({ daysAhead = 7 }: ExpiringWidgetProps) {
+    const t = useTranslations('Dashboard');
     const [items, setItems] = useState<ExpiringItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const authFetch = useAuthFetch();
@@ -60,7 +62,7 @@ export function ExpiringWidget({ daysAhead = 7 }: ExpiringWidgetProps) {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Expiring Soon</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('expiringSoon')}</h3>
                 <Calendar className="w-5 h-5 text-gray-400" />
             </div>
             
@@ -73,7 +75,7 @@ export function ExpiringWidget({ daysAhead = 7 }: ExpiringWidgetProps) {
             ) : items.length === 0 ? (
                 <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                     <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Nothing expiring in the next {daysAhead} days</p>
+                    <p className="text-sm">{t('nothingExpiring', { days: daysAhead })}</p>
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -116,9 +118,9 @@ export function ExpiringWidget({ daysAhead = 7 }: ExpiringWidgetProps) {
                                     item.days_until <= 3 ? 'text-orange-600 dark:text-orange-400' :
                                     'text-gray-500 dark:text-gray-400'
                                 }`}>
-                                    {item.days_until === 0 ? 'Expires today' :
-                                     item.days_until === 1 ? 'Expires tomorrow' :
-                                     `Expires in ${item.days_until} days`}
+                                    {item.days_until === 0 ? t('expiresToday') :
+                                     item.days_until === 1 ? t('expiresTomorrow') :
+                                     t('expiresInDays', { days: item.days_until })}
                                 </p>
                             </div>
                             {item.days_until <= 1 && (

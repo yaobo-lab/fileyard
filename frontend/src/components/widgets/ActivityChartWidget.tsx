@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Activity } from 'lucide-react';
 import { useAuthFetch } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import { format, subDays, parseISO, startOfDay } from 'date-fns';
 
 interface ActivityLog {
@@ -21,6 +22,7 @@ interface ActivityChartWidgetProps {
 }
 
 export function ActivityChartWidget({ days = 7 }: ActivityChartWidgetProps) {
+    const t = useTranslations('Dashboard');
     const [activityData, setActivityData] = useState<DayActivity[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [totalActivity, setTotalActivity] = useState(0);
@@ -87,7 +89,7 @@ export function ActivityChartWidget({ days = 7 }: ActivityChartWidgetProps) {
             return (
                 <div className="bg-gray-900 dark:bg-gray-700 text-white px-3 py-2 rounded-lg shadow-lg text-sm">
                     <p className="font-medium">{format(parseISO(payload[0].payload.day), 'MMM d, yyyy')}</p>
-                    <p className="text-primary-300">{payload[0].value} activities</p>
+                    <p className="text-primary-300">{t('activitiesCount', { count: payload[0].value })}</p>
                 </div>
             );
         }
@@ -98,8 +100,8 @@ export function ActivityChartWidget({ days = 7 }: ActivityChartWidgetProps) {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Activity Overview</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Last {days} days</p>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('activityOverview')}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{t('lastDays', { days })}</p>
                 </div>
                 <div className="flex items-center space-x-2">
                     <div className="p-2 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
@@ -107,7 +109,7 @@ export function ActivityChartWidget({ days = 7 }: ActivityChartWidgetProps) {
                     </div>
                     <div className="text-right">
                         <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalActivity}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('total')}</p>
                     </div>
                 </div>
             </div>
@@ -120,7 +122,7 @@ export function ActivityChartWidget({ days = 7 }: ActivityChartWidgetProps) {
                 <div className="h-48 flex items-center justify-center text-gray-500 dark:text-gray-400">
                     <div className="text-center">
                         <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No activity data available</p>
+                        <p className="text-sm">{t('noActivityData')}</p>
                     </div>
                 </div>
             ) : (

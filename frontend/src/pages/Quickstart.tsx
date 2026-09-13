@@ -108,8 +108,8 @@ export default function Quickstart() {
 
     return (
         <div className="max-w-5xl mx-auto">
-            <Link 
-                to="/" 
+            <Link
+                to="/"
                 className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -119,13 +119,13 @@ export default function Quickstart() {
             <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Quickstart Guide</h1>
                 <p className="mt-2 text-lg text-gray-600 dark:text-gray-400">
-                    Get up and running with ClovaLink in minutes. Learn the basics to start managing your files.
+                    Get up and running with Fileyard in minutes. Learn the basics to start managing your files.
                 </p>
             </div>
 
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {guides.map((guide, index) => (
-                    <div 
+                    <div
                         key={index}
                         className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:shadow-md transition-shadow"
                     >
@@ -158,13 +158,13 @@ export default function Quickstart() {
                     For detailed documentation on compliance modes, retention policies, and advanced features:
                 </p>
                 <div className="flex flex-wrap gap-3">
-                    <Link 
+                    <Link
                         to="/help"
                         className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors text-sm font-medium"
                     >
                         View Help Documentation
                     </Link>
-                    <a 
+                    <a
                         href="https://clovalink.org/docs"
                         target="_blank"
                         rel="noopener noreferrer"

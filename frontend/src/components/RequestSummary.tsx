@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link as LinkIcon, Clock, ArrowRight, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface FileRequest {
     id: string;
@@ -18,6 +19,7 @@ interface DashboardStats {
 }
 
 export function RequestSummary() {
+    const t = useTranslations('Dashboard');
     const [requests, setRequests] = useState<FileRequest[]>([]);
     const [totalActive, setTotalActive] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -45,9 +47,9 @@ export function RequestSummary() {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors duration-200 h-full">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Active File Requests</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('activeFileRequests')}</h3>
                 <Link to="/file-requests" className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 font-medium flex items-center">
-                    Manage <ArrowRight className="w-4 h-4 ml-1" />
+                    {t('manage')} <ArrowRight className="w-4 h-4 ml-1" />
                 </Link>
             </div>
 
@@ -60,9 +62,9 @@ export function RequestSummary() {
                 ) : requests.length === 0 ? (
                     <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                         <LinkIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No active file requests</p>
+                        <p className="text-sm">{t('noActiveRequests')}</p>
                         <Link to="/file-requests" className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 mt-2 inline-block">
-                            Create one
+                            {t('createOne')}
                         </Link>
                     </div>
                 ) : (
@@ -93,10 +95,10 @@ export function RequestSummary() {
                                         {request.upload_count > 0 ? (
                                             <span className="flex items-center">
                                                 <Upload className="w-3 h-3 mr-1" />
-                                                {request.upload_count} upload{request.upload_count !== 1 ? 's' : ''}
+                                                {t('uploadsCount', { count: request.upload_count })}
                                             </span>
                                         ) : (
-                                            'No uploads yet'
+                                            t('noUploadsYet')
                                         )}
                                     </p>
                                 </div>
@@ -112,7 +114,7 @@ export function RequestSummary() {
 
             <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                 <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Total Active Links</span>
+                    <span className="text-gray-500 dark:text-gray-400">{t('totalActiveLinks')}</span>
                     <span className="font-medium text-gray-900 dark:text-white">{totalActive}</span>
                 </div>
             </div>

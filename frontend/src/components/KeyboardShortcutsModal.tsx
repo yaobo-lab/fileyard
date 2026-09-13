@@ -3,8 +3,10 @@ import { X, Keyboard, ChevronDown, Check } from 'lucide-react';
 import { useKeyboardShortcutsContext, formatShortcut } from '../context/KeyboardShortcutsContext';
 import { getModifierKey } from '../hooks/useKeyboardShortcuts';
 import { ShortcutPresetId } from '../hooks/shortcutPresets';
+import { useTranslations } from '../context/I18nContext';
 
 export function KeyboardShortcutsModal() {
+  const t = useTranslations('SettingsShortcuts');
   const { 
     isHelpOpen, 
     closeHelp, 
@@ -17,6 +19,34 @@ export function KeyboardShortcutsModal() {
   const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const isMac = getModifierKey() === 'meta';
+
+  const getPresetName = (presetId: string, fallbackName: string) => {
+    const key = `preset_${presetId}`;
+    const translated = t(key);
+    return translated !== key ? translated : fallbackName;
+  };
+
+  const getPresetDesc = (presetId: string, fallbackDesc: string) => {
+    const key = `preset_${presetId}_desc`;
+    const translated = t(key);
+    return translated !== key ? translated : fallbackDesc;
+  };
+
+  const getActionDescription = (actionId: string, fallbackDesc: string) => {
+    const key = `act_${actionId.replace('.', '_')}`;
+    const translated = t(key);
+    return translated !== key ? translated : fallbackDesc;
+  };
+
+  const getCategoryLabel = (name: string) => {
+    const map: Record<string, string> = {
+      'Navigation': t('catNavigation'),
+      'UI Controls': t('catUi'),
+      'File Operations': t('catFiles'),
+      'Selection': t('catSelection'),
+    };
+    return map[name] || name;
+  };
 
   // Close on escape
   useEffect(() => {
@@ -90,10 +120,10 @@ export function KeyboardShortcutsModal() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Keyboard Shortcuts
+                {t('modalTitle')}
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {isMac ? 'Using ⌘ for modifier key' : 'Using Ctrl for modifier key'}
+                {isMac ? t('usingMeta') : t('usingCtrl')}
               </p>
             </div>
           </div>
@@ -108,13 +138,13 @@ export function KeyboardShortcutsModal() {
         {/* Preset Selector */}
         <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Preset:</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">{t('presetLabel')}</span>
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsPresetDropdownOpen(!isPresetDropdownOpen)}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
               >
-                {currentPreset.name}
+                {getPresetName(currentPreset.id, currentPreset.name)}
                 <ChevronDown className="w-4 h-4" />
               </button>
               
@@ -129,14 +159,14 @@ export function KeyboardShortcutsModal() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-gray-900 dark:text-white">
-                            {preset.name}
+                            {getPresetName(preset.id, preset.name)}
                           </span>
                           {currentPresetId === preset.id && (
                             <Check className="w-4 h-4 text-primary-500" />
                           )}
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {preset.description}
+                          {getPresetDesc(preset.id, preset.description)}
                         </p>
                       </div>
                     </button>
@@ -145,7 +175,7 @@ export function KeyboardShortcutsModal() {
               )}
             </div>
             <span className="text-xs text-gray-400 dark:text-gray-500">
-              Your preference is saved automatically
+              {t('autoSaved')}
             </span>
           </div>
         </div>
@@ -156,7 +186,7 @@ export function KeyboardShortcutsModal() {
             {categories.map((category) => (
               <div key={category.name} className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
-                  {category.name}
+                  {getCategoryLabel(category.name)}
                 </h3>
                 <div className="space-y-2">
                   {category.shortcuts.map((shortcut, index) => (
@@ -165,7 +195,7 @@ export function KeyboardShortcutsModal() {
                       className="flex items-center justify-between py-1.5"
                     >
                       <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {shortcut.description}
+                        {shortcut.id ? getActionDescription(shortcut.id, shortcut.description) : shortcut.description}
                       </span>
                       <kbd className="inline-flex items-center gap-1 px-2 py-1 text-xs font-mono font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded shadow-sm">
                         {formatShortcut(shortcut.keys, shortcut.isSequence)}
@@ -181,9 +211,7 @@ export function KeyboardShortcutsModal() {
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
           <p className="text-xs text-center text-gray-500 dark:text-gray-400">
-            Press <kbd className="px-1.5 py-0.5 text-xs font-mono bg-gray-200 dark:bg-gray-700 rounded">?</kbd> anytime to show this help
-            {' · '}
-            <kbd className="px-1.5 py-0.5 text-xs font-mono bg-gray-200 dark:bg-gray-700 rounded">Esc</kbd> to close
+            {t('footerHelpHint')}
           </p>
         </div>
       </div>

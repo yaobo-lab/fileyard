@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Clock, FileText, Upload } from 'lucide-react';
 import { useAuthFetch } from '../../context/AuthContext';
+import { useTranslations } from '../../context/I18nContext';
 import { formatDistanceToNow } from 'date-fns';
 
 interface RecentFile {
@@ -16,6 +17,7 @@ interface RecentUploadsWidgetProps {
 }
 
 export function RecentUploadsWidget({ limit = 5 }: RecentUploadsWidgetProps) {
+    const t = useTranslations('Dashboard');
     const [files, setFiles] = useState<RecentFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const authFetch = useAuthFetch();
@@ -32,7 +34,7 @@ export function RecentUploadsWidget({ limit = 5 }: RecentUploadsWidgetProps) {
                 // Extract file info from activity logs
                 const recentFiles = (data.logs || []).map((log: any) => ({
                     id: log.id,
-                    name: log.resource || 'Unknown file',
+                    name: log.resource || t('unknownFile'),
                     size_bytes: log.metadata?.size_bytes || 0,
                     created_at: log.timestamp,
                     content_type: log.metadata?.content_type || 'application/octet-stream'
@@ -57,7 +59,7 @@ export function RecentUploadsWidget({ limit = 5 }: RecentUploadsWidgetProps) {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Recent Uploads</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('recentUploads')}</h3>
                 <Upload className="w-5 h-5 text-gray-400" />
             </div>
             
@@ -70,7 +72,7 @@ export function RecentUploadsWidget({ limit = 5 }: RecentUploadsWidgetProps) {
             ) : files.length === 0 ? (
                 <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                     <Upload className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No recent uploads</p>
+                    <p className="text-sm">{t('noRecentUploads')}</p>
                 </div>
             ) : (
                 <div className="space-y-3">

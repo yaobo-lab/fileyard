@@ -319,11 +319,13 @@ export function Dashboard() {
                     <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
                         <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                            Primary Company Suspended
+                            {t('primaryCompanySuspended')}
                         </h3>
                         <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                            Your primary company "{tenantSwitchNotice.suspended_tenant}" has been suspended. 
-                            You've been logged into "{tenantSwitchNotice.current_tenant}" instead.
+                            {t('primaryCompanySuspendedDesc', {
+                                suspended: tenantSwitchNotice.suspended_tenant,
+                                current: tenantSwitchNotice.current_tenant
+                            })}
                         </p>
                         <div className="flex items-center gap-4 mt-3">
                             <button 
@@ -353,19 +355,10 @@ export function Dashboard() {
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-foreground">{t('title')}</h1>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
-                        {complianceMode === 'None' || complianceMode === 'Standard' ? t('systemOverview') : t('complianceMonitoring', { mode: complianceMode })}
+                        {t('systemOverview')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {complianceMode !== 'None' && complianceMode !== 'Standard' && (
-                        <Badge
-                            variant="outline"
-                            className="gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                        >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">{t('compliant', { mode: complianceMode })}</span>
-                        </Badge>
-                    )}
                     <Button
                         variant="outline"
                         size="sm"

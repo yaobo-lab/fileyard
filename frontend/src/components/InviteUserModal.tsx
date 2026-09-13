@@ -46,33 +46,33 @@ function AccordionSection({ title, icon, isOpen, onToggle, children, badge, requ
                 type="button"
                 onClick={onToggle}
                 className={clsx(
-                    "w-full px-4 py-3 flex items-center justify-between text-left transition-colors",
+                    "w-full px-3.5 py-2.5 flex items-center justify-between text-left transition-colors",
                     isOpen 
                         ? "bg-gray-50 dark:bg-gray-700/50" 
                         : "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                 )}
             >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                     <div className={clsx(
-                        "p-1.5 rounded-md",
+                        "p-1 rounded-md",
                         completed 
                             ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
                             : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
                     )}>
-                        {completed ? <Check className="w-4 h-4" /> : icon}
+                        {completed ? <Check className="w-3.5 h-3.5" /> : icon}
                     </div>
-                    <span className="font-medium text-gray-900 dark:text-white">{title}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{title}</span>
                     {required && !completed && (
-                        <span className="text-xs text-red-500">{requiredText}</span>
+                        <span className="text-[11px] text-red-500">{requiredText}</span>
                     )}
                     {badge !== undefined && badge !== 0 && (
-                        <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full">
+                        <span className="px-1.5 py-0.5 text-[11px] font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-full">
                             {badge}
                         </span>
                     )}
                 </div>
                 <ChevronDown className={clsx(
-                    "w-5 h-5 text-gray-400 transition-transform duration-200",
+                    "w-4 h-4 text-gray-400 transition-transform duration-200",
                     isOpen && "rotate-180"
                 )} />
             </button>
@@ -80,7 +80,7 @@ function AccordionSection({ title, icon, isOpen, onToggle, children, badge, requ
                 "transition-all duration-200 ease-in-out overflow-hidden",
                 isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
             )}>
-                <div className="px-4 py-4 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50">
+                <div className="px-3.5 py-3 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50">
                     {children}
                 </div>
             </div>
@@ -444,30 +444,30 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col">
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
+                <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
                     <div>
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                             {initialData ? (t('edit') + ' ' + t('colUser')) : t('inviteUser')}
                         </h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                             {initialData ? t('editSubtitle') : t('inviteSubtitle')}
                         </p>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                     >
-                        <X className="w-5 h-5 text-gray-500" />
+                        <X className="w-4 h-4 text-gray-500" />
                     </button>
                 </div>
 
                 {/* Scrollable Content */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-                    <div className="p-6 space-y-3">
+                    <div className="p-4 space-y-2.5">
                         {error && (
-                            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+                            <div className="p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
                                 {error}
                             </div>
                         )}
@@ -475,16 +475,16 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {/* Basic Information */}
                         <AccordionSection
                             title={t('basicInfo')}
-                            icon={<User className="w-4 h-4" />}
+                            icon={<User className="w-3.5 h-3.5" />}
                             isOpen={openSections.has('basic')}
                             onToggle={() => toggleSection('basic')}
                             required
                             requiredText={t('requiredBadge')}
                             completed={basicComplete}
                         >
-                            <div className="space-y-4">
+                            <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         {tCommon('name')}
                                     </label>
                                     <input
@@ -493,13 +493,13 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         value={formData.name}
                                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                         placeholder="John Doe"
-                                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                                        className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         {t('emailAddress')}
-                                        {initialData && <span className="text-xs text-gray-400 font-normal ml-2">{t('cannotModify')}</span>}
+                                        {initialData && <span className="text-[11px] text-gray-400 font-normal ml-2">{t('cannotModify')}</span>}
                                     </label>
                                     <input
                                         type="email"
@@ -508,7 +508,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         value={formData.email}
                                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                         placeholder="john@company.com"
-                                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:text-gray-500"
+                                        className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:text-gray-500"
                                     />
                                 </div>
                             </div>
@@ -517,23 +517,23 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {/* Role & Department */}
                         <AccordionSection
                             title={t('roleAndDepartment')}
-                            icon={<Shield className="w-4 h-4" />}
+                            icon={<Shield className="w-3.5 h-3.5" />}
                             isOpen={openSections.has('role')}
                             onToggle={() => toggleSection('role')}
                             required
                             requiredText={t('requiredBadge')}
                             completed={roleComplete}
                         >
-                            <div className="space-y-4">
+                            <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         {t('colRole')}
                                     </label>
                                     <select
                                         required
                                         value={formData.role}
                                         onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                        className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     >
                                         {displayRoles.map((role) => (
                                             <option key={role.value} value={role.value}>
@@ -544,14 +544,14 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                 </div>
 
                                 {roleChanged && (
-                                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                                            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                                    <div className="p-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+                                        <div className="flex items-center gap-1.5 mb-1.5">
+                                            <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                            <span className="text-xs font-medium text-amber-800 dark:text-amber-200">
                                                 {t('confirmRoleChange')}
                                             </span>
                                         </div>
-                                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-2">
+                                        <p className="text-[11px] text-amber-700 dark:text-amber-300 mb-1.5">
                                             {t('roleChangeWarning', { from: getLocalizedRoleLabel(originalRole || ''), to: getLocalizedRoleLabel(formData.role) })}
                                         </p>
                                         <input
@@ -560,20 +560,20 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
                                             placeholder={t('confirmPasswordPlaceholder')}
-                                            className="w-full px-3 py-2 border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                                            className="w-full px-3 py-1.5 text-xs border border-amber-300 dark:border-amber-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
                                         />
                                     </div>
                                 )}
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         {t('colDepartment')}
-                                        <span className="text-xs text-gray-400 font-normal ml-2">{t('optional')}</span>
+                                        <span className="text-[11px] text-gray-400 font-normal ml-2">{t('optional')}</span>
                                     </label>
                                     <select
                                         value={formData.department_id}
                                         onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                        className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     >
                                         <option value="">{t('unassignedDepartment')}</option>
                                         {departments.map((dept) => (
@@ -590,19 +590,19 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {(departments.length > 1 || (isSuperAdmin && tenants.length > 1)) && (
                             <AccordionSection
                                 title={t('extendedAccess')}
-                                icon={<Building2 className="w-4 h-4" />}
+                                icon={<Building2 className="w-3.5 h-3.5" />}
                                 isOpen={openSections.has('access')}
                                 onToggle={() => toggleSection('access')}
                                 badge={accessCount > 0 ? accessCount : undefined}
                             >
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     {/* Additional Departments */}
                                     {departments.filter(d => d.id !== formData.department_id).length > 0 && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                                                 {t('additionalDepartments')}
                                             </label>
-                                            <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                            <div className="space-y-1.5 max-h-28 overflow-y-auto p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                                                 {departments.filter(d => d.id !== formData.department_id).map((dept) => (
                                                     <label key={dept.id} className="flex items-center gap-2 cursor-pointer">
                                                         <input
@@ -616,9 +616,9 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                                     setFormData({ ...formData, allowed_department_ids: current.filter(id => id !== dept.id) });
                                                                 }
                                                             }}
-                                                            className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                            className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                                                         />
-                                                        <span className="text-sm text-gray-700 dark:text-gray-300">{dept.name}</span>
+                                                        <span className="text-xs text-gray-700 dark:text-gray-300">{dept.name}</span>
                                                     </label>
                                                 ))}
                                             </div>
@@ -628,10 +628,10 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {/* Additional Companies (SuperAdmin only) */}
                                     {isSuperAdmin && tenants.filter(t => t.id !== currentTenantId).length > 0 && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                                                 {t('additionalCompanyAccess')}
                                             </label>
-                                            <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                            <div className="space-y-1.5 max-h-28 overflow-y-auto p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                                                 {tenants.filter(t => t.id !== currentTenantId).map((tItem) => (
                                                     <label key={tItem.id} className="flex items-center gap-2 cursor-pointer">
                                                         <input
@@ -651,9 +651,9 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                                     });
                                                                 }
                                                             }}
-                                                            className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                            className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                                                         />
-                                                        <span className="text-sm text-gray-700 dark:text-gray-300">{tItem.name}</span>
+                                                        <span className="text-xs text-gray-700 dark:text-gray-300">{tItem.name}</span>
                                                     </label>
                                                 ))}
                                             </div>
@@ -666,10 +666,10 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         if (!tenantInfo || depts.length === 0) return null;
                                         return (
                                             <div key={tenantId}>
-                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                                                     {t('departmentsInTenant', { name: tenantInfo.name })}
                                                 </label>
-                                                <div className="space-y-2 max-h-32 overflow-y-auto p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                                <div className="space-y-1.5 max-h-28 overflow-y-auto p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                                                     {depts.map((dept: any) => (
                                                         <label key={dept.id} className="flex items-center gap-2 cursor-pointer">
                                                             <input
@@ -683,9 +683,9 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                                         setFormData({ ...formData, allowed_department_ids: current.filter(id => id !== dept.id) });
                                                                     }
                                                                 }}
-                                                                className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                                                className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                                                             />
-                                                            <span className="text-sm text-gray-700 dark:text-gray-300">{dept.name}</span>
+                                                            <span className="text-xs text-gray-700 dark:text-gray-300">{dept.name}</span>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -700,7 +700,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                         {!initialData && (
                             <AccordionSection
                                 title={t('credentials')}
-                                icon={<Key className="w-4 h-4" />}
+                                icon={<Key className="w-3.5 h-3.5" />}
                                 isOpen={openSections.has('credentials')}
                                 onToggle={() => toggleSection('credentials')}
                                 required
@@ -711,17 +711,17 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                     {/* Auth Method Selector (only show if SSO providers exist) */}
                                     {hasSsoProviders && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                                 {t('authMethod')}
                                             </label>
-                                            <div className="grid grid-cols-3 gap-2">
+                                            <div className="grid grid-cols-3 gap-1.5">
                                                 {(['local', 'oidc', 'hybrid'] as const).map((method) => (
                                                     <button
                                                         key={method}
                                                         type="button"
                                                         onClick={() => setAuthMethod(method)}
                                                         className={clsx(
-                                                            'px-3 py-2 text-xs font-medium rounded-lg border transition-colors',
+                                                            'px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors',
                                                             authMethod === method
                                                                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
                                                                 : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
@@ -734,7 +734,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                 ))}
                                             </div>
                                             {authMethod === 'oidc' && (
-                                                <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                                     {t('ssoOnlyHint')}
                                                 </p>
                                             )}
@@ -743,7 +743,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
 
                                     {authMethod !== 'oidc' && (
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                             {t('tempPassword')}
                                         </label>
                                         <div className="flex gap-2">
@@ -758,7 +758,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                     }}
                                                     placeholder={t('passwordPlaceholder', { count: passwordPolicy?.min_length || 8 })}
                                                     className={clsx(
-                                                        "w-full px-3 py-2.5 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 font-mono",
+                                                        "w-full px-3 py-1.5 pr-9 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 font-mono",
                                                         passwordErrors.length > 0
                                                             ? "border-red-500"
                                                             : "border-gray-300 dark:border-gray-600"
@@ -767,9 +767,9 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowTempPassword(!showTempPassword)}
-                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                                                 >
-                                                    {showTempPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                    {showTempPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                                 </button>
                                             </div>
                                             <button
@@ -781,16 +781,16 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                                     setShowTempPassword(true);
                                                     setPasswordErrors([]);
                                                 }}
-                                                className="px-4 py-2.5 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center gap-2 transition-colors"
+                                                className="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap"
                                             >
-                                                <RefreshCw className="w-4 h-4" />
+                                                <RefreshCw className="w-3.5 h-3.5" />
                                                 {t('generatePassword')}
                                             </button>
                                         </div>
                                         
                                         {/* Password errors */}
                                         {passwordErrors.length > 0 && (
-                                            <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                            <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                                                 <ul className="text-xs text-red-600 dark:text-red-400 space-y-1">
                                                     {passwordErrors.map((err, i) => (
                                                         <li key={i}>• {err}</li>
@@ -801,7 +801,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                         
                                         {/* Password requirements */}
                                         {passwordPolicy && formData.password && (
-                                            <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                                            <div className="mt-1.5 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
                                                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t('passwordRequirements')}</p>
                                                 <ul className="text-xs space-y-0.5">
                                                     <li className={formData.password.length >= passwordPolicy.min_length ? "text-green-600 dark:text-green-400" : "text-gray-400"}>
@@ -831,7 +831,7 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                                             </div>
                                         )}
                                         
-                                        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                        <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                                             {t('firstLoginPrompt')}
                                         </p>
                                     </div>
@@ -843,22 +843,22 @@ export function InviteUserModal({ isOpen, onClose, onSubmit, initialData, target
                 </form>
 
                 {/* Footer */}
-                <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
+                <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2.5 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                        className="px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                     >
                         {tCommon('cancel')}
                     </button>
                     <button
                         onClick={handleSubmit}
                         disabled={isSubmitting}
-                        className="px-5 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                        className="px-4 py-1.5 text-xs font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                     >
                         {isSubmitting ? (
                             <>
-                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                                 {tCommon('saving')}
                             </>
                         ) : (

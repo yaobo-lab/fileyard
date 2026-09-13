@@ -60,7 +60,7 @@ export function OidcCallback() {
             <div className="min-h-screen bg-white flex flex-col justify-center py-12 sm:px-6 lg:px-8">
                 <div className="sm:mx-auto sm:w-full sm:max-w-md">
                     <div className="flex justify-center">
-                        <img src="/logo.svg" alt="ClovaLink" className="h-48 w-auto" />
+                        <img src="/logo.svg" alt="Fileyard" className="h-48 w-auto" />
                     </div>
                     <div className="mt-8 bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-gray-100">
                         <div className="rounded-md bg-red-50 border border-red-200 p-4">

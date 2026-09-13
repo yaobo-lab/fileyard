@@ -16,19 +16,19 @@ export function BrandingSettings() {
     const faviconInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
     const [isUploadingFavicon, setIsUploadingFavicon] = useState(false);
-    
+
     // Crop modal state
     const [showCropModal, setShowCropModal] = useState(false);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [cropTarget, setCropTarget] = useState<'logo' | 'favicon'>('logo');
-    
+
     // Footer settings state
     const [footerAttribution, setFooterAttribution] = useState(settings.footer_attribution);
     const [footerDisclaimer, setFooterDisclaimer] = useState(settings.footer_disclaimer);
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
 
-    const hasChanges = 
+    const hasChanges =
         footerAttribution !== settings.footer_attribution ||
         footerDisclaimer !== settings.footer_disclaimer;
 
@@ -79,7 +79,7 @@ export function BrandingSettings() {
             setShowCropModal(true);
         };
         reader.readAsDataURL(file);
-        
+
         // Reset the input
         if (logoInputRef.current) {
             logoInputRef.current.value = '';
@@ -128,7 +128,7 @@ export function BrandingSettings() {
             setShowCropModal(true);
         };
         reader.readAsDataURL(file);
-        
+
         // Reset the input
         if (faviconInputRef.current) {
             faviconInputRef.current.value = '';
@@ -138,7 +138,7 @@ export function BrandingSettings() {
     const handleCropComplete = async (croppedBlob: Blob) => {
         setShowCropModal(false);
         setSelectedImage(null);
-        
+
         if (cropTarget === 'logo') {
             setIsUploadingLogo(true);
             const file = new File([croppedBlob], 'logo.png', { type: 'image/png' });
@@ -184,12 +184,12 @@ export function BrandingSettings() {
     const handleSaveFooter = async () => {
         setIsSaving(true);
         setSaveSuccess(false);
-        
+
         const success = await updateSettings({
             footer_attribution: footerAttribution,
             footer_disclaimer: footerDisclaimer,
         });
-        
+
         setIsSaving(false);
         if (success) {
             setSaveSuccess(true);
@@ -236,9 +236,9 @@ export function BrandingSettings() {
                         <div className="flex-shrink-0">
                             <div className="w-32 h-32 bg-gray-100 dark:bg-gray-700 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center overflow-hidden">
                                 {settings.logo_url ? (
-                                    <img 
-                                        src={settings.logo_url} 
-                                        alt="Custom Logo" 
+                                    <img
+                                        src={settings.logo_url}
+                                        alt="Custom Logo"
                                         className="max-w-full max-h-full object-contain p-3"
                                     />
                                 ) : (
@@ -249,7 +249,7 @@ export function BrandingSettings() {
                                 {settings.logo_url ? tCommon('edit') : 'Default'}
                             </p>
                         </div>
-                        
+
                         {/* Upload Controls */}
                         <div className="flex-1">
                             <input
@@ -273,7 +273,7 @@ export function BrandingSettings() {
                                         )}
                                         {t('uploadLogo')}
                                     </button>
-                                    
+
                                     {settings.logo_url && (
                                         <button
                                             onClick={handleLogoDelete}
@@ -284,7 +284,7 @@ export function BrandingSettings() {
                                         </button>
                                     )}
                                 </div>
-                                
+
                                 <p className="text-xs text-gray-500 dark:text-gray-400">
                                     {t('logoFormatHint')}
                                 </p>
@@ -305,9 +305,9 @@ export function BrandingSettings() {
                         <div className="flex-shrink-0">
                             <div className="w-24 h-24 bg-gray-100 dark:bg-gray-700 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center overflow-hidden">
                                 {settings.favicon_url ? (
-                                    <img 
-                                        src={settings.favicon_url} 
-                                        alt="Custom Favicon" 
+                                    <img
+                                        src={settings.favicon_url}
+                                        alt="Custom Favicon"
                                         className="w-12 h-12 object-contain"
                                     />
                                 ) : (
@@ -322,7 +322,7 @@ export function BrandingSettings() {
                                 {settings.favicon_url ? tCommon('edit') : 'Default'}
                             </p>
                         </div>
-                        
+
                         {/* Upload Controls */}
                         <div className="flex-1">
                             <input
@@ -346,7 +346,7 @@ export function BrandingSettings() {
                                         )}
                                         {t('uploadFavicon')}
                                     </button>
-                                    
+
                                     {settings.favicon_url && (
                                         <button
                                             onClick={handleFaviconDelete}
@@ -357,7 +357,7 @@ export function BrandingSettings() {
                                         </button>
                                     )}
                                 </div>
-                                
+
                                 <p className="text-xs text-gray-500 dark:text-gray-400">
                                     {t('faviconFormatHint')}
                                 </p>
@@ -381,7 +381,7 @@ export function BrandingSettings() {
                             type="text"
                             value={footerAttribution}
                             onChange={(e) => setFooterAttribution(e.target.value)}
-                            placeholder="An open source project by ClovaLink.org"
+                            placeholder="An open source project by Fileyard.org"
                             className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                         />
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">

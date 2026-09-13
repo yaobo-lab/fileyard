@@ -327,7 +327,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                         {activeTab === 'add' && (
                             <div className="space-y-4">
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    Add additional widgets to your dashboard. These widgets provide extra functionality and insights.
+                                    {t('addWidgetsHint')}
                                 </p>
                                 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

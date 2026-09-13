@@ -15,6 +15,24 @@ export function KeyboardShortcutsSettings() {
     
     const currentPreset = presets[currentPresetId];
 
+    const getPresetName = (presetId: string, fallbackName: string) => {
+        const key = `preset_${presetId}`;
+        const translated = t(key);
+        return translated !== key ? translated : fallbackName;
+    };
+
+    const getPresetDesc = (presetId: string, fallbackDesc: string) => {
+        const key = `preset_${presetId}_desc`;
+        const translated = t(key);
+        return translated !== key ? translated : fallbackDesc;
+    };
+
+    const getActionDescription = (actionId: string, fallbackDesc: string) => {
+        const key = `act_${actionId.replace('.', '_')}`;
+        const translated = t(key);
+        return translated !== key ? translated : fallbackDesc;
+    };
+
     // Group shortcuts by category
     const shortcutsByCategory = Object.entries(SHORTCUT_ACTIONS).reduce((acc, [id, action]) => {
         if (!acc[action.category]) {
@@ -70,12 +88,16 @@ export function KeyboardShortcutsSettings() {
                             />
                             <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{preset.name}</p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                        {getPresetName(preset.id, preset.name)}
+                                    </p>
                                     {currentPresetId === preset.id && (
                                         <Check className="w-4 h-4 text-primary-500" />
                                     )}
                                 </div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{preset.description}</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {getPresetDesc(preset.id, preset.description)}
+                                </p>
                             </div>
                         </label>
                     ))}
@@ -85,7 +107,7 @@ export function KeyboardShortcutsSettings() {
             {/* Shortcuts Reference */}
             <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
-                    {t('presetShortcuts', { name: currentPreset.name })}
+                    {t('presetShortcuts', { name: getPresetName(currentPresetId, currentPreset.name) })}
                 </h3>
                 
                 {['navigation', 'ui', 'files', 'selection'].map((category) => {
@@ -107,7 +129,7 @@ export function KeyboardShortcutsSettings() {
                                             className="flex items-center justify-between px-6 py-3"
                                         >
                                             <span className="text-sm text-gray-700 dark:text-gray-300">
-                                                {shortcut.description}
+                                                {getActionDescription(shortcut.id, shortcut.description)}
                                             </span>
                                             <kbd className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded shadow-sm">
                                                 {resolvedBinding ? formatShortcut(resolvedBinding.keys, resolvedBinding.isSequence) : '—'}
@@ -123,12 +145,12 @@ export function KeyboardShortcutsSettings() {
 
             {/* Tips */}
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Tips</h4>
+                <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">{t('tipsTitle')}</h4>
                 <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1 list-disc list-inside">
-                    <li>Press <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">?</kbd> anywhere to see the shortcuts help modal</li>
-                    <li>Shortcuts are disabled when typing in input fields</li>
-                    <li>Your preset preference is saved in your browser</li>
-                    <li>Vim preset uses j/k/h/l for navigation like in Vim</li>
+                    <li>{t('tip1')}</li>
+                    <li>{t('tip2')}</li>
+                    <li>{t('tip3')}</li>
+                    <li>{t('tip4')}</li>
                 </ul>
             </div>
         </div>

@@ -1,7 +1,9 @@
 import { Shield, ShieldCheck, ShieldAlert, Lock, Eye, Clock, FileText } from 'lucide-react';
 import { useSettings } from '../../context/SettingsContext';
+import { useTranslations } from '../../context/I18nContext';
 
 export function ComplianceStatusWidget() {
+    const t = useTranslations('Dashboard');
     const { complianceMode, restrictions, isComplianceActive } = useSettings();
 
     const getComplianceColor = () => {
@@ -21,11 +23,11 @@ export function ComplianceStatusWidget() {
         if (!restrictions) return [];
         
         const settings = [];
-        if (restrictions.mfa_required) settings.push({ icon: Lock, label: 'MFA Required', active: true });
-        if (restrictions.audit_logging_mandatory) settings.push({ icon: Eye, label: 'Audit Logging', active: true });
-        if (restrictions.public_sharing_blocked) settings.push({ icon: ShieldAlert, label: 'Public Sharing Blocked', active: true });
-        if (restrictions.session_timeout_minutes) settings.push({ icon: Clock, label: `${restrictions.session_timeout_minutes}min Session Timeout`, active: true });
-        if (restrictions.file_versioning_required) settings.push({ icon: FileText, label: 'File Versioning', active: true });
+        if (restrictions.mfa_required) settings.push({ icon: Lock, label: t('mfaRequired'), active: true });
+        if (restrictions.audit_logging_mandatory) settings.push({ icon: Eye, label: t('auditLogging'), active: true });
+        if (restrictions.public_sharing_blocked) settings.push({ icon: ShieldAlert, label: t('publicSharingBlocked'), active: true });
+        if (restrictions.session_timeout_minutes) settings.push({ icon: Clock, label: t('sessionTimeout', { minutes: restrictions.session_timeout_minutes }), active: true });
+        if (restrictions.file_versioning_required) settings.push({ icon: FileText, label: t('fileVersioning'), active: true });
         
         return settings;
     };
@@ -35,7 +37,7 @@ export function ComplianceStatusWidget() {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Compliance Status</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('complianceStatus')}</h3>
                 <Shield className="w-5 h-5 text-gray-400" />
             </div>
             
@@ -45,10 +47,10 @@ export function ComplianceStatusWidget() {
                     <ShieldCheck className="w-8 h-8 mr-3" />
                     <div>
                         <p className="text-lg font-semibold">
-                            {complianceMode === 'Standard' || complianceMode === 'None' ? 'Standard Mode' : `${complianceMode} Compliant`}
+                            {complianceMode === 'Standard' || complianceMode === 'None' ? t('standardMode') : t('modeCompliant', { mode: complianceMode })}
                         </p>
                         <p className="text-sm opacity-75">
-                            {isComplianceActive ? 'Active enforcement' : 'No restrictions'}
+                            {isComplianceActive ? t('activeEnforcement') : t('noRestrictions')}
                         </p>
                     </div>
                 </div>
@@ -57,7 +59,7 @@ export function ComplianceStatusWidget() {
                 {enforcedSettings.length > 0 && (
                     <div>
                         <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-                            Enforced Settings
+                            {t('enforcedSettings')}
                         </p>
                         <div className="space-y-2">
                             {enforcedSettings.map((setting, index) => {
@@ -75,7 +77,7 @@ export function ComplianceStatusWidget() {
 
                 {enforcedSettings.length === 0 && isComplianceActive && (
                     <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-                        No special restrictions enforced
+                        {t('noSpecialRestrictions')}
                     </p>
                 )}
             </div>

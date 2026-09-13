@@ -8,10 +8,10 @@ type PageType = 'tos' | 'privacy' | 'help';
 
 // Default content that matches what's displayed on the actual pages
 const DEFAULT_TOS_CONTENT = `<h2>Agreement to Terms</h2>
-<p>By accessing or using ClovaLink, you agree to be bound by these Terms of Service. ClovaLink is open source software provided under the terms of its license agreement. Your use of this software is also subject to any additional terms set by your organization's administrator.</p>
+<p>By accessing or using Fileyard, you agree to be bound by these Terms of Service. Fileyard is open source software provided under the terms of its license agreement. Your use of this software is also subject to any additional terms set by your organization's administrator.</p>
 
 <h2>Open Source License</h2>
-<p>ClovaLink is released under an open source license. You are free to:</p>
+<p>Fileyard is released under an open source license. You are free to:</p>
 <ul>
 <li>Use the software for any purpose, including commercial use</li>
 <li>Modify the source code to suit your needs</li>
@@ -25,7 +25,7 @@ const DEFAULT_TOS_CONTENT = `<h2>Agreement to Terms</h2>
 <p>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
 
 <h2>Limitation of Liability</h2>
-<p>To the maximum extent permitted by applicable law, in no event shall ClovaLink, its authors, contributors, or affiliated organizations be liable for:</p>
+<p>To the maximum extent permitted by applicable law, in no event shall Fileyard, its authors, contributors, or affiliated organizations be liable for:</p>
 <ul>
 <li>Any indirect, incidental, special, consequential, or punitive damages</li>
 <li>Loss of profits, data, use, goodwill, or other intangible losses</li>
@@ -37,7 +37,7 @@ const DEFAULT_TOS_CONTENT = `<h2>Agreement to Terms</h2>
 <p>This limitation applies regardless of the legal theory under which such damages are sought.</p>
 
 <h2>User Responsibilities</h2>
-<p>As a user of ClovaLink, you agree to:</p>
+<p>As a user of Fileyard, you agree to:</p>
 <ul>
 <li>Maintain the confidentiality of your account credentials</li>
 <li>Use the software in compliance with applicable laws and regulations</li>
@@ -48,7 +48,7 @@ const DEFAULT_TOS_CONTENT = `<h2>Agreement to Terms</h2>
 </ul>
 
 <h2>Compliance Features Disclaimer</h2>
-<p>ClovaLink provides features designed to assist with regulatory compliance (HIPAA, SOX, GDPR, etc.). However, <strong>use of these features does not guarantee compliance</strong> with any specific regulation. Compliance depends on proper configuration, organizational policies, and adherence to applicable requirements. Consult with qualified legal and compliance professionals to ensure your use meets regulatory requirements.</p>
+<p>Fileyard provides features designed to assist with regulatory compliance (HIPAA, SOX, GDPR, etc.). However, <strong>use of these features does not guarantee compliance</strong> with any specific regulation. Compliance depends on proper configuration, organizational policies, and adherence to applicable requirements. Consult with qualified legal and compliance professionals to ensure your use meets regulatory requirements.</p>
 
 <h2>Data Responsibility</h2>
 <p>For self-hosted installations, the organization hosting the software is solely responsible for:</p>
@@ -61,15 +61,15 @@ const DEFAULT_TOS_CONTENT = `<h2>Agreement to Terms</h2>
 </ul>
 
 <h2>Modifications to Terms</h2>
-<p>These terms may be updated periodically. Continued use of ClovaLink after changes constitutes acceptance of the modified terms. Check this page regularly for updates.</p>
+<p>These terms may be updated periodically. Continued use of Fileyard after changes constitutes acceptance of the modified terms. Check this page regularly for updates.</p>
 
 <h2>Governing Law</h2>
 <p>These terms shall be governed by and construed in accordance with the laws of the jurisdiction in which you operate, without regard to its conflict of law provisions.</p>
 
-<p><em>For questions about these terms regarding this instance, contact your organization's administrator. For questions about the ClovaLink project, visit <a href="https://clovalink.org">clovalink.org</a>.</em></p>`;
+<p><em>For questions about these terms regarding this instance, contact your organization's administrator. For questions about the Fileyard project, visit <a href="https://clovalink.org">clovalink.org</a>.</em></p>`;
 
 const DEFAULT_PRIVACY_CONTENT = `<h2>Introduction</h2>
-<p>ClovaLink is an open source document management system. This privacy policy explains how your self-hosted or managed instance of ClovaLink collects, uses, and protects your data. As an open source project, you have full visibility into and control over how your data is handled.</p>
+<p>Fileyard is an open source document management system. This privacy policy explains how your self-hosted or managed instance of Fileyard collects, uses, and protects your data. As an open source project, you have full visibility into and control over how your data is handled.</p>
 
 <h2>Data We Collect</h2>
 <h3>Account Information</h3>
@@ -120,9 +120,9 @@ const DEFAULT_PRIVACY_CONTENT = `<h2>Introduction</h2>
 <p>Contact your organization's administrator to exercise these rights.</p>
 
 <h2>Open Source Transparency</h2>
-<p>ClovaLink is open source software. You can review our source code, security practices, and data handling procedures at <a href="https://github.com/clovalink/clovalink">github.com/clovalink/clovalink</a>. We believe in transparency and community-driven security.</p>
+<p>Fileyard is open source software. You can review our source code, security practices, and data handling procedures at <a href="https://github.com/clovalink/clovalink">github.com/clovalink/clovalink</a>. We believe in transparency and community-driven security.</p>
 
-<p><em>For privacy-related inquiries about this instance, contact your organization's administrator. For questions about the ClovaLink project, visit <a href="https://clovalink.org">clovalink.org</a>.</em></p>`;
+<p><em>For privacy-related inquiries about this instance, contact your organization's administrator. For questions about the Fileyard project, visit <a href="https://clovalink.org">clovalink.org</a>.</em></p>`;
 
 const DEFAULT_HELP_CONTENT = `<h2>Compliance Modes</h2>
 
@@ -167,23 +167,23 @@ const DEFAULT_CONTENT: Record<PageType, string> = {
 };
 
 const PAGES = [
-    { 
-        id: 'tos' as PageType, 
-        label: 'Terms of Service', 
+    {
+        id: 'tos' as PageType,
+        label: 'Terms of Service',
         icon: FileText,
         description: 'Legal terms and conditions for using the platform',
         settingKey: 'tos_content' as const,
     },
-    { 
-        id: 'privacy' as PageType, 
-        label: 'Privacy Policy', 
+    {
+        id: 'privacy' as PageType,
+        label: 'Privacy Policy',
         icon: Shield,
         description: 'How user data is collected, used, and protected',
         settingKey: 'privacy_content' as const,
     },
-    { 
-        id: 'help' as PageType, 
-        label: 'Quickstart / Help', 
+    {
+        id: 'help' as PageType,
+        label: 'Quickstart / Help',
         icon: HelpCircle,
         description: 'Getting started guide and help documentation',
         settingKey: 'help_content' as const,
@@ -196,29 +196,29 @@ export function PagesSettings() {
     const { settings, updateSettings } = useGlobalSettings();
 
     const PAGES = [
-        { 
-            id: 'tos' as PageType, 
-            label: t('tos'), 
+        {
+            id: 'tos' as PageType,
+            label: t('tos'),
             icon: FileText,
             description: t('tosDesc'),
             settingKey: 'tos_content' as const,
         },
-        { 
-            id: 'privacy' as PageType, 
-            label: t('privacy'), 
+        {
+            id: 'privacy' as PageType,
+            label: t('privacy'),
             icon: Shield,
             description: t('privacyDesc'),
             settingKey: 'privacy_content' as const,
         },
-        { 
-            id: 'help' as PageType, 
-            label: t('help'), 
+        {
+            id: 'help' as PageType,
+            label: t('help'),
             icon: HelpCircle,
             description: t('helpDesc'),
             settingKey: 'help_content' as const,
         },
     ];
-    
+
     const [activePage, setActivePage] = useState<PageType>('tos');
     const [tosContent, setTosContent] = useState('');
     const [privacyContent, setPrivacyContent] = useState('');
@@ -262,7 +262,7 @@ export function PagesSettings() {
         setContent(page, DEFAULT_CONTENT[page]);
     };
 
-    const hasChanges = 
+    const hasChanges =
         tosContent !== getOriginalContent('tos') ||
         privacyContent !== getOriginalContent('privacy') ||
         helpContent !== getOriginalContent('help');
@@ -274,13 +274,13 @@ export function PagesSettings() {
     const handleSave = async () => {
         setIsSaving(true);
         setSaveSuccess(false);
-        
+
         const success = await updateSettings({
             tos_content: tosContent,
             privacy_content: privacyContent,
             help_content: helpContent,
         });
-        
+
         setIsSaving(false);
         if (success) {
             setSaveSuccess(true);
@@ -377,10 +377,10 @@ export function PagesSettings() {
                 </div>
                 <div className="p-6">
                     {showPreview ? (
-                        <div 
+                        <div
                             className="prose dark:prose-invert max-w-none min-h-[400px] p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
-                            dangerouslySetInnerHTML={{ 
-                                __html: getContent(activePage) || '<p class="text-gray-400">No content yet. Switch to edit mode to add content.</p>' 
+                            dangerouslySetInnerHTML={{
+                                __html: getContent(activePage) || '<p class="text-gray-400">No content yet. Switch to edit mode to add content.</p>'
                             }}
                         />
                     ) : (

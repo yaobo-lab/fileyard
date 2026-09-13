@@ -4,13 +4,13 @@ import { useGlobalSettings } from '../context/GlobalSettingsContext';
 
 export default function TermsOfService() {
     const { settings } = useGlobalSettings();
-    
+
     // If custom content is set, render it
     if (settings.tos_content && settings.tos_content.trim()) {
         return (
             <div className="max-w-4xl mx-auto">
-                <Link 
-                    to="/" 
+                <Link
+                    to="/"
                     className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
                 >
                     <ArrowLeft className="w-4 h-4" />
@@ -28,7 +28,7 @@ export default function TermsOfService() {
                             </div>
                         </div>
                     </div>
-                    <div 
+                    <div
                         className="p-6 prose dark:prose-invert max-w-none"
                         dangerouslySetInnerHTML={{ __html: settings.tos_content }}
                     />
@@ -36,12 +36,12 @@ export default function TermsOfService() {
             </div>
         );
     }
-    
+
     // Default content
     return (
         <div className="max-w-4xl mx-auto">
-            <Link 
-                to="/" 
+            <Link
+                to="/"
                 className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -66,8 +66,8 @@ export default function TermsOfService() {
                     <section>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Agreement to Terms</h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            By accessing or using ClovaLink, you agree to be bound by these Terms of Service. 
-                            ClovaLink is open source software provided under the terms of its license agreement. 
+                            By accessing or using Fileyard, you agree to be bound by these Terms of Service.
+                            Fileyard is open source software provided under the terms of its license agreement.
                             Your use of this software is also subject to any additional terms set by your organization's administrator.
                         </p>
                     </section>
@@ -80,7 +80,7 @@ export default function TermsOfService() {
                         </h2>
                         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
                             <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-3">
-                                ClovaLink is released under an open source license. You are free to:
+                                Fileyard is released under an open source license. You are free to:
                             </p>
                             <ul className="text-gray-600 dark:text-gray-400 space-y-2">
                                 <li className="flex items-start gap-2">
@@ -102,9 +102,9 @@ export default function TermsOfService() {
                             </ul>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
                                 Full license details are available in the project repository at{' '}
-                                <a 
-                                    href="https://github.com/clovalink/clovalink" 
-                                    target="_blank" 
+                                <a
+                                    href="https://github.com/clovalink/clovalink"
+                                    target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-primary-600 dark:text-primary-400 hover:underline"
                                 >
@@ -126,11 +126,11 @@ export default function TermsOfService() {
                                 <div className="text-gray-700 dark:text-gray-300">
                                     <p className="font-medium mb-2">THIS SOFTWARE IS PROVIDED "AS IS"</p>
                                     <p className="text-sm leading-relaxed">
-                                        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
-                                        INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR 
-                                        PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR 
-                                        CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION 
-                                        OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE 
+                                        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+                                        INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+                                        PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR
+                                        CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+                                        OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
                                         OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
                                     </p>
                                 </div>
@@ -146,7 +146,7 @@ export default function TermsOfService() {
                         </h2>
                         <div className="text-gray-600 dark:text-gray-400 space-y-3 leading-relaxed">
                             <p>
-                                To the maximum extent permitted by applicable law, in no event shall ClovaLink, 
+                                To the maximum extent permitted by applicable law, in no event shall Fileyard,
                                 its authors, contributors, or affiliated organizations be liable for:
                             </p>
                             <ul className="list-disc list-inside space-y-1 ml-4">
@@ -170,7 +170,7 @@ export default function TermsOfService() {
                             User Responsibilities
                         </h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-3">
-                            As a user of ClovaLink, you agree to:
+                            As a user of Fileyard, you agree to:
                         </p>
                         <ul className="text-gray-600 dark:text-gray-400 space-y-2 list-disc list-inside">
                             <li>Maintain the confidentiality of your account credentials</li>
@@ -187,9 +187,9 @@ export default function TermsOfService() {
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Compliance Features Disclaimer</h2>
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                             <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
-                                ClovaLink provides features designed to assist with regulatory compliance (HIPAA, SOX, GDPR, etc.). 
-                                However, <strong>use of these features does not guarantee compliance</strong> with any specific regulation. 
-                                Compliance depends on proper configuration, organizational policies, and adherence to applicable requirements. 
+                                Fileyard provides features designed to assist with regulatory compliance (HIPAA, SOX, GDPR, etc.).
+                                However, <strong>use of these features does not guarantee compliance</strong> with any specific regulation.
+                                Compliance depends on proper configuration, organizational policies, and adherence to applicable requirements.
                                 Consult with qualified legal and compliance professionals to ensure your use meets regulatory requirements.
                             </p>
                         </div>
@@ -214,7 +214,7 @@ export default function TermsOfService() {
                     <section>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Modifications to Terms</h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            These terms may be updated periodically. Continued use of ClovaLink after changes constitutes 
+                            These terms may be updated periodically. Continued use of Fileyard after changes constitutes
                             acceptance of the modified terms. Check this page regularly for updates.
                         </p>
                     </section>
@@ -223,7 +223,7 @@ export default function TermsOfService() {
                     <section>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Governing Law</h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            These terms shall be governed by and construed in accordance with the laws of the jurisdiction 
+                            These terms shall be governed by and construed in accordance with the laws of the jurisdiction
                             in which you operate, without regard to its conflict of law provisions.
                         </p>
                     </section>
@@ -231,11 +231,11 @@ export default function TermsOfService() {
                     {/* Contact */}
                     <section className="border-t border-gray-200 dark:border-gray-700 pt-6">
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                            For questions about these terms regarding this instance, contact your organization's administrator. 
-                            For questions about the ClovaLink project, visit{' '}
-                            <a 
-                                href="https://clovalink.org" 
-                                target="_blank" 
+                            For questions about these terms regarding this instance, contact your organization's administrator.
+                            For questions about the Fileyard project, visit{' '}
+                            <a
+                                href="https://clovalink.org"
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-primary-600 dark:text-primary-400 hover:underline"
                             >

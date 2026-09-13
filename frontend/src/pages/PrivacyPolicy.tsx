@@ -11,8 +11,8 @@ export default function PrivacyPolicy() {
     if (settings.privacy_content && settings.privacy_content.trim()) {
         return (
             <div className="max-w-4xl mx-auto">
-                <Link 
-                    to="/" 
+                <Link
+                    to="/"
                     className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
                 >
                     <ArrowLeft className="w-4 h-4" />
@@ -30,7 +30,7 @@ export default function PrivacyPolicy() {
                             </div>
                         </div>
                     </div>
-                    <div 
+                    <div
                         className="p-6 prose dark:prose-invert max-w-none"
                         dangerouslySetInnerHTML={{ __html: settings.privacy_content }}
                     />
@@ -42,8 +42,8 @@ export default function PrivacyPolicy() {
     // Default content
     return (
         <div className="max-w-4xl mx-auto">
-            <Link 
-                to="/" 
+            <Link
+                to="/"
                 className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
             >
                 <ArrowLeft className="w-4 h-4" />
@@ -68,8 +68,8 @@ export default function PrivacyPolicy() {
                     <section>
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Introduction</h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            ClovaLink is an open source document management system. This privacy policy explains how your 
-                            self-hosted or managed instance of ClovaLink collects, uses, and protects your data. As an 
+                            Fileyard is an open source document management system. This privacy policy explains how your
+                            self-hosted or managed instance of Fileyard collects, uses, and protects your data. As an
                             open source project, you have full visibility into and control over how your data is handled.
                         </p>
                     </section>
@@ -155,7 +155,7 @@ export default function PrivacyPolicy() {
                             Data Retention
                         </h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            Data retention policies are configured by your organization's administrator. 
+                            Data retention policies are configured by your organization's administrator.
                             {restrictions?.min_retention_days && (
                                 <span> Your current compliance mode requires a minimum retention period of <strong>{restrictions.min_retention_days} days</strong>.</span>
                             )}
@@ -170,13 +170,12 @@ export default function PrivacyPolicy() {
                                 <Eye className="w-5 h-5 text-gray-400" />
                                 {complianceMode} Compliance
                             </h2>
-                            <div className={`rounded-lg p-4 border ${
-                                complianceMode === 'HIPAA' 
-                                    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' 
+                            <div className={`rounded-lg p-4 border ${complianceMode === 'HIPAA'
+                                    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                                     : complianceMode === 'SOX'
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                                    : 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800'
-                            }`}>
+                                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                        : 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800'
+                                }`}>
                                 {complianceMode === 'HIPAA' && (
                                     <div className="text-gray-700 dark:text-gray-300">
                                         <p className="mb-2">This system is configured to comply with the Health Insurance Portability and Accountability Act (HIPAA):</p>
@@ -245,11 +244,11 @@ export default function PrivacyPolicy() {
                             Open Source Transparency
                         </h2>
                         <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                            ClovaLink is open source software. You can review our source code, security practices, 
+                            Fileyard is open source software. You can review our source code, security practices,
                             and data handling procedures at{' '}
-                            <a 
-                                href="https://github.com/clovalink/clovalink" 
-                                target="_blank" 
+                            <a
+                                href="https://github.com/clovalink/clovalink"
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-primary-600 dark:text-primary-400 hover:underline"
                             >
@@ -262,11 +261,11 @@ export default function PrivacyPolicy() {
                     {/* Contact */}
                     <section className="border-t border-gray-200 dark:border-gray-700 pt-6">
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                            For privacy-related inquiries about this instance, contact your organization's administrator. 
-                            For questions about the ClovaLink project, visit{' '}
-                            <a 
-                                href="https://clovalink.org" 
-                                target="_blank" 
+                            For privacy-related inquiries about this instance, contact your organization's administrator.
+                            For questions about the Fileyard project, visit{' '}
+                            <a
+                                href="https://clovalink.org"
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-primary-600 dark:text-primary-400 hover:underline"
                             >
