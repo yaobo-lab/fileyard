@@ -10,14 +10,13 @@ use axum::{
     response::{IntoResponse, Json, Redirect},
     Extension,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clovalink_auth::AuthUser;
-use clovalink_core::models::FileMetadata;
+use clovalink_entity::repositories::{CreateFileParams, CreateFolderParams, ListFilesFilter};
 use clovalink_core::notification_service;
 use clovalink_core::security_service;
 use futures::TryStreamExt;
 use serde_json::{json, Value};
-use sqlx::Row;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use ulid::Ulid;
@@ -223,71 +222,12 @@ fn get_content_type(filename: &str) -> &'static str {
     }
 }
 
-/// Generate a unique filename by appending (1), (2), etc. if a file with the same name exists
-/// Scope: tenant + department + parent_path + visibility
-async fn generate_unique_filename(
-    pool: &sqlx::PgPool,
-    tenant_id: Uuid,
-    original_name: &str,
-    parent_path: &str,
-    department_id: Option<Uuid>,
-    visibility: &str,
-) -> Result<String, sqlx::Error> {
-    // Split filename into base name and extension
-    let (base_name, extension) = if let Some(dot_pos) = original_name.rfind('.') {
-        (&original_name[..dot_pos], &original_name[dot_pos..])
-    } else {
-        (original_name, "")
-    };
 
-    // Try candidates: "file (1).ext", "file (2).ext", etc.
-    for i in 1..1000 {
-        let candidate = format!("{} ({}){}", base_name, i, extension);
-
-        let exists: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM files_metadata 
-                WHERE tenant_id = $1 
-                AND name = $2 
-                AND is_deleted = false
-                AND (parent_path = $3 OR (parent_path IS NULL AND $3 = ''))
-                AND (department_id IS NOT DISTINCT FROM $4)
-                AND visibility = $5
-            )
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(&candidate)
-        .bind(if parent_path.is_empty() {
-            "".to_string()
-        } else {
-            parent_path.to_string()
-        })
-        .bind(department_id)
-        .bind(visibility)
-        .fetch_one(pool)
-        .await?;
-
-        if !exists {
-            return Ok(candidate);
-        }
-    }
-
-    // Fallback: use UUID suffix (should rarely happen)
-    let fallback = format!(
-        "{}_{}{}",
-        base_name,
-        Uuid::new_v4().to_string().split('-').next().unwrap_or(""),
-        extension
-    );
-    Ok(fallback)
-}
 
 /// Check if a file/folder is inside a company folder (by checking parent path hierarchy)
 /// Returns true if any ancestor folder is marked as a company folder
 async fn is_inside_company_folder(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     parent_path: Option<&str>,
 ) -> bool {
@@ -328,21 +268,14 @@ async fn is_inside_company_folder(
             None
         };
 
-        let result: Option<(bool,)> = sqlx::query_as(
-            "SELECT COALESCE(is_company_folder, false) FROM files_metadata 
-             WHERE tenant_id = $1 AND name = $2 AND parent_path IS NOT DISTINCT FROM $3 
-             AND is_deleted = false AND is_directory = true",
-        )
-        .bind(tenant_id)
-        .bind(folder_name)
-        .bind(folder_parent)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
-
-        if result.map(|r| r.0).unwrap_or(false) {
-            return true;
+        if let Ok(is_cf) = store
+            .files()
+            .is_folder_company_folder(tenant_id, folder_name, folder_parent)
+            .await
+        {
+            if is_cf {
+                return true;
+            }
         }
     }
 
@@ -350,30 +283,26 @@ async fn is_inside_company_folder(
 }
 
 /// Check if a specific file/folder is a company folder or is inside one
-async fn is_file_in_company_folder(pool: &sqlx::PgPool, tenant_id: Uuid, file_id: Uuid) -> bool {
-    // First check if the file itself is a company folder
-    let file_info: Option<(bool, Option<String>, bool)> = sqlx::query_as(
-        "SELECT is_directory, parent_path, COALESCE(is_company_folder, false) 
-         FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false",
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    let Some((is_dir, parent_path, is_company_folder)) = file_info else {
+async fn is_file_in_company_folder(
+    store: &clovalink_entity::DataStore,
+    tenant_id: Uuid,
+    file_id: Uuid,
+) -> bool {
+    let Ok(Some(file)) = store.files().by_tenant_id(tenant_id, file_id).await else {
         return false;
     };
 
+    if file.is_deleted {
+        return false;
+    }
+
     // If this is a company folder itself, return true
-    if is_dir && is_company_folder {
+    if file.is_directory && file.is_company_folder.unwrap_or(false) {
         return true;
     }
 
     // Check if parent path is inside a company folder
-    is_inside_company_folder(pool, tenant_id, parent_path.as_deref()).await
+    is_inside_company_folder(store, tenant_id, file.parent_path.as_deref()).await
 }
 
 #[derive(serde::Deserialize)]
@@ -407,7 +336,7 @@ pub async fn upload_file(
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin && !parent_path.is_empty() {
         let in_company_folder =
-            is_inside_company_folder(&state.pool, tenant_id, Some(&parent_path)).await;
+            is_inside_company_folder(&state.store, tenant_id, Some(&parent_path)).await;
 
         if in_company_folder {
             tracing::warn!(
@@ -420,19 +349,21 @@ pub async fn upload_file(
     }
 
     // Get compliance mode for SOX versioning check
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
-    // Get blocked extensions for this tenant
-    let blocked_extensions: Vec<String> = sqlx::query_scalar(
-        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1",
-    )
-    .bind(tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or_default();
+    // Get tenant configuration and blocked extensions
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let blocked_extensions = tenant.blocked_extensions.clone().unwrap_or_default();
 
     while let Some(mut field) = multipart
         .next_field()
@@ -519,65 +450,52 @@ pub async fn upload_file(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         drop(temp_file); // Close the file handle
 
-        // Check storage quota and max upload size before proceeding
-        let tenant_limits: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT storage_quota_bytes, max_upload_size_bytes FROM tenants WHERE id = $1",
-        )
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        if let Some((quota, max_upload_size)) = tenant_limits {
-            // Check max upload size limit first (before wasting time checking storage)
-            if let Some(max_size) = max_upload_size {
-                if size > max_size {
-                    // Clean up temp file before returning error
-                    let _ = tokio::fs::remove_file(&temp_path).await;
-                    return Ok(Json(json!({
-                        "error": "File too large",
-                        "message": format!("Maximum upload size is {}. Please reduce file size or contact your administrator.", format_bytes(max_size)),
-                        "max_size": max_size,
-                        "file_size": size
-                    })));
-                }
+        // Check max upload size limit first (before wasting time checking storage)
+        if let Some(max_size) = tenant.max_upload_size_bytes {
+            if size > max_size {
+                // Clean up temp file before returning error
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Ok(Json(json!({
+                    "error": "File too large",
+                    "message": format!("Maximum upload size is {}. Please reduce file size or contact your administrator.", format_bytes(max_size)),
+                    "max_size": max_size,
+                    "file_size": size
+                })));
             }
+        }
 
-            // Check storage quota
-            if let Some(storage_quota) = quota {
-                // Calculate current storage usage from files_metadata
-                let current_storage: (i64,) = sqlx::query_as(
-                    "SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files_metadata WHERE tenant_id = $1 AND is_deleted = false AND is_directory = false"
-                )
-                .bind(tenant_id)
-                .fetch_one(&state.pool)
+        // Check storage quota
+        if let Some(storage_quota) = tenant.storage_quota_bytes {
+            // Calculate current storage usage from files_metadata
+            let current_storage = state
+                .store
+                .files()
+                .calculate_storage_used(tenant_id)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                if current_storage.0 + size > storage_quota {
-                    // Clean up temp file before returning error
-                    let _ = tokio::fs::remove_file(&temp_path).await;
-                    return Ok(Json(json!({
-                        "error": "Storage quota exceeded",
-                        "message": "Your organization has reached its storage limit. Please contact your system administrator to increase storage or free up space.",
-                        "current_usage": current_storage.0,
-                        "quota": storage_quota,
-                        "file_size": size
-                    })));
-                }
+            if current_storage + size > storage_quota {
+                // Clean up temp file before returning error
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Ok(Json(json!({
+                    "error": "Storage quota exceeded",
+                    "message": "Your organization has reached its storage limit. Please contact your system administrator to increase storage or free up space.",
+                    "current_usage": current_storage,
+                    "quota": storage_quota,
+                    "file_size": size
+                })));
             }
         }
 
         // Get user's department
-        let user = sqlx::query!(
-            "SELECT department_id FROM users WHERE id = $1",
-            auth.user_id
-        )
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-
-        let department_id = user.and_then(|u| u.department_id);
+        let department_id = state
+            .store
+            .users()
+            .user(auth.user_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|u| u.department_id);
 
         // Validate and get visibility (default to 'department')
         let visibility = params.visibility.as_deref().unwrap_or("department");
@@ -593,35 +511,10 @@ pub async fn upload_file(
         // - Different departments
         // - Private vs department files
         // - Different tenants (handled by tenant_id check)
-        let existing_file: Option<(Uuid, Option<i32>)> = sqlx::query_as(
-            r#"
-            SELECT id, version FROM files_metadata 
-            WHERE tenant_id = $1 AND name = $2 AND is_deleted = false
-            AND (parent_path = $3 OR (parent_path IS NULL AND $3 = ''))
-            AND (department_id IS NOT DISTINCT FROM $4)
-            AND visibility = $5
-            ORDER BY version DESC NULLS LAST
-            LIMIT 1
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(&file_name)
-        .bind(if parent_path.is_empty() {
-            "".to_string()
-        } else {
-            parent_path.clone()
-        })
-        .bind(department_id)
-        .bind(visibility)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        // Auto-rename if duplicate exists (for non-SOX mode)
-        let final_file_name = if !restrictions.file_versioning_required && existing_file.is_some() {
-            // Generate unique name: "file (1).ext", "file (2).ext", etc.
-            let unique_name = generate_unique_filename(
-                &state.pool,
+        let existing_file = state
+            .store
+            .files()
+            .find_existing_file_for_upload(
                 tenant_id,
                 &file_name,
                 &parent_path,
@@ -630,6 +523,22 @@ pub async fn upload_file(
             )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // Auto-rename if duplicate exists (for non-SOX mode)
+        let final_file_name = if !restrictions.file_versioning_required && existing_file.is_some() {
+            // Generate unique name: "file (1).ext", "file (2).ext", etc.
+            let unique_name = state
+                .store
+                .files()
+                .generate_unique_filename(
+                    tenant_id,
+                    &file_name,
+                    &parent_path,
+                    department_id,
+                    visibility,
+                )
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             tracing::info!(
                 "Auto-renamed duplicate file '{}' to '{}'",
                 file_name,
@@ -655,23 +564,16 @@ pub async fn upload_file(
         );
 
         // Check for existing file with same content in same tenant/department (deduplication)
-        let existing_content: Option<String> = sqlx::query_scalar(
-            r#"
-            SELECT storage_path FROM files_metadata 
-            WHERE tenant_id = $1 
-            AND (department_id IS NOT DISTINCT FROM $2)
-            AND content_hash = $3
-            AND is_deleted = false 
-            AND is_directory = false
-            LIMIT 1
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(department_id)
-        .bind(&content_hash)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let existing_content = state
+            .store
+            .files()
+            .find_content_hash_storage_path(
+                tenant_id,
+                department_id,
+                &content_hash,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Determine version for SOX compliance mode
         let (version, version_parent_id) = if restrictions.file_versioning_required {
@@ -730,69 +632,67 @@ pub async fn upload_file(
         // For SOX mode, mark previous version as immutable
         if restrictions.file_versioning_required {
             if let Some(parent_id) = version_parent_id {
-                let _ = sqlx::query("UPDATE files_metadata SET is_immutable = true WHERE id = $1")
-                    .bind(parent_id)
-                    .execute(&state.pool)
+                let _ = state
+                    .store
+                    .files()
+                    .set_immutable(parent_id, true)
                     .await;
             }
         }
 
-        let file_record: (Uuid,) = sqlx::query_as(
-            r#"
-            INSERT INTO files_metadata (tenant_id, name, storage_path, size_bytes, content_type, is_directory, owner_id, department_id, parent_path, version, version_parent_id, is_immutable, visibility, content_hash, ulid)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            RETURNING id
-            "#
-        )
-        .bind(tenant_id)
-        .bind(&final_file_name)
-        .bind(&key)
-        .bind(size)
-        .bind(&_content_type)
-        .bind(false)
-        .bind(auth.user_id)
-        .bind(department_id)
-        .bind(if parent_path.is_empty() { None } else { Some(&parent_path) })
-        .bind(version)
-        .bind(version_parent_id)
-        .bind(false)
-        .bind(visibility)
-        .bind(&content_hash)
-        .bind(&file_ulid)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to save file metadata: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let create_params = CreateFileParams {
+            tenant_id,
+            name: &final_file_name,
+            storage_path: &key,
+            size_bytes: size,
+            content_type: &_content_type,
+            owner_id: auth.user_id,
+            department_id,
+            parent_path: if parent_path.is_empty() { None } else { Some(&parent_path) },
+            version,
+            version_parent_id,
+            visibility,
+            content_hash: &content_hash,
+            ulid: &file_ulid,
+        };
 
-        let file_id = file_record.0;
+        let file_model = state
+            .store
+            .files()
+            .create_file(create_params)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to save file metadata: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        let file_id = file_model.id;
 
         // Log upload for SOX compliance
         let is_deduplicated = existing_content.is_some();
         if should_force_audit_log(&compliance_mode, "file_upload") {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-                VALUES ($1, $2, 'file_upload', 'file', $3, $4, $5::inet)
-                "#
-            )
-            .bind(tenant_id)
-            .bind(auth.user_id)
-            .bind(file_id)
-            .bind(json!({
-                "file_name": &final_file_name,
-                "original_name": &file_name,
-                "version": version,
-                "size_bytes": size,
-                "content_hash": &content_hash,
-                "ulid": &file_ulid,
-                "deduplicated": is_deduplicated,
-                "compliance_mode": compliance_mode,
-            }))
-            .bind(&auth.ip_address)
-            .execute(&state.pool)
-            .await;
+            let _ = state
+                .store
+                .audit()
+                .log(
+                    tenant_id,
+                    Some(auth.user_id),
+                    "file_upload",
+                    "file",
+                    Some(file_id),
+                    Some(json!({
+                        "file_name": &final_file_name,
+                        "original_name": &file_name,
+                        "version": version,
+                        "size_bytes": size,
+                        "content_hash": &content_hash,
+                        "ulid": &file_ulid,
+                        "deduplicated": is_deduplicated,
+                        "compliance_mode": compliance_mode,
+                    })),
+                    auth.ip_address.clone(),
+                )
+                .await;
         }
 
         // Enqueue S3 replication if enabled (only for new content, not deduplicated)
@@ -873,67 +773,51 @@ pub async fn upload_file(
 
         // Check if approval workflow is enabled and a policy matches
         let mut approval_pending = false;
-        if let Ok(Some((approval_enabled,))) = sqlx::query_as::<_, (bool,)>(
-            "SELECT COALESCE(approval_workflow_enabled, false) FROM tenants WHERE id = $1",
-        )
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        {
-            if approval_enabled {
-                let is_cf = is_inside_company_folder(
-                    &state.pool,
-                    tenant_id,
-                    if parent_path.is_empty() {
-                        None
-                    } else {
-                        Some(&parent_path)
-                    },
-                )
-                .await;
-                let upload_ctx = crate::approvals::FileUploadContext {
-                    department_id,
-                    is_company_folder: is_cf,
-                    file_name: final_file_name.clone(),
-                    file_size: size,
-                    visibility: visibility.to_string(),
-                    uploader_role: auth.role.clone(),
-                };
-                if let Some(policy) =
-                    crate::approvals::find_matching_policy(&state.pool, tenant_id, &upload_ctx)
-                        .await
-                {
-                    let _ = sqlx::query(
-                        "UPDATE files_metadata SET approval_status = 'pending' WHERE id = $1",
-                    )
-                    .bind(file_id)
-                    .execute(&state.pool)
-                    .await;
-                    let _ = sqlx::query(
-                        "INSERT INTO approval_requests (tenant_id, file_id, policy_id, requested_by) VALUES ($1, $2, $3, $4)"
-                    )
-                    .bind(tenant_id).bind(file_id).bind(policy.id).bind(auth.user_id)
-                    .execute(&state.pool).await;
-                    approval_pending = true;
-
-                    // Notify approvers (managers/admins)
-                    if let Ok(Some(tenant)) = sqlx::query_as::<_, clovalink_core::models::Tenant>(
-                        "SELECT * FROM tenants WHERE id = $1",
-                    )
-                    .bind(tenant_id)
-                    .fetch_optional(&state.pool)
+        if tenant.approval_workflow_enabled.unwrap_or(false) {
+            let is_cf = is_inside_company_folder(
+                &state.store,
+                tenant_id,
+                if parent_path.is_empty() {
+                    None
+                } else {
+                    Some(&parent_path)
+                },
+            )
+            .await;
+            let upload_ctx = crate::approvals::FileUploadContext {
+                department_id,
+                is_company_folder: is_cf,
+                file_name: final_file_name.clone(),
+                file_size: size,
+                visibility: visibility.to_string(),
+                uploader_role: auth.role.clone(),
+            };
+            if let Some(policy) =
+                crate::approvals::find_matching_policy(&state.store, tenant_id, &upload_ctx)
                     .await
-                    {
-                        let _ = notification_service::notify_all_admins(
-                            &state.store,
-                            &tenant,
-                            notification_service::NotificationType::ApprovalRequired,
-                            "File Pending Approval",
-                            &format!("\"{}\" was uploaded and requires approval.", &final_file_name),
-                            Some(json!({"file_id": file_id, "file_name": &final_file_name, "uploader_id": auth.user_id})),
-                        ).await;
-                    }
-                }
+            {
+                let _ = state
+                    .store
+                    .approvals()
+                    .update_file_approval_status(file_id, "pending")
+                    .await;
+                let _ = state
+                    .store
+                    .approvals()
+                    .create_request(tenant_id, file_id, Some(policy.id), auth.user_id)
+                    .await;
+                approval_pending = true;
+
+                // Notify approvers (managers/admins)
+                let core_tenant: clovalink_core::models::Tenant = tenant.clone().into();
+                let _ = notification_service::notify_all_admins(
+                    &state.store,
+                    &core_tenant,
+                    notification_service::NotificationType::ApprovalRequired,
+                    "File Pending Approval",
+                    &format!("\"{}\" was uploaded and requires approval.", &final_file_name),
+                    Some(json!({"file_id": file_id, "file_name": &final_file_name, "uploader_id": auth.user_id})),
+                ).await;
             }
         }
 
@@ -975,7 +859,7 @@ pub async fn upload_file(
 ///
 /// action parameter is for future audit logging differentiation (read/write/delete)
 pub async fn can_access_file(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     user_id: Uuid,
@@ -988,25 +872,23 @@ pub async fn can_access_file(
     }
 
     // Get file metadata including visibility, owner, department, and lock status
-    let file: Option<(
-        String,
-        Option<Uuid>,
-        Option<Uuid>,
-        bool,
-        Option<Uuid>,
-        Option<String>,
-    )> = sqlx::query_as(
-        r#"SELECT visibility, owner_id, department_id, is_locked, locked_by, lock_requires_role
-           FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"#,
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = store
+        .files()
+        .by_tenant_id(tenant_id, file_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (visibility, owner_id, file_dept_id, is_locked, locked_by, lock_requires_role) =
-        file.ok_or(StatusCode::NOT_FOUND)?;
+    let file = match file {
+        Some(f) if !f.is_deleted => f,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+
+    let visibility = &file.visibility;
+    let owner_id = file.owner_id;
+    let file_dept_id = file.department_id;
+    let is_locked = file.is_locked;
+    let locked_by = file.locked_by;
+    let lock_requires_role = file.lock_requires_role.as_deref();
 
     // SECURITY: Check file lock permissions
     // If file is locked, only the locker or owner can access (unless user has required role)
@@ -1026,7 +908,7 @@ pub async fn can_access_file(
         };
 
         // Check if user has the required role for this lock
-        let has_required_role = if let Some(ref req_role) = lock_requires_role {
+        let has_required_role = if let Some(req_role) = lock_requires_role {
             let user_level = role_level(user_role);
             let required_level = role_level(req_role);
             user_level >= required_level
@@ -1064,14 +946,15 @@ pub async fn can_access_file(
     }
 
     // Department files: user must be in same department OR have it in allowed_department_ids
-    let user_depts: Option<(Option<Uuid>, Option<Vec<Uuid>>)> =
-        sqlx::query_as("SELECT department_id, allowed_department_ids FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user = store
+        .users()
+        .user(user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (user_dept, allowed_depts) = user_depts.unwrap_or((None, None));
+    let (user_dept, allowed_depts) = user
+        .map(|u| (u.department_id, u.allowed_department_ids))
+        .unwrap_or((None, None));
 
     // If file has no department (root level), allow access
     if file_dept_id.is_none() {
@@ -1139,57 +1022,42 @@ pub async fn list_files(
     }
 
     // Get user's department, allowed departments, and role
-    let user: Option<(Option<Uuid>, String, Option<Vec<Uuid>>)> = sqlx::query_as(
-        "SELECT department_id, role, allowed_department_ids FROM users WHERE id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    let user = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .unwrap_or(None);
 
-    let user_department_id = user.as_ref().and_then(|u| u.0);
-    let role = user.as_ref().map(|u| u.1.clone()).unwrap_or_default();
-    let user_allowed_department_ids = user.as_ref().and_then(|u| u.2.clone());
-
-    // Build query - exclude files that are in a group (they appear inside the group view)
-    let mut query = String::from("SELECT * FROM files_metadata WHERE tenant_id = $1 AND is_deleted = false AND group_id IS NULL");
-
-    // Approval status filter: non-approvers only see approved files + their own pending/rejected
-    if matches!(role.as_str(), "Manager" | "Admin" | "SuperAdmin") {
-        // Approvers see all files regardless of approval status
-    } else {
-        query.push_str(&format!(
-            " AND (approval_status = 'approved' OR owner_id = '{}')",
-            auth.user_id
-        ));
-    }
+    let user_department_id = user.as_ref().and_then(|u| u.department_id);
+    let role = user.as_ref().map(|u| u.role.clone()).unwrap_or_default();
+    let user_allowed_department_ids = user.as_ref().and_then(|u| u.allowed_department_ids.clone());
 
     // Visibility filter based on requested view mode
     let view_mode = params.visibility.as_deref().unwrap_or("department");
 
-    if view_mode == "private" {
+    let target_owner = if view_mode == "private" {
         // Determine whose private files to show
-        let target_owner = if let Some(ref oid) = params.owner_id {
+        if let Some(ref oid) = params.owner_id {
             if (role == "SuperAdmin" || role == "Admin") && !oid.is_empty() {
                 // Admin viewing another user's files
                 match Uuid::parse_str(oid) {
                     Ok(target_uuid) => {
-                        // Log admin viewing private files (audit will be added below)
                         if target_uuid != auth.user_id {
                             // Audit log for viewing another user's private files
-                            let _ = sqlx::query(
-                                r#"
-                                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-                                VALUES ($1, $2, 'private_files_view', 'user', $3, $4, $5::inet)
-                                "#
-                            )
-                            .bind(tenant_id)
-                            .bind(auth.user_id)
-                            .bind(target_uuid)
-                            .bind(json!({"viewed_user_id": target_uuid.to_string(), "path": path_str}))
-                            .bind(&auth.ip_address)
-                            .execute(&state.pool)
-                            .await;
+                            let _ = state
+                                .store
+                                .audit()
+                                .log(
+                                    tenant_id,
+                                    Some(auth.user_id),
+                                    "private_files_view",
+                                    "user",
+                                    Some(target_uuid),
+                                    Some(json!({"viewed_user_id": target_uuid.to_string(), "path": path_str})),
+                                    auth.ip_address.clone(),
+                                )
+                                .await;
                         }
                         target_uuid
                     }
@@ -1200,83 +1068,36 @@ pub async fn list_files(
             }
         } else {
             auth.user_id // No owner_id specified
-        };
-
-        query.push_str(&format!(
-            " AND visibility = 'private' AND owner_id = '{}'",
-            target_owner
-        ));
-    } else {
-        // Department view: show department files with existing access rules
-        query.push_str(" AND visibility = 'department'");
-
-        // Filter logic...
-        if role == "SuperAdmin" || role == "Admin" {
-            if let Some(dept_id_str) = &params.department_id {
-                if !dept_id_str.is_empty() {
-                    if let Ok(dept_uuid) = Uuid::parse_str(dept_id_str) {
-                        query.push_str(&format!(" AND department_id = '{}'", dept_uuid));
-                    }
-                }
-            }
-        } else {
-            // Non-admin users: check primary department + allowed departments
-            let mut dept_conditions: Vec<String> = Vec::new();
-
-            // Add primary department if set
-            if let Some(dept_id) = user_department_id {
-                dept_conditions.push(format!("department_id = '{}'", dept_id));
-            }
-
-            // Add allowed departments if any
-            if let Some(ref allowed_depts) = user_allowed_department_ids {
-                for dept_id in allowed_depts {
-                    dept_conditions.push(format!("department_id = '{}'", dept_id));
-                }
-            }
-
-            // Build the condition
-            if dept_conditions.is_empty() {
-                // User has no department access, only show files with no department
-                query.push_str(" AND department_id IS NULL");
-            } else {
-                // User can access their department(s) OR files with no department
-                query.push_str(&format!(
-                    " AND (department_id IS NULL OR {})",
-                    dept_conditions.join(" OR ")
-                ));
-            }
-        }
-    }
-
-    // Handle path/folder navigation
-    if let Some(path) = &params.path {
-        let path = path.trim_start_matches('/');
-        if !path.is_empty() {
-            // Validate that path is a valid UUID if we are using UUID-based folders
-            // If we are using path-based, then we should sanitize.
-            // Based on schema (checking next), if parent_path is UUID, we must validate.
-            // Assuming it is UUID for now based on typical patterns, but will verify with schema.
-            // If it's a string path, we sanitize.
-
-            // Sanitize strict: only allow alphanumeric, dashes, underscores, slashes, dots, spaces
-            if !path.chars().all(|c| {
-                c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.' || c == ' '
-            }) {
-                return Err(StatusCode::BAD_REQUEST);
-            }
-
-            query.push_str(&format!(" AND parent_path = '{}'", path));
-        } else {
-            query.push_str(" AND (parent_path IS NULL OR parent_path = '')");
         }
     } else {
-        query.push_str(" AND (parent_path IS NULL OR parent_path = '')");
-    }
+        auth.user_id
+    };
 
-    let files = sqlx::query_as::<_, FileMetadata>(&query)
-        .bind(tenant_id)
-        .fetch_all(&state.pool)
+    let is_approver = matches!(role.as_str(), "Manager" | "Admin" | "SuperAdmin");
+    let is_admin = role == "SuperAdmin" || role == "Admin";
+    let selected_dept = if is_admin {
+        params.department_id.as_deref().and_then(|s| Uuid::parse_str(s).ok())
+    } else {
+        None
+    };
+
+    let filter = ListFilesFilter {
+        tenant_id,
+        is_approver,
+        user_id: auth.user_id,
+        view_mode: view_mode.to_string(),
+        target_owner_id: Some(target_owner),
+        is_admin,
+        selected_department_id: selected_dept,
+        user_department_id,
+        user_allowed_department_ids,
+        parent_path: params.path.clone(),
+    };
+
+    let files = state
+        .store
+        .files()
+        .list_files(filter)
         .await
         .map_err(|e| {
             tracing::error!("Failed to list files from DB: {:?}", e);
@@ -1293,16 +1114,16 @@ pub async fn list_files(
 
     let owner_info: std::collections::HashMap<Uuid, (String, Option<String>)> =
         if !owner_ids.is_empty() {
-            let owners: Vec<(Uuid, String, Option<String>)> =
-                sqlx::query_as("SELECT id, name, avatar_url FROM users WHERE id = ANY($1)")
-                    .bind(&owner_ids)
-                    .fetch_all(&state.pool)
-                    .await
-                    .unwrap_or_default();
+            let owners = state
+                .store
+                .users()
+                .find_users_by_ids(&owner_ids)
+                .await
+                .unwrap_or_default();
 
             owners
                 .into_iter()
-                .map(|(id, name, avatar)| (id, (name, avatar)))
+                .map(|u| (u.id, (u.name, u.avatar_url)))
                 .collect()
         } else {
             std::collections::HashMap::new()
@@ -1317,7 +1138,6 @@ pub async fn list_files(
 
     // Calculate folder sizes (sum of all files inside each folder recursively)
     let folder_sizes: std::collections::HashMap<Uuid, i64> = if !folder_ids.is_empty() {
-        // Get folder paths to calculate sizes
         let folder_paths: Vec<(Uuid, String)> = files
             .iter()
             .filter(|f| f.is_directory)
@@ -1337,27 +1157,12 @@ pub async fn list_files(
 
         let mut sizes = std::collections::HashMap::new();
         for (folder_id, folder_path) in folder_paths {
-            // Sum all files that have this folder as parent or are nested inside
-            // Filter by visibility to match the current view mode
-            let size_result: Result<i64, _> = sqlx::query_scalar(
-                r#"
-                SELECT COALESCE(SUM(size_bytes), 0)::bigint as total
-                FROM files_metadata 
-                WHERE tenant_id = $1 
-                AND is_deleted = false 
-                AND is_directory = false
-                AND visibility = $4
-                AND (parent_path = $2 OR parent_path LIKE $3)
-                "#,
-            )
-            .bind(tenant_id)
-            .bind(&folder_path)
-            .bind(format!("{}/%", folder_path))
-            .bind(view_mode)
-            .fetch_one(&state.pool)
-            .await;
-
-            match size_result {
+            match state
+                .store
+                .files()
+                .calculate_folder_size(tenant_id, &folder_path, view_mode)
+                .await
+            {
                 Ok(total) if total > 0 => {
                     sizes.insert(folder_id, total);
                 }
@@ -1433,7 +1238,7 @@ pub async fn list_files(
             "has_lock_password": meta.lock_password_hash.is_some(),
             "content_type": meta.content_type,
             "storage_path": meta.storage_path,
-            "approval_status": meta.approval_status.as_deref().unwrap_or("approved")
+            "approval_status": meta.approval_status.as_str()
         })
     }).collect();
 
@@ -1495,7 +1300,7 @@ pub async fn create_folder(
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin && !parent_path.is_empty() {
         let in_company_folder =
-            is_inside_company_folder(&state.pool, tenant_id, Some(parent_path)).await;
+            is_inside_company_folder(&state.store, tenant_id, Some(parent_path)).await;
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to create folder in company folder (parent_path: {})",
@@ -1521,15 +1326,14 @@ pub async fn create_folder(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get user's department
-    let user = sqlx::query!(
-        "SELECT department_id FROM users WHERE id = $1",
-        auth.user_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-
-    let department_id = user.and_then(|u| u.department_id);
+    let department_id = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|u| u.department_id);
 
     // Check if parent folder is a company folder (to inherit status)
     let parent_is_company_folder = if !parent_path.is_empty() {
@@ -1541,43 +1345,40 @@ pub async fn create_folder(
             None
         };
 
-        let result: Option<(bool,)> = sqlx::query_as(
-            "SELECT COALESCE(is_company_folder, false) FROM files_metadata 
-             WHERE tenant_id = $1 AND name = $2 AND parent_path IS NOT DISTINCT FROM $3 AND is_deleted = false AND is_directory = true"
-        )
-        .bind(tenant_id)
-        .bind(parent_name)
-        .bind(parent_parent_path)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten();
-
-        result.map(|r| r.0).unwrap_or(false)
+        state
+            .store
+            .files()
+            .is_parent_company_folder(tenant_id, parent_name, parent_parent_path)
+            .await
+            .unwrap_or(false)
     } else {
         false
     };
 
-    sqlx::query(
-        r#"
-        INSERT INTO files_metadata (tenant_id, name, storage_path, size_bytes, content_type, is_directory, owner_id, department_id, parent_path, visibility, is_company_folder)
-        VALUES ($1, $2, $3, 0, 'directory', true, $4, $5, $6, $7, $8)
-        "#
-    )
-    .bind(tenant_id)
-    .bind(folder_name)
-    .bind(&key)
-    .bind(auth.user_id)
-    .bind(department_id)
-    .bind(if parent_path.is_empty() { None::<&str> } else { Some(parent_path) })
-    .bind(visibility)
-    .bind(parent_is_company_folder)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to save folder metadata: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let folder_params = CreateFolderParams {
+        tenant_id,
+        name: folder_name,
+        storage_path: &key,
+        owner_id: auth.user_id,
+        department_id,
+        parent_path: if parent_path.is_empty() {
+            None
+        } else {
+            Some(parent_path)
+        },
+        visibility,
+        is_company_folder: parent_is_company_folder,
+    };
+
+    state
+        .store
+        .files()
+        .create_folder(folder_params)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save folder metadata: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
@@ -1690,32 +1491,22 @@ async fn download_folder_as_zip(
     );
 
     // Query all files recursively within this folder, including file_id for permission checks
-    let files: Vec<(Uuid, String, String, String, i64)> = sqlx::query_as(
-        r#"
-        SELECT id, name, storage_path, parent_path, size_bytes 
-        FROM files_metadata 
-        WHERE tenant_id = $1 
-        AND is_deleted = false 
-        AND is_directory = false
-        AND (parent_path = $2 OR parent_path LIKE $3)
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&folder_path)
-    .bind(format!("{}/%", folder_path))
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to query folder files: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let files = state
+        .store
+        .files()
+        .find_descendant_files(tenant_id, &folder_path)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query folder files: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     if files.is_empty() {
         tracing::info!("Folder {} has no files, returning empty zip", folder_path);
     }
 
     // Check total size before starting
-    let total_size: i64 = files.iter().map(|(_, _, _, _, size)| size).sum();
+    let total_size: i64 = files.iter().map(|f| f.size_bytes).sum();
     if total_size > MAX_ZIP_SIZE_BYTES {
         tracing::warn!(
             "Folder {} exceeds max zip size ({} bytes > {} bytes)",
@@ -1734,21 +1525,11 @@ async fn download_folder_as_zip(
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o644);
 
-        for (file_id, file_name, storage_path, file_parent_path, _size) in &files {
-            // SECURITY: Check permission for each file
-            // This ensures users can't use folder download to bypass file-level permissions
-            // Note: For shared folder downloads, we skip this check (handled by download_shared_folder_as_zip)
-            // Commenting out for now as folder access already implies file access, but keeping the pattern
-            // if !can_access_file(&state.pool, *file_id, tenant_id, user_id, "Employee", "read").await.unwrap_or(false) {
-            //     tracing::debug!("Skipping file {} in zip due to permission check", file_id);
-            //     continue;
-            // }
-            let _ = file_id; // Suppress unused warning
-            let _ = user_id; // Suppress unused warning
-
+        for file in &files {
+            let file_parent_path = file.parent_path.as_deref().unwrap_or("");
             // Calculate relative path within the zip
-            let relative_path = if file_parent_path == &folder_path {
-                file_name.clone()
+            let relative_path = if file_parent_path == folder_path {
+                file.name.clone()
             } else {
                 // Strip the folder_path prefix to get relative path
                 let sub_path = file_parent_path
@@ -1756,9 +1537,9 @@ async fn download_folder_as_zip(
                     .unwrap_or(file_parent_path)
                     .trim_start_matches('/');
                 if sub_path.is_empty() {
-                    file_name.clone()
+                    file.name.clone()
                 } else {
-                    format!("{}/{}", sub_path, file_name)
+                    format!("{}/{}", sub_path, file.name)
                 }
             };
 
@@ -1772,7 +1553,7 @@ async fn download_folder_as_zip(
             };
 
             // Download file from storage
-            match state.storage.download(storage_path).await {
+            match state.storage.download(&file.storage_path).await {
                 Ok(data) => {
                     if let Err(e) = zip.start_file(&safe_path, options) {
                         tracing::error!("Failed to start zip file {}: {}", safe_path, e);
@@ -1786,7 +1567,7 @@ async fn download_folder_as_zip(
                 Err(e) => {
                     tracing::warn!(
                         "Failed to download file {} from storage: {}",
-                        storage_path,
+                        file.storage_path,
                         e
                     );
                     // Continue with other files
@@ -1809,28 +1590,29 @@ async fn download_folder_as_zip(
     let zip_filename = format!("{}.zip", safe_folder_name);
 
     // Log folder download for compliance
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
 
     if should_force_audit_log(&compliance_mode, "file_download") {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'folder_download', 'folder', NULL, $3, $4::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(json!({
-            "folder_name": folder_name,
-            "folder_path": folder_path,
-            "file_count": files.len(),
-            "compliance_mode": compliance_mode,
-        }))
-        .bind(&client_ip)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                tenant_id,
+                Some(user_id),
+                "folder_download",
+                "folder",
+                None,
+                Some(json!({
+                    "folder_name": folder_name,
+                    "folder_path": folder_path,
+                    "file_count": files.len(),
+                    "compliance_mode": compliance_mode,
+                })),
+                client_ip,
+            )
+            .await;
     }
 
     Ok(axum::response::Response::builder()
@@ -1874,25 +1656,15 @@ async fn download_shared_folder_as_zip(
     );
 
     // Query all files recursively within this folder, including size for limit check
-    let files: Vec<(String, String, String, i64)> = sqlx::query_as(
-        r#"
-        SELECT name, storage_path, parent_path, size_bytes 
-        FROM files_metadata 
-        WHERE tenant_id = $1 
-        AND is_deleted = false 
-        AND is_directory = false
-        AND (parent_path = $2 OR parent_path LIKE $3)
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&folder_path)
-    .bind(format!("{}/%", folder_path))
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to query folder files for share: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let files = state
+        .store
+        .files()
+        .list_files_in_folder_recursive(tenant_id, &folder_path)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query folder files for share: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Check total size before starting
     let total_size: i64 = files.iter().map(|(_, _, _, size)| size).sum();
@@ -1914,9 +1686,10 @@ async fn download_shared_folder_as_zip(
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o644);
 
-        for (file_name, storage_path, file_parent_path, _size) in &files {
+        for (file_name, storage_path, file_parent_path_opt, _size) in &files {
+            let file_parent_path = file_parent_path_opt.as_deref().unwrap_or("");
             // Calculate relative path within the zip
-            let relative_path = if file_parent_path == &folder_path {
+            let relative_path = if file_parent_path == folder_path {
                 file_name.clone()
             } else {
                 let sub_path = file_parent_path
@@ -2004,7 +1777,7 @@ pub async fn download_file(
 
     // SECURITY: Check if user has permission to access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -2021,70 +1794,43 @@ pub async fn download_file(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Check approval status — block download of non-approved files for non-approvers
-    let approval_check: Option<(String, Option<Uuid>)> = sqlx::query_as(
-        "SELECT COALESCE(approval_status, 'approved'), owner_id FROM files_metadata WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Check file metadata and approval status
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    if let Some((status, owner_id)) = &approval_check {
-        if status != "approved" {
-            let is_owner = owner_id.map(|oid| oid == auth.user_id).unwrap_or(false);
-            let is_approver = matches!(auth.role.as_str(), "Manager" | "Admin" | "SuperAdmin");
-            if !is_owner && !is_approver {
-                return Err(StatusCode::FORBIDDEN);
-            }
+    if file.approval_status != "approved" {
+        let is_owner = file.owner_id.map(|oid| oid == auth.user_id).unwrap_or(false);
+        let is_approver = matches!(auth.role.as_str(), "Manager" | "Admin" | "SuperAdmin");
+        if !is_owner && !is_approver {
+            return Err(StatusCode::FORBIDDEN);
         }
     }
 
-    // First check if this is a directory
-    let dir_check: Option<(String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT name, is_directory, parent_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to check directory: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let (folder_name, is_directory, parent_path_opt) = dir_check.ok_or(StatusCode::NOT_FOUND)?;
-    let parent_path = parent_path_opt.unwrap_or_default();
-
     // If it's a directory, create a zip of all files in it
-    if is_directory {
+    if file.is_directory {
+        let parent_path = file.parent_path.unwrap_or_default();
         return download_folder_as_zip(
             &state,
             tenant_id,
             auth.user_id,
-            &folder_name,
+            &file.name,
             &parent_path,
             auth.ip_address.clone(),
         )
         .await;
     }
 
-    // Look up file by ID for regular file download
-    let file_meta: (String, String, i64) = sqlx::query_as(
-        "SELECT name, storage_path, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false AND is_directory = false"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    let (file_name, storage_path, file_size) = file_meta;
+    let file_name = file.name;
+    let storage_path = file.storage_path;
+    let file_size = file.size_bytes;
 
     // Get compliance mode for HIPAA audit logging
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
 
@@ -2100,30 +1846,29 @@ pub async fn download_file(
 
     // Log file download/view for HIPAA compliance
     if should_force_audit_log(&compliance_mode, audit_action) {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, $3, 'file', $4, $5, $6::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(audit_action)
-        .bind(file_uuid)
-        .bind(json!({
-            "file_name": &file_name,
-            "compliance_mode": compliance_mode,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                tenant_id,
+                Some(auth.user_id),
+                audit_action,
+                "file",
+                Some(file_uuid),
+                Some(json!({
+                    "file_name": &file_name,
+                    "compliance_mode": compliance_mode,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     // Log for GDPR export traceability
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
     if restrictions.export_logging_required {
         let _ = log_file_export(
-            &state.pool,
+            &state.store,
             tenant_id,
             auth.user_id,
             Some(file_uuid),
@@ -2286,7 +2031,7 @@ pub async fn preview_office_file(
 
     // SECURITY: Check if user has permission to access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -2304,16 +2049,16 @@ pub async fn preview_office_file(
     }
 
     // Get file metadata
-    let file_info: Option<(String, String)> = sqlx::query_as(
-        "SELECT name, storage_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_name, storage_path) = file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file_name = file.name;
+    let storage_path = file.storage_path;
     let file_name_lower = file_name.to_lowercase();
 
     // Download file content
@@ -2454,60 +2199,50 @@ pub async fn rename_file(
     }
 
     // Get compliance mode for SOX audit logging
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
     // Look up file by ID (preferred) or by name+parent_path (legacy)
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(Uuid, String, Option<String>, Option<bool>, bool, bool)> =
-        if let Some(id_str) = file_id_str {
-            let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-            sqlx::query_as(
-                r#"
-            SELECT id, name, parent_path, is_immutable, is_locked, is_directory 
-            FROM files_metadata 
-            WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-            "#,
-            )
-            .bind(file_uuid)
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
+    let file = if let Some(id_str) = file_id_str {
+        let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+        state
+            .store
+            .files()
+            .find_active_by_id(tenant_id, file_uuid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else if let Some(name) = old_name {
-            // Legacy lookup by name + parent_path (still requires tenant_id)
-            let parent_path_query = if req_parent_path.is_empty() {
-                None
-            } else {
-                Some(req_parent_path)
-            };
-            sqlx::query_as(
-                r#"
-            SELECT id, name, parent_path, is_immutable, is_locked, is_directory 
-            FROM files_metadata 
-            WHERE tenant_id = $1 AND name = $2 AND is_deleted = false
-            AND (($3::text IS NULL AND parent_path IS NULL) OR parent_path = $3)
-            "#,
-            )
-            .bind(tenant_id)
-            .bind(name)
-            .bind(parent_path_query)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else if let Some(name) = old_name {
+        // Legacy lookup by name + parent_path (still requires tenant_id)
+        let parent_path_query = if req_parent_path.is_empty() {
+            None
         } else {
-            return Err(StatusCode::BAD_REQUEST); // Need either file_id or old_name
+            Some(req_parent_path)
         };
+        state
+            .store
+            .files()
+            .find_active_by_path(tenant_id, name, parent_path_query)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        return Err(StatusCode::BAD_REQUEST); // Need either file_id or old_name
+    };
 
-    let (file_id, current_name, current_parent_path, is_immutable, is_locked, is_directory) =
-        file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file = file.ok_or(StatusCode::NOT_FOUND)?;
+    let file_id = file.id;
+    let current_name = file.name;
+    let current_parent_path = file.parent_path;
+    let is_immutable = file.is_immutable;
+    let is_locked = file.is_locked;
+    let is_directory = file.is_directory;
 
     // Check if file is inside a company folder - only admins can rename
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin {
-        let in_company_folder = is_file_in_company_folder(&state.pool, tenant_id, file_id).await;
+        let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_id).await;
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to rename file {} in company folder",
@@ -2520,7 +2255,7 @@ pub async fn rename_file(
 
     // SECURITY: Check if user has permission to rename this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_id,
         tenant_id,
         auth.user_id,
@@ -2557,25 +2292,19 @@ pub async fn rename_file(
     }
 
     // Check for duplicate filename in same location
-    let duplicate_check: Option<(Uuid,)> = sqlx::query_as(
-        r#"
-        SELECT id FROM files_metadata 
-        WHERE tenant_id = $1 
-        AND name = $2 
-        AND is_deleted = false
-        AND id != $3
-        AND (($4::text IS NULL AND parent_path IS NULL) OR parent_path = $4)
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&new_filename)
-    .bind(file_id)
-    .bind(&current_parent_path)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let duplicate_exists = state
+        .store
+        .files()
+        .exists_sibling_name(
+            tenant_id,
+            &new_filename,
+            current_parent_path.as_deref(),
+            Some(file_id),
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if duplicate_check.is_some() {
+    if duplicate_exists {
         return Ok(Json(
             json!({ "error": "A file with this name already exists in this folder" }),
         ));
@@ -2583,21 +2312,17 @@ pub async fn rename_file(
 
     // CONTENT-ADDRESSED STORAGE: Only update metadata, do NOT touch S3
     // The storage_path remains the same (it's the content hash key)
-    sqlx::query(
-        "UPDATE files_metadata SET name = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3",
-    )
-    .bind(&new_filename)
-    .bind(file_id)
-    .bind(tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update file metadata: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    state
+        .store
+        .files()
+        .rename(tenant_id, file_id, new_filename.clone())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update file metadata: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // If this is a directory, update all children's parent_path
-    // NOTE: We do NOT update storage_path - files keep their content-addressed keys
     if is_directory {
         let old_folder_path = if let Some(ref pp) = current_parent_path {
             if pp.is_empty() {
@@ -2618,44 +2343,19 @@ pub async fn rename_file(
             new_filename.clone()
         };
 
-        // Update children with exact parent_path match
-        sqlx::query(
-            "UPDATE files_metadata SET parent_path = $1 WHERE tenant_id = $2 AND parent_path = $3",
-        )
-        .bind(&new_folder_path)
-        .bind(tenant_id)
-        .bind(&old_folder_path)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update children parent_path: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        // Update nested children (parent_path starts with old_folder_path/)
-        let old_prefix = format!("{}/", old_folder_path);
-        let nested_children: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, parent_path FROM files_metadata WHERE tenant_id = $1 AND parent_path LIKE $2"
-        )
-        .bind(tenant_id)
-        .bind(format!("{}%", old_prefix))
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        for (child_id, child_parent_path) in nested_children {
-            let new_child_parent =
-                child_parent_path.replacen(&old_folder_path, &new_folder_path, 1);
-            sqlx::query(
-                "UPDATE files_metadata SET parent_path = $1 WHERE id = $2 AND tenant_id = $3",
+        state
+            .store
+            .files()
+            .update_children_parent_path_for_rename(
+                tenant_id,
+                &old_folder_path,
+                &new_folder_path,
             )
-            .bind(&new_child_parent)
-            .bind(child_id)
-            .bind(tenant_id)
-            .execute(&state.pool)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
+            .map_err(|e| {
+                tracing::error!("Failed to update children parent_path: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         tracing::info!(
             "Updated children paths for renamed folder: {} -> {}",
@@ -2668,23 +2368,23 @@ pub async fn rename_file(
     if should_force_audit_log(&compliance_mode, "file_rename")
         || restrictions.file_versioning_required
     {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'file_rename', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(file_id)
-        .bind(json!({
-            "old_name": current_name,
-            "new_name": new_filename,
-            "compliance_mode": compliance_mode,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                tenant_id,
+                Some(auth.user_id),
+                "file_rename",
+                "file",
+                Some(file_id),
+                Some(json!({
+                    "old_name": current_name,
+                    "new_name": new_filename,
+                    "compliance_mode": compliance_mode,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     // Invalidate file listing cache for this tenant
@@ -2721,35 +2421,21 @@ pub async fn delete_file(
     }
 
     // Get compliance mode
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
     // Look up file by ID (preferred) or by path (legacy)
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(
-        Uuid,
-        Option<Uuid>,
-        Option<bool>,
-        bool,
-        bool,
-        String,
-        Option<String>,
-    )> = if let Some(id_str) = file_id_str {
+    let file = if let Some(id_str) = file_id_str {
         let file_uuid = Uuid::parse_str(id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-        sqlx::query_as(
-            r#"
-                SELECT id, owner_id, is_immutable, is_locked, is_directory, name, parent_path 
-                FROM files_metadata 
-                WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-                "#,
-        )
-        .bind(file_uuid)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        state
+            .store
+            .files()
+            .find_active_by_id(tenant_id, file_uuid)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else if let Some(p) = path {
         // Legacy lookup by path - construct expected name and parent_path
         let parts: Vec<&str> = p.split('/').collect();
@@ -2759,26 +2445,24 @@ pub async fn delete_file(
         } else {
             None
         };
-        sqlx::query_as(
-            r#"
-                SELECT id, owner_id, is_immutable, is_locked, is_directory, name, parent_path 
-                FROM files_metadata 
-                WHERE tenant_id = $1 AND name = $2 AND is_deleted = false
-                AND (($3::text IS NULL AND parent_path IS NULL) OR parent_path = $3)
-                "#,
-        )
-        .bind(tenant_id)
-        .bind(name)
-        .bind(&parent_path)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        state
+            .store
+            .files()
+            .find_active_by_path(tenant_id, name, parent_path.as_deref())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         return Err(StatusCode::BAD_REQUEST); // Need either file_id or path
     };
 
-    let (file_id, owner_id, is_immutable, is_locked, is_directory, file_name, parent_path) =
-        file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file = file.ok_or(StatusCode::NOT_FOUND)?;
+    let file_id = file.id;
+    let owner_id = file.owner_id;
+    let is_immutable = file.is_immutable;
+    let is_locked = file.is_locked;
+    let is_directory = file.is_directory;
+    let file_name = file.name;
+    let parent_path = file.parent_path;
 
     // Check if file is locked
     if is_locked {
@@ -2796,7 +2480,7 @@ pub async fn delete_file(
 
     // Check if file is inside a company folder - only admins can delete
     if !is_admin {
-        let in_company_folder = is_file_in_company_folder(&state.pool, tenant_id, file_id).await;
+        let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_id).await;
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to delete file {} in company folder",
@@ -2810,7 +2494,7 @@ pub async fn delete_file(
     if !is_admin && !is_owner {
         // Check can_access_file for more granular permissions
         if !can_access_file(
-            &state.pool,
+            &state.store,
             file_id,
             tenant_id,
             auth.user_id,
@@ -2824,18 +2508,6 @@ pub async fn delete_file(
     }
 
     // CONTENT-ADDRESSED STORAGE: Only mark as deleted, do NOT touch S3
-    // The storage_path remains the same - S3 cleanup happens in permanent_delete with ref counting
-    sqlx::query(
-        "UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // If this is a folder, also mark all children as deleted
-    // Build the folder path for matching children
     let folder_path = if let Some(ref pp) = parent_path {
         if pp.is_empty() {
             file_name.clone()
@@ -2846,33 +2518,15 @@ pub async fn delete_file(
         file_name.clone()
     };
 
-    if is_directory {
-        // Mark direct children (parent_path = folder_path)
-        sqlx::query(
-            "UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE tenant_id = $1 AND parent_path = $2 AND is_deleted = false"
-        )
-        .bind(tenant_id)
-        .bind(&folder_path)
-        .execute(&state.pool)
+    state
+        .store
+        .files()
+        .soft_delete_file_and_children(tenant_id, file_id, is_directory, &folder_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to mark folder children as deleted: {:?}", e);
+            tracing::error!("Failed to soft delete file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-
-        // Mark nested children (parent_path starts with folder_path/)
-        sqlx::query(
-            "UPDATE files_metadata SET is_deleted = true, deleted_at = NOW() WHERE tenant_id = $1 AND parent_path LIKE $2 AND is_deleted = false"
-        )
-        .bind(tenant_id)
-        .bind(format!("{}/%", folder_path))
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to mark nested folder children as deleted: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    }
 
     // Log deletion for SOX compliance
     if should_force_audit_log(&compliance_mode, "file_delete")
@@ -2883,22 +2537,22 @@ pub async fn delete_file(
         } else {
             file_name.clone()
         };
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'file_delete', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(file_id)
-        .bind(json!({
-            "file_path": display_path,
-            "compliance_mode": compliance_mode,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                tenant_id,
+                Some(auth.user_id),
+                "file_delete",
+                "file",
+                Some(file_id),
+                Some(json!({
+                    "file_path": display_path,
+                    "compliance_mode": compliance_mode,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     // Invalidate file listing cache for this tenant
@@ -2949,99 +2603,52 @@ pub async fn list_trash(
     };
 
     // Build query based on filters - owner_id takes precedence over department_id
-    let rows = if let Some(owner) = target_owner {
-        // Admin viewing specific user's trash (User Details Modal)
-        sqlx::query(
-            r#"SELECT fm.id, fm.name, fm.parent_path, fm.size_bytes, fm.is_directory, fm.deleted_at, fm.owner_id, fm.visibility, u.name as owner_name
-               FROM files_metadata fm
-               LEFT JOIN users u ON fm.owner_id = u.id
-               WHERE fm.tenant_id = $1 AND fm.is_deleted = true AND fm.owner_id = $2
-               ORDER BY fm.deleted_at DESC"#
+    let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
+    let rows = state
+        .store
+        .files()
+        .list_trash(
+            tenant_id,
+            clovalink_entity::repositories::ListTrashFilter {
+                target_owner,
+                target_department,
+                is_admin,
+                current_user_id: auth.user_id,
+            },
         )
-        .bind(tenant_id)
-        .bind(owner)
-        .fetch_all(&state.pool)
         .await
-    } else if let Some(dept_id) = target_department {
-        // Admin filtering by department (main Recycle Bin page)
-        sqlx::query(
-            r#"SELECT fm.id, fm.name, fm.parent_path, fm.size_bytes, fm.is_directory, fm.deleted_at, fm.owner_id, fm.visibility, u.name as owner_name
-               FROM files_metadata fm
-               LEFT JOIN users u ON fm.owner_id = u.id
-               WHERE fm.tenant_id = $1 AND fm.is_deleted = true AND u.department_id = $2
-               ORDER BY fm.deleted_at DESC"#
-        )
-        .bind(tenant_id)
-        .bind(dept_id)
-        .fetch_all(&state.pool)
-        .await
-    } else if auth.role == "SuperAdmin" || auth.role == "Admin" {
-        // Admins with no filter see all tenant's deleted files
-        sqlx::query(
-            r#"SELECT fm.id, fm.name, fm.parent_path, fm.size_bytes, fm.is_directory, fm.deleted_at, fm.owner_id, fm.visibility, u.name as owner_name
-               FROM files_metadata fm
-               LEFT JOIN users u ON fm.owner_id = u.id
-               WHERE fm.tenant_id = $1 AND fm.is_deleted = true
-               ORDER BY fm.deleted_at DESC"#
-        )
-        .bind(tenant_id)
-        .fetch_all(&state.pool)
-        .await
-    } else {
-        // Regular users only see their own deleted files
-        sqlx::query(
-            r#"SELECT fm.id, fm.name, fm.parent_path, fm.size_bytes, fm.is_directory, fm.deleted_at, fm.owner_id, fm.visibility, u.name as owner_name
-               FROM files_metadata fm
-               LEFT JOIN users u ON fm.owner_id = u.id
-               WHERE fm.tenant_id = $1 AND fm.is_deleted = true AND fm.owner_id = $2
-               ORDER BY fm.deleted_at DESC"#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .fetch_all(&state.pool)
-        .await
-    }.map_err(|e| {
-        tracing::error!("Failed to list trash from DB: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .map_err(|e| {
+            tracing::error!("Failed to list trash from DB: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let file_items: Vec<Value> = rows
         .into_iter()
         .map(|row| {
-            let id: Uuid = row.get("id");
-            let name: String = row.get("name");
-            let parent_path: Option<String> = row.get("parent_path");
-            let size_bytes: i64 = row.get("size_bytes");
-            let is_directory: bool = row.get("is_directory");
-            let deleted_at: Option<chrono::DateTime<chrono::Utc>> = row.get("deleted_at");
-            let owner_id: Option<Uuid> = row.get("owner_id");
-            let visibility: Option<String> = row.get("visibility");
-            let owner_name: Option<String> = row.get("owner_name");
-
             // Build display path from name and parent_path (content-addressed storage)
-            let display_path = if let Some(ref pp) = parent_path {
+            let display_path = if let Some(ref pp) = row.parent_path {
                 if pp.is_empty() {
-                    name.clone()
+                    row.name.clone()
                 } else {
-                    format!("{}/{}", pp, name)
+                    format!("{}/{}", pp, row.name)
                 }
             } else {
-                name.clone()
+                row.name.clone()
             };
 
             json!({
-                "id": id.to_string(),
-                "file_id": id.to_string(),
-                "name": name,
+                "id": row.id.to_string(),
+                "file_id": row.id.to_string(),
+                "name": row.name,
                 "path": display_path,
-                "parent_path": parent_path,
-                "size": format_size(size_bytes as u64),
-                "size_bytes": size_bytes,
-                "is_directory": is_directory,
-                "deleted_at": deleted_at.map(|d| d.to_rfc3339()).unwrap_or_default(),
-                "owner_id": owner_id,
-                "owner_name": owner_name,
-                "visibility": visibility
+                "parent_path": row.parent_path,
+                "size": format_size(row.size_bytes as u64),
+                "size_bytes": row.size_bytes,
+                "is_directory": row.is_directory,
+                "deleted_at": row.deleted_at.map(|d| d.to_rfc3339()).unwrap_or_default(),
+                "owner_id": row.owner_id,
+                "owner_name": row.owner_name,
+                "visibility": row.visibility
             })
         })
         .collect();
@@ -3064,93 +2671,55 @@ pub async fn restore_file(
     }
 
     // Try to parse as UUID first (preferred), fall back to name lookup
-    let file_info: Option<(Uuid, bool, String, Option<String>)> = if let Ok(file_uuid) =
-        Uuid::parse_str(&file_id_or_name)
-    {
-        sqlx::query_as(
-                "SELECT id, is_directory, name, parent_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = true"
-            )
-            .bind(file_uuid)
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
+    let file = if let Ok(file_uuid) = Uuid::parse_str(&file_id_or_name) {
+        state
+            .store
+            .files()
+            .find_deleted_by_id(tenant_id, file_uuid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         // Legacy: lookup by name (first match in deleted files)
-        sqlx::query_as(
-                "SELECT id, is_directory, name, parent_path FROM files_metadata WHERE tenant_id = $1 AND name = $2 AND is_deleted = true ORDER BY deleted_at DESC LIMIT 1"
-            )
-            .bind(tenant_id)
-            .bind(&file_id_or_name)
-            .fetch_optional(&state.pool)
+        state
+            .store
+            .files()
+            .find_deleted_by_name(tenant_id, &file_id_or_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
 
-    let (file_id, is_directory, file_name, parent_path) = file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file = file.ok_or(StatusCode::NOT_FOUND)?;
+    let file_id = file.id;
+    let is_directory = file.is_directory;
+    let file_name = file.name;
+    let parent_path = file.parent_path;
 
     // CONTENT-ADDRESSED STORAGE: Only update metadata, do NOT touch S3
-    let result = sqlx::query(
-        "UPDATE files_metadata SET is_deleted = false, deleted_at = NULL WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to restore file: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let folder_path = if let Some(ref pp) = parent_path {
+        if pp.is_empty() {
+            file_name.clone()
+        } else {
+            format!("{}/{}", pp, file_name)
+        }
+    } else {
+        file_name.clone()
+    };
+
+    let restored_count = state
+        .store
+        .files()
+        .restore_file_and_children(tenant_id, file_id, is_directory, &folder_path)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to restore file: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     tracing::info!(
-        "Restored file: {} (rows: {})",
+        "Restored file: {} (total restored items: {})",
         file_id,
-        result.rows_affected()
+        restored_count
     );
-
-    // If this is a folder, also restore all children
-    if is_directory {
-        let folder_path = if let Some(ref pp) = parent_path {
-            if pp.is_empty() {
-                file_name.clone()
-            } else {
-                format!("{}/{}", pp, file_name)
-            }
-        } else {
-            file_name.clone()
-        };
-
-        // Restore direct children
-        sqlx::query(
-            "UPDATE files_metadata SET is_deleted = false, deleted_at = NULL WHERE tenant_id = $1 AND parent_path = $2 AND is_deleted = true"
-        )
-        .bind(tenant_id)
-        .bind(&folder_path)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to restore folder children: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        // Restore nested children
-        let children_result = sqlx::query(
-            "UPDATE files_metadata SET is_deleted = false, deleted_at = NULL WHERE tenant_id = $1 AND parent_path LIKE $2 AND is_deleted = true"
-        )
-        .bind(tenant_id)
-        .bind(format!("{}/%", folder_path))
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to restore nested folder children: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        tracing::info!(
-            "Restored {} children items",
-            children_result.rows_affected()
-        );
-    }
 
     // Invalidate file listing cache for this tenant
     if let Some(ref cache) = state.cache {
@@ -3179,39 +2748,30 @@ pub async fn permanent_delete(
 
     // Try to parse as UUID first (preferred), fall back to name lookup
     // SECURITY: Always include tenant_id in lookup
-    let file_info: Option<(Uuid, Option<String>, String, bool, String, Option<String>)> =
-        if let Ok(file_uuid) = Uuid::parse_str(&file_id_or_name) {
-            sqlx::query_as(
-                r#"
-                SELECT id, content_hash, storage_path, is_directory, name, parent_path 
-                FROM files_metadata 
-                WHERE id = $1 AND tenant_id = $2 AND is_deleted = true
-                "#,
-            )
-            .bind(file_uuid)
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
+    let file = if let Ok(file_uuid) = Uuid::parse_str(&file_id_or_name) {
+        state
+            .store
+            .files()
+            .find_deleted_by_id(tenant_id, file_uuid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        } else {
-            // Legacy: lookup by name
-            sqlx::query_as(
-                r#"
-                SELECT id, content_hash, storage_path, is_directory, name, parent_path 
-                FROM files_metadata 
-                WHERE tenant_id = $1 AND name = $2 AND is_deleted = true 
-                ORDER BY deleted_at DESC LIMIT 1
-                "#,
-            )
-            .bind(tenant_id)
-            .bind(&file_id_or_name)
-            .fetch_optional(&state.pool)
+    } else {
+        // Legacy: lookup by name
+        state
+            .store
+            .files()
+            .find_deleted_by_name(tenant_id, &file_id_or_name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        };
+    };
 
-    let (file_id, content_hash, storage_path, is_directory, file_name, parent_path) =
-        file_info.ok_or(StatusCode::NOT_FOUND)?;
+    let file = file.ok_or(StatusCode::NOT_FOUND)?;
+    let file_id = file.id;
+    let content_hash = file.content_hash;
+    let storage_path = file.storage_path;
+    let is_directory = file.is_directory;
+    let file_name = file.name;
+    let parent_path = file.parent_path;
 
     // Collect all files to delete (including children if this is a folder)
     let mut files_to_delete: Vec<(Uuid, Option<String>, String)> =
@@ -3229,21 +2789,16 @@ pub async fn permanent_delete(
         };
 
         // Get all children
-        let children: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
-            r#"
-            SELECT id, content_hash, storage_path FROM files_metadata 
-            WHERE tenant_id = $1 AND is_deleted = true 
-            AND (parent_path = $2 OR parent_path LIKE $3)
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(&folder_path)
-        .bind(format!("{}/%", folder_path))
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let children = state
+            .store
+            .files()
+            .list_deleted_children(tenant_id, &folder_path)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        files_to_delete.extend(children);
+        for child in children {
+            files_to_delete.push((child.id, child.content_hash, child.storage_path));
+        }
     }
 
     let mut storage_deleted_count = 0;
@@ -3252,17 +2807,12 @@ pub async fn permanent_delete(
         // Check if any other files reference the same content (dedupe-aware deletion)
         let should_delete_storage = if let Some(ref hash) = fhash {
             // Count other files with same content_hash (excluding this file)
-            let ref_count: i64 = sqlx::query_scalar(
-                r#"
-                SELECT COUNT(*) FROM files_metadata 
-                WHERE content_hash = $1 AND id != $2 AND is_directory = false
-                "#,
-            )
-            .bind(hash)
-            .bind(fid)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(0);
+            let ref_count = state
+                .store
+                .files()
+                .count_content_hash_references_excluding(hash, *fid)
+                .await
+                .unwrap_or(0);
 
             if ref_count > 0 {
                 tracing::info!(
@@ -3281,10 +2831,10 @@ pub async fn permanent_delete(
         };
 
         // Delete metadata from database
-        sqlx::query("DELETE FROM files_metadata WHERE id = $1 AND tenant_id = $2")
-            .bind(fid)
-            .bind(tenant_id)
-            .execute(&state.pool)
+        state
+            .store
+            .files()
+            .delete_file_metadata(tenant_id, *fid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3392,7 +2942,7 @@ pub async fn toggle_star(
 
     // SECURITY: Check if user has permission to access this file (required for starring)
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -3519,7 +3069,7 @@ pub async fn lock_file(
 
     // SECURITY: Check if user has permission to access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -3539,43 +3089,35 @@ pub async fn lock_file(
     // Check if user has lock permission (Manager, Admin, SuperAdmin, or custom role with files.lock)
     let has_lock_permission = ["SuperAdmin", "Admin", "Manager"].contains(&auth.role.as_str());
     if !has_lock_permission {
-        // Check for custom role with files.lock permission
-        let custom_role_has_perm: Option<(bool,)> = sqlx::query_as(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM roles r
-                WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
-            )
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(&auth.role)
-        .bind(json!(["files.lock"]))
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let custom_role_has_perm = state
+            .store
+            .roles()
+            .has_permission_by_name(tenant_id, &auth.role, "files.lock")
+            .await
+            .unwrap_or(false);
 
-        if !custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
+        if !custom_role_has_perm {
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
     // Get current file status
-    let file: Option<(bool, Option<Uuid>)> = sqlx::query_as(
-        "SELECT is_locked, locked_by FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .by_tenant_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (is_locked, locked_by) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let file = match file {
+        Some(f) if !f.is_deleted => f,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
 
-    if is_locked {
+    if file.is_locked {
         return Ok(Json(json!({
             "error": "File is already locked",
-            "locked_by": locked_by
+            "locked_by": file.locked_by
         })));
     }
 
@@ -3603,46 +3145,38 @@ pub async fn lock_file(
     let required_role = input.required_role.clone();
 
     // Lock the file with optional password and role
-    sqlx::query(
-        r#"
-        UPDATE files_metadata 
-        SET is_locked = true, locked_by = $1, locked_at = NOW(), 
-            lock_password_hash = $3, lock_requires_role = $4
-        WHERE id = $2
-        "#,
-    )
-    .bind(auth.user_id)
-    .bind(file_uuid)
-    .bind(&password_hash)
-    .bind(&required_role)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .files()
+        .lock_file(file_uuid, auth.user_id, password_hash.clone(), required_role.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get compliance mode for audit logging
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
 
     // Log the lock action
     if should_force_audit_log(&compliance_mode, "file_lock") {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'file_lock', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(file_uuid)
-        .bind(json!({
-            "compliance_mode": compliance_mode,
-            "has_password": password_hash.is_some(),
-            "required_role": required_role,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log_activity(clovalink_entity::repositories::NewAuditLog {
+                id: Uuid::new_v4(),
+                tenant_id,
+                user_id: Some(auth.user_id),
+                action: "file_lock".to_string(),
+                resource_type: "file".to_string(),
+                resource_id: Some(file_uuid),
+                metadata: Some(json!({
+                    "compliance_mode": compliance_mode,
+                    "has_password": password_hash.is_some(),
+                    "required_role": required_role,
+                })),
+                ip_address: auth.ip_address.clone(),
+            })
+            .await;
     }
 
     // Invalidate file listing cache
@@ -3680,7 +3214,7 @@ pub async fn unlock_file(
 
     // SECURITY: Check if user has permission to access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -3698,21 +3232,23 @@ pub async fn unlock_file(
     }
 
     // Get current file status including lock details
-    let file: Option<(bool, Option<Uuid>, Option<String>, Option<String>, Uuid)> = sqlx::query_as(
-        r#"
-        SELECT is_locked, locked_by, lock_password_hash, lock_requires_role, owner_id 
-        FROM files_metadata 
-        WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#,
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .by_tenant_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (is_locked, locked_by, password_hash, required_role, owner_id) =
-        file.ok_or(StatusCode::NOT_FOUND)?;
+    let file = match file {
+        Some(f) if !f.is_deleted => f,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+
+    let is_locked = file.is_locked;
+    let locked_by = file.locked_by;
+    let password_hash = file.lock_password_hash;
+    let required_role = file.lock_requires_role;
+    let owner_id = file.owner_id;
 
     if !is_locked {
         return Ok(Json(json!({ "message": "File is not locked" })));
@@ -3733,7 +3269,7 @@ pub async fn unlock_file(
     let mut can_unlock = false;
 
     // File owner can always unlock their own files
-    if owner_id == auth.user_id {
+    if owner_id == Some(auth.user_id) {
         can_unlock = true;
     }
     // User who locked it can always unlock
@@ -3753,22 +3289,14 @@ pub async fn unlock_file(
             can_unlock = true;
         } else {
             // Check if user has custom role with files.unlock permission
-            let custom_role_has_perm: Option<(bool,)> = sqlx::query_as(
-                r#"
-                SELECT EXISTS(
-                    SELECT 1 FROM roles r
-                    WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3
-                )
-                "#,
-            )
-            .bind(tenant_id)
-            .bind(&auth.role)
-            .bind(json!(["files.unlock"]))
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let custom_role_has_perm = state
+                .store
+                .roles()
+                .has_permission_by_name(tenant_id, &auth.role, "files.unlock")
+                .await
+                .unwrap_or(false);
 
-            if custom_role_has_perm.map(|r| r.0).unwrap_or(false) {
+            if custom_role_has_perm {
                 can_unlock = true;
             }
         }
@@ -3815,41 +3343,36 @@ pub async fn unlock_file(
     }
 
     // Unlock the file
-    sqlx::query(
-        r#"
-        UPDATE files_metadata 
-        SET is_locked = false, locked_by = NULL, locked_at = NULL, 
-            lock_password_hash = NULL, lock_requires_role = NULL 
-        WHERE id = $1
-        "#,
-    )
-    .bind(file_uuid)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .files()
+        .unlock_file(file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get compliance mode for audit logging
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
 
     // Log the unlock action
     if should_force_audit_log(&compliance_mode, "file_unlock") {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'file_unlock', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(file_uuid)
-        .bind(json!({
-            "compliance_mode": compliance_mode,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log_activity(clovalink_entity::repositories::NewAuditLog {
+                id: Uuid::new_v4(),
+                tenant_id,
+                user_id: Some(auth.user_id),
+                action: "file_unlock".to_string(),
+                resource_type: "file".to_string(),
+                resource_id: Some(file_uuid),
+                metadata: Some(json!({
+                    "compliance_mode": compliance_mode,
+                })),
+                ip_address: auth.ip_address.clone(),
+            })
+            .await;
     }
 
     // Invalidate file listing cache
@@ -3889,7 +3412,7 @@ pub async fn move_file(
 
     // SECURITY: Check if user has permission to move this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -3909,7 +3432,7 @@ pub async fn move_file(
     // Check if file is inside a company folder - only admins can move
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     if !is_admin {
-        let in_company_folder = is_file_in_company_folder(&state.pool, tenant_id, file_uuid).await;
+        let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_uuid).await;
         if in_company_folder {
             tracing::warn!(
                 "User {} attempted to move file {} in company folder",
@@ -3921,27 +3444,20 @@ pub async fn move_file(
     }
 
     // Get current file info (content-addressed storage: we don't need storage_path for moves)
-    let file: Option<(String, Option<String>, bool, bool, Option<Uuid>, String)> = sqlx::query_as(
-        r#"
-        SELECT name, parent_path, is_locked, is_directory, department_id, visibility 
-        FROM files_metadata 
-        WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#,
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (
-        original_name,
-        current_parent_path,
-        is_locked,
-        is_directory,
-        current_dept_id,
-        current_visibility,
-    ) = file.ok_or(StatusCode::NOT_FOUND)?;
+    let original_name = file.name;
+    let current_parent_path = file.parent_path;
+    let is_locked = file.is_locked;
+    let is_directory = file.is_directory;
+    let current_dept_id = file.department_id;
+    let current_visibility = file.visibility;
 
     // Use new_name if provided, otherwise keep original name
     let file_name = input.new_name.clone().unwrap_or(original_name.clone());
@@ -3989,15 +3505,15 @@ pub async fn move_file(
         // Only Admin/SuperAdmin can move across departments
         if !["SuperAdmin", "Admin"].contains(&auth.role.as_str()) {
             // Check if user belongs to target department
-            let user_dept: Option<(Option<Uuid>,)> =
-                sqlx::query_as("SELECT department_id FROM users WHERE id = $1")
-                    .bind(auth.user_id)
-                    .fetch_optional(&state.pool)
-                    .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let user = state
+                .store
+                .users()
+                .user(auth.user_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            if let Some((user_dept_id,)) = user_dept {
-                if user_dept_id != target_dept_id {
+            if let Some(u) = user {
+                if u.department_id != target_dept_id {
                     return Err(StatusCode::FORBIDDEN); // Cannot move to department user doesn't belong to
                 }
             }
@@ -4005,24 +3521,26 @@ pub async fn move_file(
     }
 
     // Get target folder path
-    let new_parent_path: Option<String> = if let Some(target_id) = target_parent_id {
+    let (new_parent_path, target_is_company): (Option<String>, bool) = if let Some(target_id) = target_parent_id {
         // Verify target folder exists and get its path
-        let target_folder: Option<(String, Option<String>)> = sqlx::query_as(
-            r#"
-            SELECT name, parent_path FROM files_metadata 
-            WHERE id = $1 AND tenant_id = $2 AND is_directory = true AND is_deleted = false
-            "#,
-        )
-        .bind(target_id)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let target_folder = state
+            .store
+            .files()
+            .find_active_by_id(tenant_id, target_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-        let (folder_name, folder_parent) = target_folder.ok_or(StatusCode::NOT_FOUND)?;
+        if !target_folder.is_directory {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        let folder_name = target_folder.name;
+        let folder_parent = target_folder.parent_path;
+        let is_comp = target_folder.is_company_folder.unwrap_or(false);
 
         // Build target path
-        Some(if let Some(ref fp) = folder_parent {
+        let built_path = if let Some(ref fp) = folder_parent {
             if fp.is_empty() {
                 folder_name
             } else {
@@ -4030,39 +3548,18 @@ pub async fn move_file(
             }
         } else {
             folder_name
-        })
+        };
+        (Some(built_path), is_comp)
     } else {
-        None // Root folder
+        (None, false) // Root folder
     };
 
     // Check if target location is inside a company folder - only admins can move there
     if !is_admin {
         if let Some(ref target_path) = new_parent_path {
             let target_in_company_folder =
-                is_inside_company_folder(&state.pool, tenant_id, Some(target_path)).await;
-            if target_in_company_folder {
-                tracing::warn!(
-                    "User {} attempted to move file {} into company folder",
-                    auth.user_id,
-                    file_uuid
-                );
-                return Err(StatusCode::FORBIDDEN);
-            }
-        }
-
-        // Also check if the target folder itself is a company folder
-        if let Some(target_id) = target_parent_id {
-            let target_is_company: Option<(bool,)> = sqlx::query_as(
-                "SELECT COALESCE(is_company_folder, false) FROM files_metadata WHERE id = $1 AND tenant_id = $2"
-            )
-            .bind(target_id)
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten();
-
-            if target_is_company.map(|r| r.0).unwrap_or(false) {
+                is_inside_company_folder(&state.store, tenant_id, Some(target_path)).await;
+            if target_in_company_folder || target_is_company {
                 tracing::warn!(
                     "User {} attempted to move file {} into company folder",
                     auth.user_id,
@@ -4074,28 +3571,19 @@ pub async fn move_file(
     }
 
     // Check for duplicate filename in target location
-    let duplicate_check: Option<(Uuid,)> = sqlx::query_as(
-        r#"
-        SELECT id FROM files_metadata 
-        WHERE tenant_id = $1 
-        AND name = $2 
-        AND is_deleted = false
-        AND id != $3
-        AND (
-            ($4::text IS NULL AND parent_path IS NULL) OR
-            ($4::text IS NOT NULL AND parent_path = $4)
+    let duplicate_exists = state
+        .store
+        .files()
+        .exists_sibling_name(
+            tenant_id,
+            &file_name,
+            new_parent_path.as_deref(),
+            Some(file_uuid),
         )
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&file_name)
-    .bind(file_uuid)
-    .bind(&new_parent_path)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if duplicate_check.is_some() {
+    if duplicate_exists {
         // Generate a suggested name by appending (1), (2), etc.
         let name_without_ext = std::path::Path::new(&file_name)
             .file_stem()
@@ -4119,113 +3607,62 @@ pub async fn move_file(
 
     // CONTENT-ADDRESSED STORAGE: Move is metadata-only, never touches S3
     // The storage_path is immutable (based on content hash), only metadata changes
-    // Update metadata: parent_path, department_id, visibility, and optionally name
-    // When moving to private visibility, set owner_id to the user doing the move
-    sqlx::query(
-        r#"
-        UPDATE files_metadata 
-        SET parent_path = $1, 
-            department_id = $2, 
-            visibility = $3, 
-            name = $7,
-            owner_id = CASE WHEN $3 = 'private' THEN $5 ELSE owner_id END,
-            updated_at = NOW()
-        WHERE id = $4 AND tenant_id = $6
-        "#,
-    )
-    .bind(&new_parent_path)
-    .bind(target_dept_id)
-    .bind(target_visibility)
-    .bind(file_uuid)
-    .bind(auth.user_id)
-    .bind(tenant_id)
-    .bind(&file_name)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_path = if let Some(ref pp) = current_parent_path {
+        format!("{}/{}", pp, original_name)
+    } else {
+        original_name.clone()
+    };
 
-    // If moving a folder, update all children's parent_path
-    if is_directory {
-        let old_path = if let Some(ref pp) = current_parent_path {
-            format!("{}/{}", pp, file_name)
-        } else {
-            file_name.clone()
-        };
+    let new_path = if let Some(ref pp) = new_parent_path {
+        format!("{}/{}", pp, file_name)
+    } else {
+        file_name.clone()
+    };
 
-        let new_path = if let Some(ref pp) = new_parent_path {
-            format!("{}/{}", pp, file_name)
-        } else {
-            file_name.clone()
-        };
-
-        // Update direct children (including visibility and owner_id for private)
-        sqlx::query(
-            r#"
-            UPDATE files_metadata 
-            SET parent_path = $1, 
-                visibility = $2, 
-                owner_id = CASE WHEN $2 = 'private' THEN $5 ELSE owner_id END,
-                updated_at = NOW()
-            WHERE tenant_id = $3 AND parent_path = $4 AND is_deleted = false
-            "#,
+    state
+        .store
+        .files()
+        .move_file_and_children(
+            tenant_id,
+            file_uuid,
+            &file_name,
+            new_parent_path.as_deref(),
+            target_dept_id,
+            target_visibility,
+            auth.user_id,
+            is_directory,
+            &old_path,
+            &new_path,
         )
-        .bind(&new_path)
-        .bind(target_visibility)
-        .bind(tenant_id)
-        .bind(&old_path)
-        .bind(auth.user_id)
-        .execute(&state.pool)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        // Update nested children (replace prefix, update visibility and owner_id for private)
-        sqlx::query(
-            r#"
-            UPDATE files_metadata 
-            SET parent_path = $1 || SUBSTRING(parent_path FROM LENGTH($2) + 1), 
-                visibility = $3, 
-                owner_id = CASE WHEN $3 = 'private' THEN $6 ELSE owner_id END,
-                updated_at = NOW()
-            WHERE tenant_id = $4 AND parent_path LIKE $5 AND is_deleted = false
-            "#,
-        )
-        .bind(&new_path)
-        .bind(&old_path)
-        .bind(target_visibility)
-        .bind(tenant_id)
-        .bind(format!("{}/%", old_path))
-        .bind(auth.user_id)
-        .execute(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
 
     // Audit log
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
 
     if should_force_audit_log(&compliance_mode, "file_move") {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'file_move', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(tenant_id)
-        .bind(auth.user_id)
-        .bind(file_uuid)
-        .bind(json!({
-            "from_path": current_parent_path,
-            "to_path": new_parent_path,
-            "from_department": current_dept_id,
-            "to_department": target_dept_id,
-            "from_visibility": current_visibility,
-            "to_visibility": target_visibility,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                tenant_id,
+                Some(auth.user_id),
+                "file_move",
+                "file",
+                Some(file_uuid),
+                Some(json!({
+                    "from_path": current_parent_path,
+                    "to_path": new_parent_path,
+                    "from_department": current_dept_id,
+                    "to_department": target_dept_id,
+                    "from_visibility": current_visibility,
+                    "to_visibility": target_visibility,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     // Invalidate cache
@@ -4268,7 +3705,7 @@ pub async fn copy_file(
 
     // SECURITY: Check if user has permission to read this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -4286,21 +3723,20 @@ pub async fn copy_file(
     }
 
     // Get original file info
-    let file: Option<(String, String, i64, Option<String>, bool, Option<Uuid>)> = sqlx::query_as(
-        r#"
-        SELECT name, storage_path, size_bytes, content_type, is_directory, department_id
-        FROM files_metadata 
-        WHERE id = $1 AND tenant_id = $2 AND is_deleted = false
-        "#,
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (original_name, storage_path, size_bytes, content_type, is_directory, current_dept_id) =
-        file.ok_or(StatusCode::NOT_FOUND)?;
+    let original_name = file.name;
+    let storage_path = file.storage_path;
+    let size_bytes = file.size_bytes;
+    let content_type = file.content_type;
+    let is_directory = file.is_directory;
+    let current_dept_id = file.department_id;
 
     // Cannot copy directories (for now)
     if is_directory {
@@ -4341,19 +3777,16 @@ pub async fn copy_file(
 
     // Get target parent path - from ID if provided, otherwise use direct path
     let target_parent_path: Option<String> = if let Some(target_id) = target_parent_id {
-        let target_folder: Option<(String, Option<String>)> = sqlx::query_as(
-            r#"
-            SELECT name, parent_path FROM files_metadata 
-            WHERE id = $1 AND tenant_id = $2 AND is_directory = true AND is_deleted = false
-            "#,
-        )
-        .bind(target_id)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let target_folder = state
+            .store
+            .files()
+            .find_active_by_id(tenant_id, target_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-        let (folder_name, folder_parent) = target_folder.ok_or(StatusCode::NOT_FOUND)?;
+        let folder_name = target_folder.name;
+        let folder_parent = target_folder.parent_path;
 
         Some(if let Some(ref fp) = folder_parent {
             if fp.is_empty() {
@@ -4391,25 +3824,22 @@ pub async fn copy_file(
 
     // Check for name conflicts and increment if needed (include visibility in check)
     loop {
-        let exists: Option<(i32,)> = sqlx::query_as(
-            r#"
-            SELECT 1 FROM files_metadata 
-            WHERE tenant_id = $1 AND name = $2 AND is_deleted = false AND visibility = $4
-            AND (($3::text IS NULL AND parent_path IS NULL) OR ($3::text IS NOT NULL AND parent_path = $3))
-            "#
-        )
-        .bind(tenant_id)
-        .bind(&copy_name)
-        .bind(&target_parent_path)
-        .bind(target_visibility)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to check for duplicate filename: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let exists = state
+            .store
+            .files()
+            .exists_file_with_visibility(
+                tenant_id,
+                &copy_name,
+                target_parent_path.as_deref(),
+                target_visibility,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to check for duplicate filename: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-        if exists.is_none() {
+        if !exists {
             break;
         }
 
@@ -4433,52 +3863,47 @@ pub async fn copy_file(
         None
     };
 
-    sqlx::query(
-        r#"
-        INSERT INTO files_metadata (
-            id, tenant_id, department_id, name, storage_path, size_bytes, 
-            content_type, is_directory, owner_id, parent_path, visibility, ulid
+    state
+        .store
+        .files()
+        .copy_file_metadata(
+            new_file_id,
+            tenant_id,
+            target_dept_id,
+            &copy_name,
+            &storage_path,
+            size_bytes,
+            content_type.as_deref(),
+            owner_id,
+            target_parent_path.as_deref(),
+            target_visibility,
+            &new_ulid,
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11)
-        "#,
-    )
-    .bind(new_file_id)
-    .bind(tenant_id)
-    .bind(target_dept_id)
-    .bind(&copy_name)
-    .bind(&storage_path) // SAME storage path as original - deduplication!
-    .bind(size_bytes)
-    .bind(&content_type)
-    .bind(owner_id)
-    .bind(&target_parent_path)
-    .bind(target_visibility)
-    .bind(&new_ulid)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create file metadata for copy: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create file metadata for copy: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Audit log
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'file_copied', 'file', $3, $4, $5::inet)
-        "#
-    )
-    .bind(tenant_id)
-    .bind(auth.user_id)
-    .bind(new_file_id)
-    .bind(json!({
-        "original_file_id": file_uuid,
-        "original_name": original_name,
-        "copy_name": copy_name,
-        "target_path": target_parent_path,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log(
+            tenant_id,
+            Some(auth.user_id),
+            "file_copied",
+            "file",
+            Some(new_file_id),
+            Some(json!({
+                "original_file_id": file_uuid,
+                "original_name": original_name,
+                "copy_name": copy_name,
+                "target_path": target_parent_path,
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     tracing::info!(
         user_id = %auth.user_id,
@@ -4489,20 +3914,11 @@ pub async fn copy_file(
     );
 
     // Copy AI summary if one exists for the original file (same content, no need to re-summarize)
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO file_summaries (file_id, tenant_id, summary, content_hash)
-        SELECT $1, tenant_id, summary, content_hash
-        FROM file_summaries
-        WHERE file_id = $2 AND tenant_id = $3
-        ON CONFLICT (file_id) DO NOTHING
-        "#,
-    )
-    .bind(new_file_id)
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .files()
+        .copy_summary_if_exists(new_file_id, file_uuid, tenant_id)
+        .await;
 
     // Invalidate cache
     if let Some(ref cache) = state.cache {
@@ -4542,7 +3958,7 @@ pub async fn get_file_activity(
 
     // SECURITY: Check if user has permission to view activity for this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -4559,53 +3975,32 @@ pub async fn get_file_activity(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = params.limit.unwrap_or(20).min(100) as u64;
 
     // Fetch recent activity for this file from audit logs
-    let activities: Vec<(Uuid, String, Option<Uuid>, Option<Value>, DateTime<Utc>)> =
-        sqlx::query_as(
-            r#"
-        SELECT al.id, al.action, al.user_id, al.metadata, al.created_at
-        FROM audit_logs al
-        WHERE al.tenant_id = $1 AND al.resource_id = $2 AND al.resource_type = 'file'
-        ORDER BY al.created_at DESC
-        LIMIT $3
-        "#,
-        )
-        .bind(tenant_id)
-        .bind(file_uuid)
-        .bind(limit)
-        .fetch_all(&state.pool)
+    let activities = state
+        .store
+        .audit()
+        .file_activity(tenant_id, file_uuid, limit)
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch file activity: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    // Get user names for the activities
-    let mut activity_items: Vec<Value> = Vec::new();
-    for (id, action, user_id, metadata, created_at) in activities {
-        let user_name = if let Some(uid) = user_id {
-            let user: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = $1")
-                .bind(uid)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None);
-            user.map(|(name,)| name)
-                .unwrap_or_else(|| "Unknown User".to_string())
-        } else {
-            "System".to_string()
-        };
-
-        activity_items.push(json!({
-            "id": id,
-            "action": action,
-            "user_id": user_id,
-            "user_name": user_name,
-            "metadata": metadata,
-            "created_at": created_at.to_rfc3339()
-        }));
-    }
+    let activity_items: Vec<Value> = activities
+        .into_iter()
+        .map(|(id, action, user_id, user_name, metadata, created_at)| {
+            json!({
+                "id": id,
+                "action": action,
+                "user_id": user_id,
+                "user_name": user_name.unwrap_or_else(|| "Unknown User".to_string()),
+                "metadata": metadata,
+                "created_at": created_at.to_rfc3339()
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "activities": activity_items,
@@ -4651,7 +4046,7 @@ pub async fn export_files(
     }
 
     // Get compliance mode for audit logging
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
@@ -4663,22 +4058,22 @@ pub async fn export_files(
         let file_uuid = file_ids[0];
 
         // Look up file
-        let file_meta: (String, String, i64) = sqlx::query_as(
-            "SELECT name, storage_path, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-        )
-        .bind(file_uuid)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        let file_meta = state
+            .store
+            .files()
+            .find_active_by_id(tenant_id, file_uuid)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-        let (file_name, storage_path, file_size) = file_meta;
+        let file_name = file_meta.name;
+        let storage_path = file_meta.storage_path;
+        let file_size = file_meta.size_bytes;
 
         // Log export for compliance
         if restrictions.export_logging_required {
             let _ = log_file_export(
-                &state.pool,
+                &state.store,
                 tenant_id,
                 auth.user_id,
                 Some(file_uuid),
@@ -4720,33 +4115,29 @@ pub async fn export_files(
 
     // For multiple files, create a simple manifest (actual ZIP would require additional dependencies)
     // In production, you'd use the zip crate to create a proper ZIP file
-    let mut total_size: i64 = 0;
-    let mut file_list: Vec<Value> = Vec::new();
-
-    for file_uuid in &file_ids {
-        let file_meta: Option<(String, i64)> = sqlx::query_as(
-            "SELECT name, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-        )
-        .bind(file_uuid)
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
+    let found_files = state
+        .store
+        .files()
+        .find_active_by_ids(tenant_id, &file_ids)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        if let Some((name, size)) = file_meta {
-            total_size += size;
-            file_list.push(json!({
-                "id": file_uuid,
-                "name": name,
-                "size": size
-            }));
-        }
+    let mut total_size: i64 = 0;
+    let mut file_list: Vec<Value> = Vec::new();
+
+    for file in found_files {
+        total_size += file.size_bytes;
+        file_list.push(json!({
+            "id": file.id,
+            "name": file.name,
+            "size": file.size_bytes
+        }));
     }
 
     // Log bulk export for compliance
     if restrictions.export_logging_required {
         let _ = log_file_export(
-            &state.pool,
+            &state.store,
             tenant_id,
             auth.user_id,
             None,
@@ -4837,35 +4228,14 @@ pub async fn toggle_company_folder(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Get the file and verify it's a folder
-    let file: (bool, bool) = sqlx::query_as(
-        r#"SELECT is_directory, COALESCE(is_company_folder, false) FROM files_metadata WHERE id = $1 AND tenant_id = $2"#
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let res = state
+        .store
+        .files()
+        .toggle_company_folder(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (is_directory, is_company_folder) = file;
-
-    // Only folders can be company folders
-    if !is_directory {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // Toggle the value
-    let new_value = !is_company_folder;
-
-    sqlx::query(
-        r#"UPDATE files_metadata SET is_company_folder = $1, updated_at = NOW() WHERE id = $2"#,
-    )
-    .bind(new_value)
-    .bind(file_uuid)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let new_value = res.ok_or(StatusCode::BAD_REQUEST)?;
 
     // Invalidate cache for this tenant's files
     if let Some(ref cache) = state.cache {
@@ -4913,7 +4283,7 @@ pub async fn create_file_share(
 
     // Check if user has permission to access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -4925,24 +4295,24 @@ pub async fn create_file_share(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    // Verify file/folder exists
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
     // Block sharing of non-approved files
-    let share_approval: Option<(String,)> = sqlx::query_as(
-        "SELECT COALESCE(approval_status, 'approved') FROM files_metadata WHERE id = $1 AND tenant_id = $2"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some((status,)) = &share_approval {
-        if status != "approved" {
-            return Err(StatusCode::FORBIDDEN);
-        }
+    let approval_status = file.approval_status.as_str();
+    if approval_status != "approved" {
+        return Err(StatusCode::FORBIDDEN);
     }
 
     // Check if file is inside a company folder - only admins can share
     if auth.role != "SuperAdmin" && auth.role != "Admin" {
-        if is_file_in_company_folder(&state.pool, tenant_id, file_uuid).await {
+        if is_file_in_company_folder(&state.store, tenant_id, file_uuid).await {
             tracing::warn!(
                 "Security: Non-admin user {} attempted to share file from company folder",
                 auth.user_id
@@ -4951,23 +4321,14 @@ pub async fn create_file_share(
         }
     }
 
-    // Verify file/folder exists
-    let file_check: Option<(String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT name, is_directory, parent_path FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let (file_name, is_directory, parent_path) = file_check.ok_or(StatusCode::NOT_FOUND)?;
-    let _parent_path = parent_path.unwrap_or_default();
+    let file_name = file.name;
+    let is_directory = file.is_directory;
+    let _parent_path = file.parent_path.unwrap_or_default();
 
     // Check compliance mode for public sharing restrictions
     let is_public = input.is_public.unwrap_or(false);
     if is_public {
-        let compliance_mode = get_tenant_compliance_mode(&state.pool, tenant_id)
+        let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
             .await
             .unwrap_or_else(|_| "Standard".to_string());
         let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
@@ -5002,7 +4363,7 @@ pub async fn create_file_share(
 
         // Validate sharing is allowed with this user (tenant/department restrictions)
         if !crate::sharing::can_share_with_user(
-            &state.pool,
+            &state.store,
             auth.user_id,
             tenant_id,
             &auth.role,
@@ -5024,57 +4385,58 @@ pub async fn create_file_share(
     };
 
     // Insert share record
-    let share_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO file_shares (file_id, tenant_id, token, created_by, is_public, expires_at, is_directory, share_policy, shared_with_user_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id
-        "#
-    )
-    .bind(file_uuid)
-    .bind(tenant_id)
-    .bind(&token)
-    .bind(auth.user_id)
-    .bind(is_public)
-    .bind(expires_at)
-    .bind(is_directory)
-    .bind(share_policy)
-    .bind(shared_with_user_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create file share: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let share_id = state
+        .store
+        .shares()
+        .create_share(
+            file_uuid,
+            tenant_id,
+            &token,
+            auth.user_id,
+            is_public,
+            expires_at,
+            is_directory,
+            Some(share_policy),
+            shared_with_user_id,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create file share: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Get sharer's name for notifications
-    let sharer_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let sharer_name = state
+        .store
+        .users()
+        .user(auth.user_id)
         .await
-        .unwrap_or_else(|_| "Someone".to_string());
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+        .unwrap_or_else(|| "Someone".to_string());
 
     // Log the share creation
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'file_shared', 'file', $3, $4, $5::inet)
-        "#
-    )
-    .bind(tenant_id)
-    .bind(auth.user_id)
-    .bind(file_uuid)
-    .bind(json!({
-        "share_id": share_id,
-        "file_name": file_name,
-        "is_public": is_public,
-        "is_directory": is_directory,
-        "expires_at": expires_at,
-        "shared_with_user_id": shared_with_user_id,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log(
+            tenant_id,
+            Some(auth.user_id),
+            "file_shared",
+            "file",
+            Some(file_uuid),
+            Some(json!({
+                "share_id": share_id,
+                "file_name": file_name,
+                "is_public": is_public,
+                "is_directory": is_directory,
+                "expires_at": expires_at,
+                "shared_with_user_id": shared_with_user_id,
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     // Check for excessive sharing pattern (security alert)
     let _ = security_service::check_excessive_sharing(
@@ -5092,22 +4454,24 @@ pub async fn create_file_share(
     // Send notifications if sharing with a specific user
     if let Some(recipient_id) = shared_with_user_id {
         // Get recipient info for notifications
-        let recipient_info: Option<(String, String)> =
-            sqlx::query_as("SELECT email, role FROM users WHERE id = $1")
-                .bind(recipient_id)
-                .fetch_optional(&state.pool)
-                .await
-                .ok()
-                .flatten();
+        let recipient_info: Option<(String, String)> = state
+            .store
+            .users()
+            .user(recipient_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| (u.email, u.role));
 
         // Get tenant info for notifications
-        let tenant: Option<clovalink_core::models::Tenant> =
-            sqlx::query_as("SELECT * FROM tenants WHERE id = $1")
-                .bind(tenant_id)
-                .fetch_optional(&state.pool)
-                .await
-                .ok()
-                .flatten();
+        let tenant: Option<clovalink_core::models::Tenant> = state
+            .store
+            .tenants()
+            .by_id(tenant_id)
+            .await
+            .ok()
+            .flatten()
+            .map(clovalink_core::models::Tenant::from);
 
         // Send in-app and email notification
         if let (Some((recipient_email, recipient_role)), Some(tenant)) =
@@ -5132,12 +4496,12 @@ pub async fn create_file_share(
         }
 
         // Send Discord notification
-        let pool = state.pool.clone();
+        let store = state.store.clone();
         let file_name_clone = file_name.clone();
         let link_clone = share_link.clone();
         tokio::spawn(async move {
             crate::discord::notify_file_shared(
-                &pool,
+                &store,
                 tenant_id,
                 recipient_id,
                 &file_name_clone,
@@ -5166,19 +4530,20 @@ pub async fn get_share_info(
     Path(token): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
     // Look up the share
-    let share: Option<(Uuid, Uuid, Uuid, bool, Option<DateTime<Utc>>, i32, bool)> = sqlx::query_as(
-        r#"
-        SELECT file_id, tenant_id, created_by, is_public, expires_at, download_count, is_directory
-        FROM file_shares WHERE token = $1
-        "#,
-    )
-    .bind(&token)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let share = state
+        .store
+        .shares()
+        .by_token(&token)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_id, tenant_id, _created_by, is_public, expires_at, download_count, is_directory) =
-        share.ok_or(StatusCode::NOT_FOUND)?;
+    let file_id = share.file_id;
+    let tenant_id = share.tenant_id;
+    let is_public = share.is_public;
+    let expires_at = share.expires_at;
+    let download_count = share.download_count;
+    let is_directory = share.is_directory;
 
     // Check expiration
     if let Some(exp) = expires_at {
@@ -5188,23 +4553,31 @@ pub async fn get_share_info(
     }
 
     // Get file metadata
-    let file: Option<(String, i64, Option<String>)> = sqlx::query_as(
-        "SELECT name, size_bytes, content_type FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .find_by_id(file_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_name, size_bytes, content_type) = file.ok_or(StatusCode::NOT_FOUND)?;
+    if file.tenant_id != tenant_id || file.is_deleted {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let file_name = file.name;
+    let size_bytes = file.size_bytes;
+    let content_type = file.content_type;
 
     // Get tenant name for branding
-    let tenant_name: Option<String> = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_optional(&state.pool)
+    let tenant_name = state
+        .store
+        .tenants()
+        .by_id(tenant_id)
         .await
-        .unwrap_or(None);
+        .ok()
+        .flatten()
+        .map(|t| t.name);
 
     Ok(Json(json!({
         "file_name": file_name,
@@ -5232,29 +4605,21 @@ pub async fn download_shared_file(
     headers: HeaderMap,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
     // Look up the share including share_policy
-    let share: Option<(
-        Uuid,
-        Uuid,
-        Uuid,
-        bool,
-        Option<DateTime<Utc>>,
-        bool,
-        Option<String>,
-    )> = sqlx::query_as(
-        r#"
-        SELECT file_id, tenant_id, created_by, is_public, expires_at, is_directory, 
-               COALESCE(share_policy, 'permissioned') as share_policy
-        FROM file_shares WHERE token = $1
-        "#,
-    )
-    .bind(&token)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let share = state
+        .store
+        .shares()
+        .by_token(&token)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_id, tenant_id, created_by, is_public, expires_at, is_directory, share_policy_opt) =
-        share.ok_or(StatusCode::NOT_FOUND)?;
-    let share_policy = share_policy_opt.unwrap_or_else(|| "permissioned".to_string());
+    let file_id = share.file_id;
+    let tenant_id = share.tenant_id;
+    let created_by = share.created_by;
+    let is_public = share.is_public;
+    let expires_at = share.expires_at;
+    let is_directory = share.is_directory;
+    let share_policy = share.share_policy.unwrap_or_else(|| "permissioned".to_string());
 
     // Check expiration
     if let Some(exp) = expires_at {
@@ -5294,7 +4659,7 @@ pub async fn download_shared_file(
                             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
                         if !can_access_file(
-                            &state.pool,
+                            &state.store,
                             file_id,
                             tenant_id,
                             user_id,
@@ -5323,25 +4688,25 @@ pub async fn download_shared_file(
     }
 
     // Get file/folder metadata including size for scheduling
-    let file: Option<(String, Option<String>, Option<String>, i64)> = sqlx::query_as(
-        "SELECT name, storage_path, parent_path, size_bytes FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file = state
+        .store
+        .files()
+        .find_by_id(file_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_name, storage_path_opt, parent_path_opt, file_size) =
-        file.ok_or(StatusCode::NOT_FOUND)?;
-    let parent_path = parent_path_opt.unwrap_or_default();
+    if file.tenant_id != tenant_id || file.is_deleted {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let file_name = file.name;
+    let storage_path = file.storage_path;
+    let parent_path = file.parent_path.unwrap_or_default();
+    let file_size = file.size_bytes;
 
     // Increment download count
-    let _ =
-        sqlx::query("UPDATE file_shares SET download_count = download_count + 1 WHERE token = $1")
-            .bind(&token)
-            .execute(&state.pool)
-            .await;
+    let _ = state.store.shares().increment_download_count(&token).await;
 
     // Extract client IP for audit logging
     let client_ip: Option<String> = headers
@@ -5357,24 +4722,24 @@ pub async fn download_shared_file(
         });
 
     // Log the download
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'shared_file_downloaded', 'file', $3, $4, $5::inet)
-        "#
-    )
-    .bind(tenant_id)
-    .bind(created_by) // Log under the share creator since public downloads may not have a user
-    .bind(file_id)
-    .bind(json!({
-        "file_name": file_name,
-        "share_token": token,
-        "is_public": is_public,
-        "is_directory": is_directory,
-    }))
-    .bind(&client_ip)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log(
+            tenant_id,
+            Some(created_by),
+            "shared_file_downloaded",
+            "file",
+            Some(file_id),
+            Some(json!({
+                "file_name": file_name,
+                "share_token": token,
+                "is_public": is_public,
+                "is_directory": is_directory,
+            })),
+            client_ip,
+        )
+        .await;
 
     // If this is a directory, generate zip on the fly
     if is_directory {
@@ -5382,7 +4747,6 @@ pub async fn download_shared_file(
     }
 
     // Regular file download
-    let storage_path = storage_path_opt.ok_or(StatusCode::NOT_FOUND)?;
 
     // Try presigned URL redirect if enabled and supported (S3-compatible storage)
     // This bypasses the proxy and redirects directly to S3/CDN for better performance
@@ -5489,30 +4853,26 @@ pub async fn migrate_content_hashes(
     tracing::info!("Starting content hash migration...");
 
     // Get all files without content_hash (excluding directories)
-    let files_to_migrate: Vec<(Uuid, Uuid, String, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
-        r#"
-        SELECT id, tenant_id, storage_path, department_id, created_at
-        FROM files_metadata 
-        WHERE content_hash IS NULL 
-        AND is_directory = false 
-        AND is_deleted = false
-        ORDER BY created_at ASC
-        LIMIT 1000
-        "#,
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch files for migration: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let files_to_migrate = state
+        .store
+        .files()
+        .find_unhashed_files_for_migration(1000)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch files for migration: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let _total = files_to_migrate.len();
     let mut migrated = 0;
     let mut errors = 0;
     let mut deduplicated = 0;
 
-    for (file_id, tenant_id, storage_path, department_id, created_at) in files_to_migrate {
+    for file in files_to_migrate {
+        let file_id = file.id;
+        let storage_path = file.storage_path;
+        let created_at = file.created_at;
+
         // Download file content
         match state.storage.download(&storage_path).await {
             Ok(data) => {
@@ -5523,38 +4883,23 @@ pub async fn migrate_content_hashes(
                 let file_ulid = Ulid::from_datetime(created_at.into()).to_string();
 
                 // Check if this content already exists (for deduplication tracking)
-                let existing_count: i64 = sqlx::query_scalar(
-                    r#"
-                    SELECT COUNT(*) FROM files_metadata 
-                    WHERE tenant_id = $1 
-                    AND (department_id IS NOT DISTINCT FROM $2)
-                    AND content_hash = $3
-                    AND is_deleted = false 
-                    AND is_directory = false
-                    AND id != $4
-                    "#,
-                )
-                .bind(tenant_id)
-                .bind(department_id)
-                .bind(&content_hash)
-                .bind(file_id)
-                .fetch_one(&state.pool)
-                .await
-                .unwrap_or(0);
+                let existing_count = state
+                    .store
+                    .files()
+                    .count_content_hash_references_excluding(&content_hash, file_id)
+                    .await
+                    .unwrap_or(0);
 
                 if existing_count > 0 {
                     deduplicated += 1;
                 }
 
                 // Update the file record with content_hash and ulid
-                let result = sqlx::query(
-                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3",
-                )
-                .bind(&content_hash)
-                .bind(&file_ulid)
-                .bind(file_id)
-                .execute(&state.pool)
-                .await;
+                let result = state
+                    .store
+                    .files()
+                    .update_content_hash_and_ulid(file_id, &content_hash, &file_ulid)
+                    .await;
 
                 match result {
                     Ok(_) => {
@@ -5579,14 +4924,11 @@ pub async fn migrate_content_hashes(
                 let file_ulid = Ulid::from_datetime(created_at.into()).to_string();
                 let placeholder_hash = format!("placeholder_{}", file_id);
 
-                let _ = sqlx::query(
-                    "UPDATE files_metadata SET content_hash = $1, ulid = $2 WHERE id = $3",
-                )
-                .bind(&placeholder_hash)
-                .bind(&file_ulid)
-                .bind(file_id)
-                .execute(&state.pool)
-                .await;
+                let _ = state
+                    .store
+                    .files()
+                    .update_content_hash_and_ulid(file_id, &placeholder_hash, &file_ulid)
+                    .await;
 
                 migrated += 1;
             }
@@ -5594,12 +4936,12 @@ pub async fn migrate_content_hashes(
     }
 
     // Get remaining count
-    let remaining: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM files_metadata WHERE content_hash IS NULL AND is_directory = false AND is_deleted = false"
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(0);
+    let remaining = state
+        .store
+        .files()
+        .count_unhashed_files()
+        .await
+        .unwrap_or(0);
 
     tracing::info!(
         "Migration complete: {} migrated, {} errors, {} potential duplicates, {} remaining",

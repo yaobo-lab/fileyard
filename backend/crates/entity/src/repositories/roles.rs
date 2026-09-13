@@ -4,8 +4,8 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Statement,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -198,5 +198,20 @@ impl<'a> RoleRepository<'a> {
             .into_iter()
             .map(|u| u.id)
             .collect())
+    }
+
+    pub async fn has_permission_by_name(&self, tenant_id: Uuid, role_name: &str, permission: &str) -> DataResult<bool> {
+        let sql = "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.tenant_id = $1 AND r.name = $2 AND r.permissions @> $3) AS has_perm";
+        let stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            sql,
+            vec![tenant_id.into(), role_name.into(), serde_json::json!([permission]).into()],
+        );
+        let row = self.db.query_one(stmt).await?;
+        if let Some(r) = row {
+            Ok(r.try_get("", "has_perm")?)
+        } else {
+            Ok(false)
+        }
     }
 }

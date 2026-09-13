@@ -8,9 +8,10 @@ use axum::{
     Extension, Json,
 };
 use chrono::{DateTime, Utc};
+use clovalink_entity::repositories::TenantUsageRow;
+use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -61,7 +62,6 @@ pub async fn get_usage_summary(
     Extension(auth): Extension<AuthUser>,
     Query(params): Query<UsageQueryParams>,
 ) -> Result<Json<UsageSummary>, StatusCode> {
-    // Only SuperAdmin can access
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -69,68 +69,18 @@ pub async fn get_usage_summary(
     let (from, to) = params.get_time_range();
     let duration_minutes = (to - from).num_minutes().max(1) as f64;
 
-    #[derive(FromRow)]
-    struct Stats {
-        total_requests: Option<i64>,
-        total_errors: Option<i64>,
-        avg_response_time: Option<f64>,
-        total_request_bytes: Option<i64>,
-        total_response_bytes: Option<i64>,
-        unique_users: Option<i64>,
-        unique_tenants: Option<i64>,
-    }
-
-    let stats = if params.tenant_id.is_some() {
-        sqlx::query_as::<_, Stats>(
-            r#"
-            SELECT 
-                COUNT(*) as total_requests,
-                COUNT(*) FILTER (WHERE status_code >= 400) as total_errors,
-                AVG(response_time_ms)::FLOAT8 as avg_response_time,
-                COALESCE(SUM(request_size_bytes), 0)::BIGINT as total_request_bytes,
-                COALESCE(SUM(response_size_bytes), 0)::BIGINT as total_response_bytes,
-                COUNT(DISTINCT user_id) as unique_users,
-                COUNT(DISTINCT tenant_id) as unique_tenants
-            FROM api_usage
-            WHERE created_at >= $1 AND created_at <= $2 AND tenant_id = $3
-        "#,
-        )
-        .bind(from)
-        .bind(to)
-        .bind(params.tenant_id)
-        .fetch_one(&state.pool)
+    let stats = state
+        .store
+        .api_usage()
+        .get_stats(from, to, params.tenant_id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get usage summary: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    } else {
-        sqlx::query_as::<_, Stats>(
-            r#"
-            SELECT 
-                COUNT(*) as total_requests,
-                COUNT(*) FILTER (WHERE status_code >= 400) as total_errors,
-                AVG(response_time_ms)::FLOAT8 as avg_response_time,
-                COALESCE(SUM(request_size_bytes), 0)::BIGINT as total_request_bytes,
-                COALESCE(SUM(response_size_bytes), 0)::BIGINT as total_response_bytes,
-                COUNT(DISTINCT user_id) as unique_users,
-                COUNT(DISTINCT tenant_id) as unique_tenants
-            FROM api_usage
-            WHERE created_at >= $1 AND created_at <= $2
-        "#,
-        )
-        .bind(from)
-        .bind(to)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get usage summary: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-    };
+        })?;
 
-    let total_requests = stats.total_requests.unwrap_or(0);
-    let total_errors = stats.total_errors.unwrap_or(0);
+    let total_requests = stats.total_requests;
+    let total_errors = stats.total_errors;
 
     Ok(Json(UsageSummary {
         total_requests,
@@ -140,105 +90,45 @@ pub async fn get_usage_summary(
         } else {
             0.0
         },
-        avg_response_time_ms: stats.avg_response_time.unwrap_or(0.0),
-        total_request_bytes: stats.total_request_bytes.unwrap_or(0),
-        total_response_bytes: stats.total_response_bytes.unwrap_or(0),
-        unique_users: stats.unique_users.unwrap_or(0),
-        unique_tenants: stats.unique_tenants.unwrap_or(0),
+        avg_response_time_ms: stats.avg_response_time,
+        total_request_bytes: stats.total_request_bytes,
+        total_response_bytes: stats.total_response_bytes,
+        unique_users: stats.unique_users,
+        unique_tenants: stats.unique_tenants,
         requests_per_minute: total_requests as f64 / duration_minutes,
         from,
         to,
     }))
 }
 
-/// Usage by tenant
-#[derive(Debug, Serialize, FromRow)]
-pub struct TenantUsage {
-    pub tenant_id: Option<Uuid>,
-    pub tenant_name: Option<String>,
-    pub category: String, // "tenant", "unauthenticated", or "unknown"
-    pub request_count: i64,
-    pub error_count: i64,
-    pub avg_response_time_ms: f64,
-    pub total_bytes: i64,
-}
-
 /// GET /api/admin/usage/by-tenant
 /// Usage breakdown by tenant
-/// Categorizes null tenant_ids as either "unauthenticated" (for public endpoints)
-/// or "unknown" (for requests that should have had a tenant)
 pub async fn get_usage_by_tenant(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
     Query(params): Query<UsageQueryParams>,
-) -> Result<Json<Vec<TenantUsage>>, StatusCode> {
+) -> Result<Json<Vec<TenantUsageRow>>, StatusCode> {
     if auth.role != "SuperAdmin" {
         return Err(StatusCode::FORBIDDEN);
     }
 
     let (from, to) = params.get_time_range();
 
-    // Query with categorization for null tenant_ids
-    // Public endpoints: /api/auth/login, /api/auth/register, /api/auth/forgot-password,
-    // /api/auth/reset-password, /health, /health/ready, /api/public/*
-    let tenants = sqlx::query_as::<_, TenantUsage>(
-        r#"
-        WITH categorized AS (
-            SELECT 
-                u.tenant_id,
-                t.name as tenant_name,
-                CASE 
-                    WHEN u.tenant_id IS NOT NULL THEN 'tenant'
-                    WHEN u.endpoint LIKE '/api/auth/login%' 
-                      OR u.endpoint LIKE '/api/auth/register%'
-                      OR u.endpoint LIKE '/api/auth/forgot-password%'
-                      OR u.endpoint LIKE '/api/auth/reset-password%'
-                      OR u.endpoint LIKE '/health%'
-                      OR u.endpoint LIKE '/api/public%'
-                      OR u.endpoint = '/'
-                    THEN 'unauthenticated'
-                    ELSE 'unknown'
-                END as category,
-                u.status_code,
-                u.response_time_ms,
-                u.request_size_bytes,
-                u.response_size_bytes
-            FROM api_usage u
-            LEFT JOIN tenants t ON t.id = u.tenant_id
-            WHERE u.created_at >= $1 AND u.created_at <= $2
-        )
-        SELECT 
-            tenant_id,
-            CASE 
-                WHEN category = 'tenant' THEN tenant_name
-                WHEN category = 'unauthenticated' THEN 'Unauthenticated'
-                ELSE 'Unknown'
-            END as tenant_name,
-            category,
-            COUNT(*) as request_count,
-            COUNT(*) FILTER (WHERE status_code >= 400) as error_count,
-            AVG(response_time_ms)::FLOAT8 as avg_response_time_ms,
-            COALESCE(SUM(request_size_bytes + response_size_bytes), 0)::BIGINT as total_bytes
-        FROM categorized
-        GROUP BY tenant_id, tenant_name, category
-        ORDER BY request_count DESC
-        LIMIT 50
-    "#,
-    )
-    .bind(from)
-    .bind(to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get usage by tenant: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenants = state
+        .store
+        .api_usage()
+        .get_usage_by_tenant(from, to)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get usage by tenant: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(tenants))
 }
 
 /// Usage by user within a tenant
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct UserUsage {
     pub user_id: Option<Uuid>,
     pub user_name: Option<String>,
@@ -261,8 +151,8 @@ pub async fn get_usage_by_user(
 
     let (from, to) = params.get_time_range();
 
-    let users = if let Some(tenant_id) = params.tenant_id {
-        sqlx::query_as::<_, UserUsage>(
+    let (sql, values) = if let Some(tenant_id) = params.tenant_id {
+        (
             r#"
             SELECT 
                 u.user_id,
@@ -277,15 +167,11 @@ pub async fn get_usage_by_user(
             GROUP BY u.user_id, usr.name, usr.email
             ORDER BY request_count DESC
             LIMIT 50
-        "#,
+            "#,
+            vec![from.into(), to.into(), tenant_id.into()],
         )
-        .bind(from)
-        .bind(to)
-        .bind(tenant_id)
-        .fetch_all(&state.pool)
-        .await
     } else {
-        sqlx::query_as::<_, UserUsage>(
+        (
             r#"
             SELECT 
                 u.user_id,
@@ -300,23 +186,26 @@ pub async fn get_usage_by_user(
             GROUP BY u.user_id, usr.name, usr.email
             ORDER BY request_count DESC
             LIMIT 50
-        "#,
+            "#,
+            vec![from.into(), to.into()],
         )
-        .bind(from)
-        .bind(to)
-        .fetch_all(&state.pool)
+    };
+
+    let users = state
+        .store
+        .api_usage()
+        .query_models::<UserUsage>(sql, values)
         .await
-    }
-    .map_err(|e| {
-        tracing::error!("Failed to get usage by user: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get usage by user: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(users))
 }
 
 /// Usage by endpoint
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct EndpointUsage {
     pub endpoint: String,
     pub method: String,
@@ -339,8 +228,9 @@ pub async fn get_usage_by_endpoint(
 
     let (from, to) = params.get_time_range();
 
-    let endpoints = if let Some(tenant_id) = params.tenant_id {
-        sqlx::query_as::<_, EndpointUsage>(r#"
+    let (sql, values) = if let Some(tenant_id) = params.tenant_id {
+        (
+            r#"
             SELECT 
                 endpoint,
                 method,
@@ -353,14 +243,12 @@ pub async fn get_usage_by_endpoint(
             GROUP BY endpoint, method
             ORDER BY request_count DESC
             LIMIT 50
-        "#)
-        .bind(from)
-        .bind(to)
-        .bind(tenant_id)
-        .fetch_all(&state.pool)
-        .await
+            "#,
+            vec![from.into(), to.into(), tenant_id.into()],
+        )
     } else {
-        sqlx::query_as::<_, EndpointUsage>(r#"
+        (
+            r#"
             SELECT 
                 endpoint,
                 method,
@@ -373,21 +261,26 @@ pub async fn get_usage_by_endpoint(
             GROUP BY endpoint, method
             ORDER BY request_count DESC
             LIMIT 50
-        "#)
-        .bind(from)
-        .bind(to)
-        .fetch_all(&state.pool)
+            "#,
+            vec![from.into(), to.into()],
+        )
+    };
+
+    let endpoints = state
+        .store
+        .api_usage()
+        .query_models::<EndpointUsage>(sql, values)
         .await
-    }.map_err(|e| {
-        tracing::error!("Failed to get usage by endpoint: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get usage by endpoint: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(endpoints))
 }
 
 /// Slow requests
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct SlowRequest {
     pub endpoint: String,
     pub method: String,
@@ -410,7 +303,7 @@ pub async fn get_slow_requests(
 
     let (from, to) = params.get_time_range();
 
-    let slow = sqlx::query_as::<_, SlowRequest>(r#"
+    let sql = r#"
         SELECT 
             endpoint,
             method,
@@ -421,24 +314,26 @@ pub async fn get_slow_requests(
         FROM api_usage
         WHERE created_at >= $1 AND created_at <= $2
         GROUP BY endpoint, method
-        HAVING COUNT(*) >= 10  -- Only include endpoints with enough samples
+        HAVING COUNT(*) >= 10
         ORDER BY avg_response_time_ms DESC
         LIMIT 20
-    "#)
-    .bind(from)
-    .bind(to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get slow requests: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    "#;
+
+    let slow = state
+        .store
+        .api_usage()
+        .query_models::<SlowRequest>(sql, vec![from.into(), to.into()])
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get slow requests: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(slow))
 }
 
 /// Time series data point
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct TimeSeriesPoint {
     pub time_bucket: DateTime<Utc>,
     pub request_count: i64,
@@ -460,13 +355,6 @@ pub async fn get_usage_timeseries(
     let (from, to) = params.get_time_range();
     let granularity = params.granularity.as_deref().unwrap_or("hour");
 
-    let _interval = match granularity {
-        "minute" => "1 minute",
-        "hour" => "1 hour",
-        "day" => "1 day",
-        _ => "1 hour",
-    };
-
     let query = format!(
         r#"
         SELECT 
@@ -479,7 +367,7 @@ pub async fn get_usage_timeseries(
         {}
         GROUP BY time_bucket
         ORDER BY time_bucket ASC
-    "#,
+        "#,
         granularity,
         if params.tenant_id.is_some() {
             "AND tenant_id = $3"
@@ -488,24 +376,21 @@ pub async fn get_usage_timeseries(
         }
     );
 
-    let series = if let Some(tenant_id) = params.tenant_id {
-        sqlx::query_as::<_, TimeSeriesPoint>(&query)
-            .bind(from)
-            .bind(to)
-            .bind(tenant_id)
-            .fetch_all(&state.pool)
-            .await
+    let values = if let Some(tenant_id) = params.tenant_id {
+        vec![from.into(), to.into(), tenant_id.into()]
     } else {
-        sqlx::query_as::<_, TimeSeriesPoint>(&query)
-            .bind(from)
-            .bind(to)
-            .fetch_all(&state.pool)
-            .await
-    }
-    .map_err(|e| {
-        tracing::error!("Failed to get usage timeseries: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        vec![from.into(), to.into()]
+    };
+
+    let series = state
+        .store
+        .api_usage()
+        .query_models::<TimeSeriesPoint>(&query, values)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get usage timeseries: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(series))
 }
@@ -520,8 +405,10 @@ pub async fn aggregate_hourly_stats(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    match sqlx::query("SELECT aggregate_api_usage_hourly()")
-        .execute(&state.pool)
+    match state
+        .store
+        .api_usage()
+        .execute_raw_sql("SELECT aggregate_api_usage_hourly()", vec![])
         .await
     {
         Ok(_) => {
@@ -547,8 +434,10 @@ pub async fn cleanup_old_usage(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    match sqlx::query("SELECT cleanup_old_api_usage()")
-        .execute(&state.pool)
+    match state
+        .store
+        .api_usage()
+        .execute_raw_sql("SELECT cleanup_old_api_usage()", vec![])
         .await
     {
         Ok(_) => {
@@ -567,15 +456,10 @@ pub async fn cleanup_old_usage(
 /// Query params for errors endpoint with pagination
 #[derive(Debug, Deserialize)]
 pub struct ErrorQueryParams {
-    /// Start time (ISO 8601 format)
     pub from: Option<DateTime<Utc>>,
-    /// End time (ISO 8601 format)
     pub to: Option<DateTime<Utc>>,
-    /// Filter by status code (e.g., 401, 500)
     pub status_code: Option<i32>,
-    /// Page number (1-indexed)
     pub page: Option<i64>,
-    /// Items per page (default 20, max 100)
     pub per_page: Option<i64>,
 }
 
@@ -595,7 +479,7 @@ impl ErrorQueryParams {
 }
 
 /// Recent error details
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct ErrorDetail {
     pub id: Uuid,
     pub endpoint: String,
@@ -609,6 +493,11 @@ pub struct ErrorDetail {
     pub ip_address: Option<String>,
     pub created_at: DateTime<Utc>,
     pub response_time_ms: i32,
+}
+
+#[derive(FromQueryResult)]
+struct CountRow {
+    count: i64,
 }
 
 /// Paginated error response
@@ -637,31 +526,33 @@ pub async fn get_recent_errors(
     let page = params.page.unwrap_or(1).max(1);
 
     // Get total count
-    let total: i64 = if let Some(status_code) = params.status_code {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM api_usage WHERE created_at >= $1 AND created_at <= $2 AND status_code = $3"
+    let (count_sql, count_vals) = if let Some(status_code) = params.status_code {
+        (
+            "SELECT COUNT(*) as count FROM api_usage WHERE created_at >= $1 AND created_at <= $2 AND status_code = $3",
+            vec![from.into(), to.into(), status_code.into()],
         )
-        .bind(from)
-        .bind(to)
-        .bind(status_code)
-        .fetch_one(&state.pool)
-        .await
     } else {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM api_usage WHERE created_at >= $1 AND created_at <= $2 AND status_code >= 400"
+        (
+            "SELECT COUNT(*) as count FROM api_usage WHERE created_at >= $1 AND created_at <= $2 AND status_code >= 400",
+            vec![from.into(), to.into()],
         )
-        .bind(from)
-        .bind(to)
-        .fetch_one(&state.pool)
+    };
+
+    let total: i64 = state
+        .store
+        .api_usage()
+        .query_one_model::<CountRow>(count_sql, count_vals)
         .await
-    }.map_err(|e| {
-        tracing::error!("Failed to get error count: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get error count: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .map(|r| r.count)
+        .unwrap_or(0);
 
     // Get paginated errors
-    let errors = if let Some(status_code) = params.status_code {
-        sqlx::query_as::<_, ErrorDetail>(
+    let (errors_sql, errors_vals) = if let Some(status_code) = params.status_code {
+        (
             r#"
             SELECT 
                 u.id,
@@ -683,17 +574,11 @@ pub async fn get_recent_errors(
               AND u.status_code = $3
             ORDER BY u.created_at DESC
             LIMIT $4 OFFSET $5
-        "#,
+            "#,
+            vec![from.into(), to.into(), status_code.into(), per_page.into(), offset.into()],
         )
-        .bind(from)
-        .bind(to)
-        .bind(status_code)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
     } else {
-        sqlx::query_as::<_, ErrorDetail>(
+        (
             r#"
             SELECT 
                 u.id,
@@ -715,19 +600,20 @@ pub async fn get_recent_errors(
               AND u.status_code >= 400
             ORDER BY u.created_at DESC
             LIMIT $3 OFFSET $4
-        "#,
+            "#,
+            vec![from.into(), to.into(), per_page.into(), offset.into()],
         )
-        .bind(from)
-        .bind(to)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.pool)
+    };
+
+    let errors = state
+        .store
+        .api_usage()
+        .query_models::<ErrorDetail>(errors_sql, errors_vals)
         .await
-    }
-    .map_err(|e| {
-        tracing::error!("Failed to get recent errors: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get recent errors: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let total_pages = (total as f64 / per_page as f64).ceil() as i64;
 
@@ -741,7 +627,7 @@ pub async fn get_recent_errors(
 }
 
 /// Error summary by status code
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize, FromQueryResult)]
 pub struct ErrorSummary {
     pub status_code: i32,
     pub error_count: i64,
@@ -762,8 +648,7 @@ pub async fn get_error_summary(
 
     let (from, to) = params.get_time_range();
 
-    let summary = sqlx::query_as::<_, ErrorSummary>(
-        r#"
+    let sql = r#"
         WITH error_counts AS (
             SELECT 
                 status_code,
@@ -784,16 +669,17 @@ pub async fn get_error_summary(
         FROM error_counts
         GROUP BY status_code
         ORDER BY error_count DESC
-    "#,
-    )
-    .bind(from)
-    .bind(to)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get error summary: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    "#;
+
+    let summary = state
+        .store
+        .api_usage()
+        .query_models::<ErrorSummary>(sql, vec![from.into(), to.into()])
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get error summary: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(summary))
 }

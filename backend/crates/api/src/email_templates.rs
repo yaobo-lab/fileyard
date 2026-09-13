@@ -5,37 +5,10 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::{DateTime, Utc};
 use clovalink_auth::{require_admin, require_super_admin, AuthUser};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use uuid::Uuid;
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct EmailTemplate {
-    pub id: Uuid,
-    pub template_key: String,
-    pub name: String,
-    pub subject: String,
-    pub body_html: String,
-    pub body_text: Option<String>,
-    pub variables: Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct TenantEmailTemplate {
-    pub id: Uuid,
-    pub tenant_id: Uuid,
-    pub template_key: String,
-    pub subject: String,
-    pub body_html: String,
-    pub body_text: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTemplateInput {
@@ -54,16 +27,15 @@ pub async fn list_global_templates(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let templates: Vec<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates ORDER BY name"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch email templates: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let templates = state
+        .store
+        .email_templates()
+        .list_global()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch email templates: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!(templates)))
 }
@@ -77,17 +49,15 @@ pub async fn get_global_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let template: Option<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates WHERE template_key = $1"
-    )
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch email template: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let template = state
+        .store
+        .email_templates()
+        .get_global(&key)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch email template: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     match template {
         Some(t) => Ok(Json(json!(t))),
@@ -105,34 +75,19 @@ pub async fn update_global_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    // Verify template exists
-    let exists: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM email_templates WHERE template_key = $1")
-            .bind(&key)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let template = state
+        .store
+        .email_templates()
+        .update_global(&key, input.subject, input.body_html, input.body_text)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update email template: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    if exists.is_none() {
+    let Some(template) = template else {
         return Err(StatusCode::NOT_FOUND);
-    }
-
-    // Update template
-    let template: EmailTemplate = sqlx::query_as(
-        "UPDATE email_templates SET subject = $1, body_html = $2, body_text = $3, updated_at = NOW()
-         WHERE template_key = $4
-         RETURNING id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at"
-    )
-    .bind(&input.subject)
-    .bind(&input.body_html)
-    .bind(&input.body_text)
-    .bind(&key)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update email template: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    };
 
     tracing::info!(
         "SuperAdmin {} updated global email template: {}",
@@ -153,32 +108,26 @@ pub async fn list_tenant_templates(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Get all global templates
-    let global_templates: Vec<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates ORDER BY name"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch email templates: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let global_templates = state
+        .store
+        .email_templates()
+        .list_global()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch email templates: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    // Get tenant-specific overrides
-    let tenant_overrides: Vec<TenantEmailTemplate> = sqlx::query_as(
-        "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1",
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenant email templates: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenant_overrides = state
+        .store
+        .email_templates()
+        .list_tenant(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch tenant email templates: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    // Merge global templates with tenant overrides
     let mut results = Vec::new();
     for global in global_templates {
         let override_template = tenant_overrides
@@ -212,28 +161,20 @@ pub async fn get_tenant_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Get global template first
-    let global: Option<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates WHERE template_key = $1"
-    )
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let global = state
+        .store
+        .email_templates()
+        .get_global(&key)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let global = global.ok_or(StatusCode::NOT_FOUND)?;
-
-    // Check for tenant override
-    let override_template: Option<TenantEmailTemplate> = sqlx::query_as(
-        "SELECT id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at 
-         FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
-    )
-    .bind(auth.tenant_id)
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let override_template = state
+        .store
+        .email_templates()
+        .get_tenant(auth.tenant_id, &key)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
         "template_key": global.template_key,
@@ -259,42 +200,32 @@ pub async fn update_tenant_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Verify global template exists
-    let global_exists: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM email_templates WHERE template_key = $1")
-            .bind(&key)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let global_exists = state
+        .store
+        .email_templates()
+        .get_global(&key)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if global_exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Upsert tenant template
-    let template: TenantEmailTemplate = sqlx::query_as(
-        r#"
-        INSERT INTO tenant_email_templates (tenant_id, template_key, subject, body_html, body_text)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (tenant_id, template_key) DO UPDATE SET
-            subject = EXCLUDED.subject,
-            body_html = EXCLUDED.body_html,
-            body_text = EXCLUDED.body_text,
-            updated_at = NOW()
-        RETURNING id, tenant_id, template_key, subject, body_html, body_text, created_at, updated_at
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(&key)
-    .bind(&input.subject)
-    .bind(&input.body_html)
-    .bind(&input.body_text)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update tenant email template: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let template = state
+        .store
+        .email_templates()
+        .upsert_tenant(
+            auth.tenant_id,
+            &key,
+            input.subject,
+            input.body_html,
+            input.body_text,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update tenant email template: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     tracing::info!(
         "Admin {} in tenant {} updated email template: {}",
@@ -318,19 +249,17 @@ pub async fn reset_tenant_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    let result = sqlx::query(
-        "DELETE FROM tenant_email_templates WHERE tenant_id = $1 AND template_key = $2",
-    )
-    .bind(auth.tenant_id)
-    .bind(&key)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to reset tenant email template: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let deleted = state
+        .store
+        .email_templates()
+        .reset_tenant(auth.tenant_id, &key)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to reset tenant email template: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Ok(Json(json!({
             "success": true,
             "message": "Template was already using global default",
@@ -366,30 +295,33 @@ pub async fn preview_template(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    // Get variables for this template
-    let template: Option<EmailTemplate> = sqlx::query_as(
-        "SELECT id, template_key, name, subject, body_html, body_text, variables, created_at, updated_at 
-         FROM email_templates WHERE template_key = $1"
-    )
-    .bind(&key)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let template = template.ok_or(StatusCode::NOT_FOUND)?;
-
-    // Get tenant and user info for preview
-    let tenant_name: String = sqlx::query_scalar("SELECT name FROM tenants WHERE id = $1")
-        .bind(auth.tenant_id)
-        .fetch_one(&state.pool)
+    let template = state
+        .store
+        .email_templates()
+        .get_global(&key)
         .await
-        .unwrap_or_else(|_| "Your Company".to_string());
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let user_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let tenant_name = state
+        .store
+        .tenants()
+        .by_id(auth.tenant_id)
         .await
-        .unwrap_or_else(|_| "John Doe".to_string());
+        .ok()
+        .flatten()
+        .map(|t| t.name)
+        .unwrap_or_else(|| "Your Company".to_string());
+
+    let user_name = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+        .unwrap_or_else(|| "John Doe".to_string());
 
     // Sample data for preview
     let sample_data = json!({
@@ -419,7 +351,7 @@ pub async fn preview_template(
     let mut preview_subject = input.subject.clone();
     let mut preview_body = input.body_html.clone();
 
-    if let Some(vars) = template.variables.as_array() {
+    if let Some(vars) = template.variables.as_ref().and_then(|v| v.as_array()) {
         for var in vars {
             if let Some(var_name) = var.as_str() {
                 let placeholder = format!("{{{{{}}}}}", var_name);

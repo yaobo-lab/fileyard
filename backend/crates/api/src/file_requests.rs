@@ -10,9 +10,10 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use clovalink_auth::AuthUser;
-use clovalink_core::models::{CreateFileRequestInput, FileRequest, FileRequestUpload, Tenant};
+use clovalink_core::models::{CreateFileRequestInput, Tenant};
 use clovalink_core::notification_service;
 use clovalink_core::security_service;
+use clovalink_entity::ListFileRequestsFilter;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -46,7 +47,7 @@ pub async fn create_file_request(
     })?;
 
     // Check compliance restrictions for public sharing
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, auth.tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, auth.tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
@@ -58,7 +59,7 @@ pub async fn create_file_request(
 
     // Also check using the compliance action checker for more detailed error handling
     if let Err(violation) =
-        check_compliance_action(&state.pool, auth.tenant_id, ComplianceAction::PublicShare).await
+        check_compliance_action(&state.store, auth.tenant_id, ComplianceAction::PublicShare).await
     {
         tracing::warn!("Compliance violation: {:?}", violation);
         return Err(violation.to_status_code());
@@ -75,48 +76,45 @@ pub async fn create_file_request(
         "department"
     };
 
-    let request = sqlx::query_as::<_, FileRequest>(
-        r#"
-        INSERT INTO file_requests (tenant_id, department_id, name, destination_path, token, created_by, expires_at, max_uploads, visibility)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING *
-        "#
-    )
-    .bind(auth.tenant_id)
-    .bind(input.department_id)
-    .bind(&input.name)
-    .bind(&input.destination_path)
-    .bind(&token)
-    .bind(auth.user_id)
-    .bind(expires_at)
-    .bind(input.max_uploads)
-    .bind(visibility)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create file request: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let request = state
+        .store
+        .file_requests()
+        .create(
+            auth.tenant_id,
+            input.department_id,
+            input.name.clone(),
+            input.destination_path.clone(),
+            token,
+            auth.user_id,
+            expires_at,
+            input.max_uploads,
+            visibility.to_string(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create file request: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Log creation of file request
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'file_request_created', 'file_request', $3, $4, $5::inet)
-        "#
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(request.id)
-    .bind(json!({
-        "name": input.name,
-        "destination_path": input.destination_path,
-        "expires_at": expires_at,
-        "visibility": visibility,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "file_request_created",
+            "file_request",
+            Some(request.id),
+            Some(json!({
+                "name": input.name,
+                "destination_path": input.destination_path,
+                "expires_at": expires_at,
+                "visibility": visibility,
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     let base_url = types::config::get_config().web.base_url.clone();
 
@@ -142,97 +140,61 @@ pub async fn list_file_requests(
     Extension(auth): Extension<AuthUser>,
     Query(filters): Query<FileRequestFilters>,
 ) -> Result<Json<Value>, StatusCode> {
-    let limit = filters.limit.unwrap_or(50).min(100);
-    let offset = filters.offset.unwrap_or(0);
+    let limit = filters.limit.unwrap_or(50).clamp(1, 100) as u64;
+    let offset = filters.offset.unwrap_or(0).max(0) as u64;
 
     // Get user's department and role from database
-    let user: Option<(Option<Uuid>, String)> =
-        sqlx::query_as("SELECT department_id, role FROM users WHERE id = $1 AND tenant_id = $2")
-            .bind(auth.user_id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
+    let user = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .unwrap_or(None);
 
-    let user_department_id = user.as_ref().and_then(|u| u.0);
+    let user_department_id = user.as_ref().and_then(|u| u.department_id);
     let role = user
         .as_ref()
-        .map(|u| u.1.clone())
+        .map(|u| u.role.clone())
         .unwrap_or_else(|| auth.role.clone());
 
-    // Build query with visibility filtering
-    let mut query = String::from("SELECT * FROM file_requests WHERE tenant_id = $1");
+    let is_admin = role == "SuperAdmin" || role == "Admin";
+    let view_mode = filters.visibility.as_deref().unwrap_or("department").to_string();
 
-    // Visibility filter based on requested view mode
-    let view_mode = filters.visibility.as_deref().unwrap_or("department");
-
-    if view_mode == "private" {
-        // Private view: only show requests created by the current user
-        query.push_str(&format!(
-            " AND visibility = 'private' AND created_by = '{}'",
-            auth.user_id
-        ));
-    } else {
-        // Department view: show department requests with role-based access
-        query.push_str(" AND visibility = 'department'");
-
-        if role == "SuperAdmin" || role == "Admin" {
-            // Admins can see all department requests, optionally filtered by department
-            if let Some(dept_id_str) = &filters.department_id {
-                if !dept_id_str.is_empty() {
-                    if let Ok(dept_uuid) = Uuid::parse_str(dept_id_str) {
-                        query.push_str(&format!(" AND department_id = '{}'", dept_uuid));
-                    }
-                }
-            }
-        } else {
-            // Manager/Employee: filter by user's department
-            if let Some(dept_id) = user_department_id {
-                query.push_str(&format!(" AND department_id = '{}'", dept_id));
+    let department_id_filter = if is_admin {
+        filters.department_id.as_deref().and_then(|s| {
+            if s.is_empty() {
+                None
             } else {
-                // User has no department, show requests with no department
-                query.push_str(" AND department_id IS NULL");
+                Uuid::parse_str(s).ok()
             }
-        }
-    }
+        })
+    } else {
+        None
+    };
 
-    let mut param_count = 2;
-    if filters.status.is_some() {
-        query.push_str(&format!(" AND status = ${}", param_count));
-        param_count += 1;
-    }
-    if filters.created_after.is_some() {
-        query.push_str(&format!(" AND created_at >= ${}", param_count));
-        param_count += 1;
-    }
-    if filters.created_before.is_some() {
-        query.push_str(&format!(" AND created_at <= ${}", param_count));
-        param_count += 1;
-    }
+    let created_after = filters.created_after.as_deref().and_then(|s| {
+        chrono::DateTime::parse_from_rfc3339(s).ok()
+    });
+    let created_before = filters.created_before.as_deref().and_then(|s| {
+        chrono::DateTime::parse_from_rfc3339(s).ok()
+    });
 
-    query.push_str(" ORDER BY created_at DESC");
-    query.push_str(&format!(
-        " LIMIT ${} OFFSET ${}",
-        param_count,
-        param_count + 1
-    ));
-
-    let mut db_query = sqlx::query_as::<_, FileRequest>(&query).bind(auth.tenant_id);
-
-    if let Some(status) = filters.status {
-        db_query = db_query.bind(status);
-    }
-    if let Some(created_after) = filters.created_after {
-        db_query = db_query.bind(created_after);
-    }
-    if let Some(created_before) = filters.created_before {
-        db_query = db_query.bind(created_before);
-    }
-
-    let requests = db_query
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.pool)
+    let requests = state
+        .store
+        .file_requests()
+        .list_filtered(ListFileRequestsFilter {
+            tenant_id: auth.tenant_id,
+            visibility: view_mode,
+            user_id: auth.user_id,
+            is_admin,
+            user_department_id,
+            department_id_filter,
+            status: filters.status,
+            created_after,
+            created_before,
+            limit,
+            offset,
+        })
         .await
         .map_err(|e| {
             tracing::error!("Failed to list file requests: {:?}", e);
@@ -270,15 +232,13 @@ pub async fn get_file_request(
     Extension(auth): Extension<AuthUser>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    let request = sqlx::query_as::<_, FileRequest>(
-        "SELECT * FROM file_requests WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let request = state
+        .store
+        .file_requests()
+        .by_tenant_and_id(auth.tenant_id, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Security check: enforce visibility rules
     let visibility = &request.visibility;
@@ -298,15 +258,14 @@ pub async fn get_file_request(
         // Department visibility: check department membership or admin role
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
             // Get user's department
-            let user_dept: Option<(Option<Uuid>,)> =
-                sqlx::query_as("SELECT department_id FROM users WHERE id = $1 AND tenant_id = $2")
-                    .bind(auth.user_id)
-                    .bind(auth.tenant_id)
-                    .fetch_optional(&state.pool)
-                    .await
-                    .unwrap_or(None);
+            let user = state
+                .store
+                .users()
+                .user(auth.user_id)
+                .await
+                .unwrap_or(None);
 
-            let user_department_id = user_dept.and_then(|u| u.0);
+            let user_department_id = user.and_then(|u| u.department_id);
 
             // If request has a department, user must be in that department
             if let Some(req_dept_id) = request.department_id {
@@ -326,13 +285,12 @@ pub async fn get_file_request(
     }
 
     // Get uploads for this request
-    let uploads = sqlx::query_as::<_, FileRequestUpload>(
-        "SELECT * FROM file_request_uploads WHERE file_request_id = $1 ORDER BY uploaded_at DESC",
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let uploads = state
+        .store
+        .file_requests()
+        .list_uploads(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let base_url = types::config::get_config().web.base_url.clone();
 
@@ -360,15 +318,13 @@ pub async fn delete_file_request(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // First fetch the request to check permissions
-    let request = sqlx::query_as::<_, FileRequest>(
-        "SELECT * FROM file_requests WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let request = state
+        .store
+        .file_requests()
+        .by_tenant_and_id(auth.tenant_id, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Security check: enforce visibility/ownership rules for deletion
     let visibility = &request.visibility;
@@ -388,15 +344,14 @@ pub async fn delete_file_request(
             }
         } else {
             // Department visibility: check department membership
-            let user_dept: Option<(Option<Uuid>,)> =
-                sqlx::query_as("SELECT department_id FROM users WHERE id = $1 AND tenant_id = $2")
-                    .bind(auth.user_id)
-                    .bind(auth.tenant_id)
-                    .fetch_optional(&state.pool)
-                    .await
-                    .unwrap_or(None);
+            let user = state
+                .store
+                .users()
+                .user(auth.user_id)
+                .await
+                .unwrap_or(None);
 
-            let user_department_id = user_dept.and_then(|u| u.0);
+            let user_department_id = user.and_then(|u| u.department_id);
 
             // If request has a department, user must be in that department
             if let Some(req_dept_id) = request.department_id {
@@ -415,14 +370,12 @@ pub async fn delete_file_request(
     }
 
     // Now perform the deletion
-    sqlx::query!(
-        "UPDATE file_requests SET status = 'revoked', updated_at = NOW() WHERE id = $1 AND tenant_id = $2",
-        id,
-        auth.tenant_id
-    )
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .file_requests()
+        .revoke(auth.tenant_id, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -440,21 +393,22 @@ pub async fn permanent_delete_file_request(
     }
 
     // First delete related uploads
-    sqlx::query("DELETE FROM file_request_uploads WHERE file_request_id = $1")
-        .bind(id)
-        .execute(&state.pool)
+    state
+        .store
+        .file_requests()
+        .delete_uploads(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Then delete the file request
-    let result = sqlx::query("DELETE FROM file_requests WHERE id = $1 AND tenant_id = $2")
-        .bind(id)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    let deleted = state
+        .store
+        .file_requests()
+        .delete_permanent(auth.tenant_id, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -469,23 +423,20 @@ pub async fn get_file_request_uploads(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify the request belongs to this tenant
-    let _ = sqlx::query!(
-        "SELECT id FROM file_requests WHERE id = $1 AND tenant_id = $2",
-        id,
-        auth.tenant_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    state
+        .store
+        .file_requests()
+        .by_tenant_and_id(auth.tenant_id, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let uploads = sqlx::query_as::<_, FileRequestUpload>(
-        "SELECT * FROM file_request_uploads WHERE file_request_id = $1 ORDER BY uploaded_at DESC",
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let uploads = state
+        .store
+        .file_requests()
+        .list_uploads(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!(uploads)))
 }
@@ -499,17 +450,16 @@ pub async fn public_upload(
     mut multipart: Multipart,
 ) -> Result<Json<Value>, StatusCode> {
     // Find the file request by token
-    let file_request = sqlx::query_as::<_, FileRequest>(
-        "SELECT * FROM file_requests WHERE token = $1 AND status = 'active'",
-    )
-    .bind(&token)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
+    let file_request = state
+        .store
+        .file_requests()
+        .by_active_token(&token)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Check compliance mode - verify public sharing is still allowed
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, file_request.tenant_id)
+    let compliance_mode = get_tenant_compliance_mode(&state.store, file_request.tenant_id)
         .await
         .unwrap_or_else(|_| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
@@ -533,22 +483,16 @@ pub async fn public_upload(
     }
 
     // Get tenant upload limits for size validation
-    let tenant_limits: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
-        "SELECT storage_quota_bytes, max_upload_size_bytes FROM tenants WHERE id = $1",
-    )
-    .bind(file_request.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant_model = state
+        .store
+        .tenants()
+        .by_id(file_request.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Get blocked extensions for this tenant
-    let blocked_extensions: Vec<String> = sqlx::query_scalar(
-        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1",
-    )
-    .bind(file_request.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or_default();
+    let tenant_max_upload_size = tenant_model.max_upload_size_bytes;
+    let blocked_extensions = tenant_model.blocked_extensions.clone().unwrap_or_default();
 
     let mut uploaded_files = vec![];
 
@@ -621,7 +565,7 @@ pub async fn public_upload(
             size += chunk.len() as i64;
 
             // Check max upload size limit during streaming
-            if let Some((_, Some(max_size))) = tenant_limits {
+            if let Some(max_size) = tenant_max_upload_size {
                 if size > max_size {
                     // Clean up temp file before returning error
                     drop(temp_file);
@@ -722,28 +666,29 @@ pub async fn public_upload(
 
         // 1. Create FileMetadata entry so it shows up in the file manager
         // Include content_hash for deduplication tracking
-        let file_metadata = sqlx::query_as::<_, clovalink_core::models::FileMetadata>(
-            r#"
-            INSERT INTO files_metadata (tenant_id, department_id, name, storage_path, size_bytes, content_type, is_directory, owner_id, content_hash)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-            "#
-        )
-        .bind(file_request.tenant_id)
-        .bind(file_request.department_id)
-        .bind(&unique_filename)
-        .bind(&storage_path)
-        .bind(size)
-        .bind(&content_type)
-        .bind(false) // is_directory
-        .bind(file_request.created_by) // Owner is the request creator
-        .bind(&content_hash)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to create file metadata: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let ulid = ulid::Ulid::new().to_string();
+        let file_metadata = state
+            .store
+            .files()
+            .create(
+                Uuid::new_v4(),
+                file_request.tenant_id,
+                file_request.department_id,
+                unique_filename.clone(),
+                storage_path.clone(),
+                size,
+                content_type.clone(),
+                file_request.created_by,
+                None, // parent_path
+                "private".to_string(), // visibility
+                ulid,
+                Some(content_hash),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to create file metadata: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Enqueue virus scan job if enabled (non-blocking)
         if state.virus_scan_config.enabled {
@@ -772,95 +717,84 @@ pub async fn public_upload(
         }
 
         // 2. Save upload record linked to metadata
-        let upload = sqlx::query_as::<_, FileRequestUpload>(
-            r#"
-            INSERT INTO file_request_uploads (file_request_id, file_metadata_id, filename, original_filename, size_bytes, content_type, storage_path)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *
-            "#
-        )
-        .bind(file_request.id)
-        .bind(file_metadata.id)
-        .bind(&unique_filename)
-        .bind(&file_name)
-        .bind(size)
-        .bind(&content_type)
-        .bind(&storage_path)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to create upload record: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let upload = state
+            .store
+            .file_requests()
+            .create_upload(
+                file_request.id,
+                Some(file_metadata.id),
+                unique_filename,
+                file_name,
+                size,
+                content_type,
+                storage_path,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to create upload record: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         uploaded_files.push(upload);
     }
 
     // Update upload count
-    sqlx::query!(
-        "UPDATE file_requests SET upload_count = upload_count + $1, updated_at = NOW() WHERE id = $2",
-        uploaded_files.len() as i32,
-        file_request.id
-    )
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .file_requests()
+        .increment_upload_count(file_request.id, uploaded_files.len() as i32)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Send notification to the file request owner
     if !uploaded_files.is_empty() {
         // Get request owner details
-        let owner: Option<(String, String)> =
-            sqlx::query_as("SELECT email, role FROM users WHERE id = $1")
-                .bind(file_request.created_by)
-                .fetch_optional(&state.pool)
-                .await
-                .ok()
-                .flatten();
+        let owner = state
+            .store
+            .users()
+            .user(file_request.created_by)
+            .await
+            .ok()
+            .flatten();
 
-        if let Some((owner_email, owner_role)) = owner {
-            // Get tenant
-            if let Ok(tenant) = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-                .bind(file_request.tenant_id)
-                .fetch_one(&state.pool)
-                .await
-            {
-                // Notify about the first uploaded file (or summarize if multiple)
-                let first_file = &uploaded_files[0];
-                let uploader_name = "External user"; // Public uploads don't have a known uploader
+        if let Some(owner_user) = owner {
+            let tenant = Tenant::from(tenant_model);
+            // Notify about the first uploaded file (or summarize if multiple)
+            let first_file = &uploaded_files[0];
+            let uploader_name = "External user"; // Public uploads don't have a known uploader
 
-                if let Some(file_id) = first_file.file_metadata_id {
-                    let _ = notification_service::notify_file_upload(
-                        &state.store,
-                        &tenant,
-                        file_request.created_by,
-                        &owner_email,
-                        &owner_role,
-                        &file_request.name,
-                        uploader_name,
-                        &first_file.original_filename,
-                        file_id,
-                        file_request.id,
+            if let Some(file_id) = first_file.file_metadata_id {
+                let _ = notification_service::notify_file_upload(
+                    &state.store,
+                    &tenant,
+                    file_request.created_by,
+                    &owner_user.email,
+                    &owner_user.role,
+                    &file_request.name,
+                    uploader_name,
+                    &first_file.original_filename,
+                    file_id,
+                    file_request.id,
+                )
+                .await;
+
+                // Also send Discord DM notification (fire-and-forget)
+                let store_clone = state.store.clone();
+                let tenant_id = file_request.tenant_id;
+                let owner_id = file_request.created_by;
+                let file_name = first_file.original_filename.clone();
+                let request_name = file_request.name.clone();
+                tokio::spawn(async move {
+                    crate::discord::notify_file_upload(
+                        &store_clone,
+                        tenant_id,
+                        owner_id,
+                        &file_name,
+                        "External user",
+                        &request_name,
                     )
                     .await;
-
-                    // Also send Discord DM notification (fire-and-forget)
-                    let pool_clone = state.pool.clone();
-                    let tenant_id = file_request.tenant_id;
-                    let owner_id = file_request.created_by;
-                    let file_name = first_file.original_filename.clone();
-                    let request_name = file_request.name.clone();
-                    tokio::spawn(async move {
-                        crate::discord::notify_file_upload(
-                            &pool_clone,
-                            tenant_id,
-                            owner_id,
-                            &file_name,
-                            "External user",
-                            &request_name,
-                        )
-                        .await;
-                    });
-                }
+                });
             }
         }
     }

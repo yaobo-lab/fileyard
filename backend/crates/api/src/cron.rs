@@ -6,7 +6,6 @@ use clovalink_core::models::Tenant;
 use clovalink_core::notification_service;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use uuid::Uuid;
 
 /// Manually trigger cleanup of expired files
 /// POST /api/cron/cleanup
@@ -18,8 +17,10 @@ pub async fn cleanup_expired_files(
     require_admin(&auth)?;
 
     // 1. Get all tenants and their retention policies
-    let tenants = sqlx::query!("SELECT id, retention_policy_days FROM tenants")
-        .fetch_all(&state.pool)
+    let tenants = state
+        .store
+        .tenants()
+        .list_retention_policies()
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch tenants: {:?}", e);
@@ -28,12 +29,10 @@ pub async fn cleanup_expired_files(
 
     let mut deleted_count = 0;
 
-    for tenant in tenants {
-        let retention_days = tenant.retention_policy_days;
-
+    for (tenant_id, retention_days) in tenants {
         // Skip tenants with infinite retention (0 = never auto-delete from trash)
         if retention_days == 0 {
-            tracing::debug!("Skipping tenant {} - infinite retention policy", tenant.id);
+            tracing::debug!("Skipping tenant {} - infinite retention policy", tenant_id);
             continue;
         }
 
@@ -41,48 +40,38 @@ pub async fn cleanup_expired_files(
         let cutoff_date = Utc::now() - chrono::Duration::days(retention_days as i64);
 
         // 2. Find expired files for this tenant
-        let expired_files = sqlx::query!(
-            "SELECT name, storage_path FROM files_metadata WHERE tenant_id = $1 AND is_deleted = true AND deleted_at < $2",
-            tenant.id,
-            cutoff_date
-        )
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch expired files: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let expired_files = state
+            .store
+            .files()
+            .list_expired(tenant_id, cutoff_date)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch expired files: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-        for file in expired_files {
+        for (file_name, storage_path) in expired_files {
             // 3. Delete from storage
-            // Note: storage_path should already point to .trash/...
-            if let Err(e) = state.storage.delete(&file.storage_path).await {
+            if let Err(e) = state.storage.delete(&storage_path).await {
                 tracing::error!(
                     "Failed to delete file from storage: {:?}, error: {:?}",
-                    file.storage_path,
+                    storage_path,
                     e
                 );
-                // Continue to next file even if storage deletion fails?
-                // Ideally yes, but maybe we should keep metadata if storage fails?
-                // For now, we'll log and proceed to delete metadata to keep DB clean.
             }
 
             // 4. Delete from database
-            if let Err(e) = sqlx::query!(
-                "DELETE FROM files_metadata WHERE tenant_id = $1 AND name = $2",
-                tenant.id,
-                file.name
-            )
-            .execute(&state.pool)
-            .await
-            {
-                tracing::error!(
-                    "Failed to delete file metadata: {:?}, error: {:?}",
-                    file.name,
-                    e
-                );
-            } else {
-                deleted_count += 1;
+            match state.store.files().delete_by_name(tenant_id, &file_name).await {
+                Ok(rows) => {
+                    deleted_count += rows;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to delete file metadata: {:?}, error: {:?}",
+                        file_name,
+                        e
+                    );
+                }
             }
         }
     }
@@ -104,67 +93,47 @@ pub async fn notify_expiring_requests(
     require_admin(&auth)?;
 
     let now = Utc::now();
-    let _one_day = now + chrono::Duration::days(1);
     let three_days = now + chrono::Duration::days(3);
+    let one_day_ago = now - chrono::Duration::days(1);
 
-    // Find requests expiring within 3 days that haven't been notified
-    let expiring_requests: Vec<(Uuid, String, Uuid, chrono::DateTime<Utc>, Uuid)> = sqlx::query_as(
-        r#"
-        SELECT fr.id, fr.name, fr.created_by, fr.expires_at, fr.tenant_id
-        FROM file_requests fr
-        WHERE fr.status = 'active'
-          AND fr.expires_at > $1
-          AND fr.expires_at <= $2
-          AND NOT EXISTS (
-            SELECT 1 FROM notifications n 
-            WHERE n.notification_type = 'request_expiring' 
-              AND n.metadata->>'request_id' = fr.id::text
-              AND n.created_at > ($1 - interval '1 day')
-          )
-        "#,
-    )
-    .bind(now)
-    .bind(three_days)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch expiring requests: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // Find requests expiring within 3 days
+    let requests = state
+        .store
+        .file_requests()
+        .list_expiring(now, three_days)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch expiring requests: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let mut notification_count = 0;
 
-    for (request_id, request_name, created_by, expires_at, tenant_id) in expiring_requests {
-        // Calculate days until expiry
-        let duration = expires_at - now;
+    for req in requests {
+        // Check if recently notified within 1 day
+        if let Ok(true) = state
+            .store
+            .notifications()
+            .has_recent_request_expiring(req.id, one_day_ago)
+            .await
+        {
+            continue;
+        }
+
+        let duration = req.expires_at.with_timezone(&Utc) - now;
         let days_until = duration.num_days() as i32;
 
-        // Get user details
-        let user: Option<(String, String)> =
-            sqlx::query_as("SELECT email, role FROM users WHERE id = $1")
-                .bind(created_by)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to fetch user: {:?}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                })?;
-
-        if let Some((user_email, user_role)) = user {
-            // Get tenant
-            if let Ok(tenant) = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-                .bind(tenant_id)
-                .fetch_one(&state.pool)
-                .await
-            {
+        if let Ok(Some(user)) = state.store.users().user(req.created_by).await {
+            if let Ok(Some(tenant_model)) = state.store.tenants().by_id(req.tenant_id).await {
+                let tenant = Tenant::from(tenant_model);
                 let _ = notification_service::notify_expiring_request(
                     &state.store,
                     &tenant,
-                    created_by,
-                    &user_email,
-                    &user_role,
-                    &request_name,
-                    request_id,
+                    req.created_by,
+                    &user.email,
+                    &user.role,
+                    &req.name,
+                    req.id,
                     days_until,
                 )
                 .await;
@@ -190,34 +159,34 @@ pub async fn check_storage_quotas(
     require_admin(&auth)?;
 
     // Get tenants with storage quotas
-    let tenants: Vec<Tenant> = sqlx::query_as(
-        "SELECT * FROM tenants WHERE storage_quota_bytes IS NOT NULL AND status = 'active'",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch tenants: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenants = state
+        .store
+        .tenants()
+        .list_with_storage_quota()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch tenants: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let mut warning_count = 0;
+    let one_day_ago = Utc::now() - chrono::Duration::hours(24);
 
-    for tenant in tenants {
+    for tenant_model in tenants {
+        let tenant = Tenant::from(tenant_model);
         if let Some(quota) = tenant.storage_quota_bytes {
-            // Calculate actual storage from files_metadata (not stale tenant.storage_used_bytes)
-            let actual_storage: (i64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM files_metadata WHERE tenant_id = $1 AND is_deleted = false AND is_directory = false"
-            )
-            .bind(tenant.id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,));
+            // Calculate actual storage from files_metadata
+            let actual_storage = state
+                .store
+                .files()
+                .calculate_actual_storage(tenant.id)
+                .await
+                .unwrap_or(0);
 
-            let percentage = ((actual_storage.0 as f64 / quota as f64) * 100.0) as i32;
+            let percentage = ((actual_storage as f64 / quota as f64) * 100.0) as i32;
 
             // Only warn at 80%, 90%, and 100% thresholds
             if percentage >= 80 {
-                // Check if we already sent a warning at this threshold recently
                 let threshold = if percentage >= 100 {
                     100
                 } else if percentage >= 90 {
@@ -226,24 +195,14 @@ pub async fn check_storage_quotas(
                     80
                 };
 
-                let recent_warning: Option<(i64,)> = sqlx::query_as(
-                    r#"
-                    SELECT COUNT(*) FROM notifications 
-                    WHERE notification_type = 'storage_warning' 
-                      AND tenant_id = $1
-                      AND (metadata->>'percentage_used')::int >= $2
-                      AND created_at > NOW() - interval '24 hours'
-                    "#,
-                )
-                .bind(tenant.id)
-                .bind(threshold)
-                .fetch_optional(&state.pool)
-                .await
-                .ok()
-                .flatten();
+                let already_warned = state
+                    .store
+                    .notifications()
+                    .has_recent_storage_warning(tenant.id, threshold, one_day_ago)
+                    .await
+                    .unwrap_or(false);
 
-                if recent_warning.map(|(c,)| c).unwrap_or(0) == 0 {
-                    // No recent warning at this threshold, send one
+                if !already_warned {
                     let _ = notification_service::notify_all_admins(
                         &state.store,
                         &tenant,
@@ -260,7 +219,7 @@ pub async fn check_storage_quotas(
                         },
                         Some(serde_json::json!({
                             "percentage_used": percentage,
-                            "storage_used_bytes": actual_storage.0,
+                            "storage_used_bytes": actual_storage,
                             "storage_quota_bytes": quota
                         })),
                     ).await;

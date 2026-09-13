@@ -318,14 +318,17 @@ impl<'a> SamlRepository<'a> {
             .rows_affected
             > 0)
     }
-    pub async fn set_local(&self, user: Uuid) -> DataResult<()> {
+    pub async fn set_identity_provider(&self, user: Uuid, provider: &str) -> DataResult<()> {
         let Some(r) = users::Entity::find_by_id(user).one(self.db).await? else {
             return Ok(());
         };
         let mut a: users::ActiveModel = r.into();
-        a.identity_provider = Set("local".into());
+        a.identity_provider = Set(provider.into());
         a.updated_at = Set(chrono::Utc::now().into());
         a.update(self.db).await?;
         Ok(())
+    }
+    pub async fn set_local(&self, user: Uuid) -> DataResult<()> {
+        self.set_identity_provider(user, "local").await
     }
 }

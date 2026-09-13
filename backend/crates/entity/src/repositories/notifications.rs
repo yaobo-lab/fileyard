@@ -1,5 +1,5 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use uuid::Uuid;
@@ -325,5 +325,50 @@ impl<'a> NotificationRepository<'a> {
         a.updated_at = Set(chrono::Utc::now().into());
         a.save(self.db).await?;
         Ok(())
+    }
+
+    pub async fn has_recent_request_expiring(
+        &self,
+        request_id: Uuid,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> DataResult<bool> {
+        let req_id_str = request_id.to_string();
+        let sql = r#"
+            SELECT 1 FROM notifications
+            WHERE notification_type = 'request_expiring'
+              AND metadata->>'request_id' = $1
+              AND created_at > $2
+            LIMIT 1
+        "#;
+        let stmt = sea_orm::Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            sql,
+            vec![req_id_str.into(), since.into()],
+        );
+        let res = self.db.query_one(stmt).await?;
+        Ok(res.is_some())
+    }
+
+    pub async fn has_recent_storage_warning(
+        &self,
+        tenant_id: Uuid,
+        threshold: i32,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> DataResult<bool> {
+        let sql = r#"
+            SELECT 1 FROM notifications 
+            WHERE notification_type = 'storage_warning' 
+              AND tenant_id = $1
+              AND (metadata->>'percentage_used')::int >= $2
+              AND created_at > $3
+            LIMIT 1
+        "#;
+        let stmt = sea_orm::Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            sql,
+            vec![tenant_id.into(), threshold.into(), since.into()],
+        );
+        let res = self.db.query_one(stmt).await?;
+        Ok(res.is_some())
     }
 }

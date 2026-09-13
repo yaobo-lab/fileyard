@@ -4,7 +4,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::entities::{ai_usage_logs, tenant_ai_settings, users};
+use crate::entities::{ai_usage_logs, file_summaries, tenant_ai_settings, users};
 use crate::DataResult;
 
 #[derive(Default)]
@@ -198,5 +198,51 @@ impl<'a> AiRepository<'a> {
             total,
             rows,
         })
+    }
+
+    pub async fn get_file_summary(
+        &self,
+        file_id: Uuid,
+        tenant_id: Uuid,
+    ) -> DataResult<Option<file_summaries::Model>> {
+        Ok(file_summaries::Entity::find()
+            .filter(file_summaries::Column::FileId.eq(file_id))
+            .filter(file_summaries::Column::TenantId.eq(tenant_id))
+            .one(self.db)
+            .await?)
+    }
+
+    pub async fn upsert_file_summary(
+        &self,
+        file_id: Uuid,
+        tenant_id: Uuid,
+        summary: String,
+        content_hash: String,
+    ) -> DataResult<file_summaries::Model> {
+        let existing = file_summaries::Entity::find()
+            .filter(file_summaries::Column::FileId.eq(file_id))
+            .one(self.db)
+            .await?;
+
+        let now = chrono::Utc::now().into();
+
+        if let Some(model) = existing {
+            let mut active: file_summaries::ActiveModel = model.into();
+            active.summary = Set(summary);
+            active.content_hash = Set(content_hash);
+            active.updated_at = Set(now);
+            Ok(active.update(self.db).await?)
+        } else {
+            let active = file_summaries::ActiveModel {
+                id: Set(Uuid::new_v4()),
+                file_id: Set(file_id),
+                tenant_id: Set(tenant_id),
+                summary: Set(summary),
+                content_hash: Set(content_hash),
+                created_at: Set(now),
+                updated_at: Set(now),
+            };
+            Ok(active.insert(self.db).await?)
+        }
     }
 }

@@ -10,4 +10,5 @@ pub use db::{connect, DatabaseConfig};
 pub use entities::*;
 pub use error::{DataError, DataResult};
 pub use queries::{Page, PageRequest, SortDirection};
+pub use repositories::*;
 pub use store::DataStore;

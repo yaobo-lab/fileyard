@@ -11,8 +11,7 @@ use axum::{
     response::Json,
     Extension,
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -22,29 +21,10 @@ use clovalink_auth::middleware::AuthUser;
 
 // ==================== Models ====================
 
-#[derive(Debug, Serialize)]
-pub struct ShareableUser {
-    pub id: Uuid,
-    pub name: String,
-    pub email: String,
-    pub department_id: Option<Uuid>,
-    pub department_name: Option<String>,
-    pub role: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SharedFile {
-    pub id: Uuid,
-    pub name: String,
-    pub size: i64,
-    pub content_type: Option<String>,
-    pub folder_path: Option<String>,
-    pub shared_by_id: Uuid,
-    pub shared_by_name: String,
-    pub shared_at: DateTime<Utc>,
-    pub share_token: String,
-    pub expires_at: Option<DateTime<Utc>>,
-}
+#[allow(dead_code)]
+pub type ShareableUser = clovalink_entity::ShareableUserRow;
+#[allow(dead_code)]
+pub type SharedFile = clovalink_entity::SharedFileRow;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -65,42 +45,30 @@ pub struct SharedWithMeQuery {
 /// - Admin/SuperAdmin: all departments in tenant
 /// - Others: their own department + any explicitly accessible departments
 async fn get_accessible_department_ids(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     user_id: Uuid,
     tenant_id: Uuid,
     role: &str,
 ) -> Result<Vec<Uuid>, StatusCode> {
-    // Admins can share with anyone in the tenant
     if role == "Admin" || role == "SuperAdmin" {
-        let all_depts: Vec<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM departments WHERE tenant_id = $1")
-                .bind(tenant_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        return Ok(all_depts.into_iter().map(|(id,)| id).collect());
-    }
-
-    // Get user's own department
-    let user_dept: Option<(Option<Uuid>,)> =
-        sqlx::query_as("SELECT department_id FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
+        let depts = store
+            .departments()
+            .list(tenant_id)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let own_dept = user_dept.and_then(|(d,)| d);
-    let mut dept_ids = Vec::new();
-
-    if let Some(d) = own_dept {
-        dept_ids.push(d);
+        return Ok(depts.into_iter().map(|d| d.id).collect());
     }
 
-    // Check for any additional department access (e.g., cross-department permissions)
-    // This could be extended with a department_access table if needed
-    // For now, users only have access to their own department
+    let user = store
+        .users()
+        .user(user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let mut dept_ids = Vec::new();
+    if let Some(d) = user.and_then(|u| u.department_id) {
+        dept_ids.push(d);
+    }
     Ok(dept_ids)
 }
 
@@ -121,147 +89,30 @@ pub async fn list_shareable_users(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Get accessible department IDs based on user's role
-    let accessible_depts =
-        get_accessible_department_ids(&state.pool, auth.user_id, tenant_id, &auth.role).await?;
-
-    // Build query for shareable users
-    // Must be: same tenant, in accessible departments, not the current user
-    let users: Vec<ShareableUser> = if auth.role == "Admin" || auth.role == "SuperAdmin" {
-        // Admins can see all users in tenant
-        if let Some(search) = &query.search {
-            let search_pattern = format!("%{}%", search.to_lowercase());
-            sqlx::query_as!(
-                ShareableUser,
-                r#"
-                SELECT 
-                    u.id,
-                    u.name,
-                    u.email,
-                    u.department_id,
-                    d.name as "department_name?",
-                    u.role
-                FROM users u
-                LEFT JOIN departments d ON u.department_id = d.id
-                WHERE u.tenant_id = $1 
-                  AND u.id != $2
-                  AND u.status = 'active'
-                  AND (LOWER(u.name) LIKE $3 OR LOWER(u.email) LIKE $3)
-                ORDER BY u.name
-                LIMIT 50
-                "#,
-                tenant_id,
-                auth.user_id,
-                search_pattern
-            )
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch shareable users: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-        } else {
-            sqlx::query_as!(
-                ShareableUser,
-                r#"
-                SELECT 
-                    u.id,
-                    u.name,
-                    u.email,
-                    u.department_id,
-                    d.name as "department_name?",
-                    u.role
-                FROM users u
-                LEFT JOIN departments d ON u.department_id = d.id
-                WHERE u.tenant_id = $1 
-                  AND u.id != $2
-                  AND u.status = 'active'
-                ORDER BY u.name
-                LIMIT 50
-                "#,
-                tenant_id,
-                auth.user_id
-            )
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch shareable users: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-        }
+    let accessible_depts = if auth.role == "Admin" || auth.role == "SuperAdmin" {
+        None
     } else {
-        // Non-admins can only see users in their accessible departments
-        if accessible_depts.is_empty() {
-            Vec::new()
-        } else if let Some(search) = &query.search {
-            let search_pattern = format!("%{}%", search.to_lowercase());
-            sqlx::query_as!(
-                ShareableUser,
-                r#"
-                SELECT 
-                    u.id,
-                    u.name,
-                    u.email,
-                    u.department_id,
-                    d.name as "department_name?",
-                    u.role
-                FROM users u
-                LEFT JOIN departments d ON u.department_id = d.id
-                WHERE u.tenant_id = $1 
-                  AND u.id != $2
-                  AND u.status = 'active'
-                  AND u.department_id = ANY($3)
-                  AND (LOWER(u.name) LIKE $4 OR LOWER(u.email) LIKE $4)
-                ORDER BY u.name
-                LIMIT 50
-                "#,
-                tenant_id,
-                auth.user_id,
-                &accessible_depts,
-                search_pattern
-            )
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch shareable users: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-        } else {
-            sqlx::query_as!(
-                ShareableUser,
-                r#"
-                SELECT 
-                    u.id,
-                    u.name,
-                    u.email,
-                    u.department_id,
-                    d.name as "department_name?",
-                    u.role
-                FROM users u
-                LEFT JOIN departments d ON u.department_id = d.id
-                WHERE u.tenant_id = $1 
-                  AND u.id != $2
-                  AND u.status = 'active'
-                  AND u.department_id = ANY($3)
-                ORDER BY u.name
-                LIMIT 50
-                "#,
-                tenant_id,
-                auth.user_id,
-                &accessible_depts
-            )
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to fetch shareable users: {:?}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-        }
+        Some(get_accessible_department_ids(&state.store, auth.user_id, tenant_id, &auth.role).await?)
     };
 
+    let users = state
+        .store
+        .shares()
+        .list_shareable_users(
+            tenant_id,
+            auth.user_id,
+            accessible_depts.as_deref(),
+            query.search.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch shareable users: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     Ok(Json(json!({
-        "users": users,
-        "total": users.len()
+        "total": users.len(),
+        "users": users
     })))
 }
 
@@ -276,99 +127,15 @@ pub async fn list_shared_with_me(
     let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * per_page;
 
-    // Count total files shared with user
-    let total: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*) 
-        FROM file_shares fs
-        JOIN files_metadata fm ON fs.file_id = fm.id
-        WHERE fs.shared_with_user_id = $1 
-          AND fs.tenant_id = $2
-          AND (fs.expires_at IS NULL OR fs.expires_at > NOW())
-        "#,
-    )
-    .bind(auth.user_id)
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Fetch shared files
-    let files: Vec<(
-        Uuid,
-        String,
-        i64,
-        Option<String>,
-        Option<String>,
-        Uuid,
-        String,
-        DateTime<Utc>,
-        String,
-        Option<DateTime<Utc>>,
-    )> = sqlx::query_as(
-        r#"
-        SELECT 
-            fm.id,
-            fm.name,
-            fm.size_bytes,
-            fm.content_type,
-            fm.parent_path,
-            u.id as shared_by_id,
-            u.name as shared_by_name,
-            fs.created_at as shared_at,
-            fs.token,
-            fs.expires_at
-        FROM file_shares fs
-        JOIN files_metadata fm ON fs.file_id = fm.id
-        JOIN users u ON fs.created_by = u.id
-        WHERE fs.shared_with_user_id = $1 
-          AND fs.tenant_id = $2
-          AND (fs.expires_at IS NULL OR fs.expires_at > NOW())
-        ORDER BY fs.created_at DESC
-        LIMIT $3 OFFSET $4
-        "#,
-    )
-    .bind(auth.user_id)
-    .bind(auth.tenant_id)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch shared files: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let shared_files: Vec<SharedFile> = files
-        .into_iter()
-        .map(
-            |(
-                id,
-                name,
-                size,
-                content_type,
-                folder_path,
-                shared_by_id,
-                shared_by_name,
-                shared_at,
-                share_token,
-                expires_at,
-            )| {
-                SharedFile {
-                    id,
-                    name,
-                    size,
-                    content_type,
-                    folder_path,
-                    shared_by_id,
-                    shared_by_name,
-                    shared_at,
-                    share_token,
-                    expires_at,
-                }
-            },
-        )
-        .collect();
+    let (shared_files, total) = state
+        .store
+        .shares()
+        .list_shared_with_me(auth.user_id, auth.tenant_id, per_page as u64, offset as u64)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch shared files: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let total_pages = (total as f64 / per_page as f64).ceil() as i64;
 
@@ -397,68 +164,52 @@ pub async fn copy_to_my_files(
     Json(input): Json<CopyToMyFilesInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify the share exists and is valid for this user
-    let share: Option<(Uuid, Uuid, Option<DateTime<Utc>>)> = sqlx::query_as(
-        r#"
-        SELECT file_id, tenant_id, expires_at
-        FROM file_shares 
-        WHERE token = $1 
-          AND shared_with_user_id = $2
-          AND tenant_id = $3
-        "#,
-    )
-    .bind(&input.share_token)
-    .bind(auth.user_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch share: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let (file_id, tenant_id, expires_at) = share.ok_or(StatusCode::NOT_FOUND)?;
+    let share = state
+        .store
+        .shares()
+        .get_user_share(&input.share_token, auth.user_id, auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch share: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if share has expired
-    if let Some(exp) = expires_at {
-        if exp < Utc::now() {
+    if let Some(exp) = share.expires_at {
+        if exp < chrono::Utc::now().fixed_offset() {
             return Err(StatusCode::GONE);
         }
     }
 
     // Verify file_id matches
-    if file_id != input.file_id {
+    if share.file_id != input.file_id {
         return Err(StatusCode::BAD_REQUEST);
     }
 
     // Get original file metadata
-    let original: Option<(String, String, i64, Option<String>, Option<Uuid>)> = sqlx::query_as(
-        r#"
-        SELECT name, storage_path, size_bytes, content_type, department_id
-        FROM files_metadata 
-        WHERE id = $1 
-          AND tenant_id = $2 
-          AND is_deleted = false
-        "#,
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch file metadata: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let original = state
+        .store
+        .files()
+        .by_tenant_id(share.tenant_id, share.file_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch file metadata: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .filter(|f| !f.is_deleted)
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (file_name, storage_path, size_bytes, content_type, _original_dept) =
-        original.ok_or(StatusCode::NOT_FOUND)?;
+    let file_name = original.name.clone();
 
     // Get user's department for the new file
-    let user_dept: Option<Uuid> =
-        sqlx::query_scalar("SELECT department_id FROM users WHERE id = $1")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_dept = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .and_then(|u| u.department_id);
 
     // Generate new storage path for the copy
     let new_file_id = Uuid::new_v4();
@@ -470,11 +221,11 @@ pub async fn copy_to_my_files(
         .unwrap_or_default();
     let new_storage_path = format!(
         "{}/{}/{}{}",
-        tenant_id, auth.user_id, new_file_id, extension
+        share.tenant_id, auth.user_id, new_file_id, extension
     );
 
     // Download the original file
-    let file_data = state.storage.download(&storage_path).await.map_err(|e| {
+    let file_data = state.storage.download(&original.storage_path).await.map_err(|e| {
         tracing::error!("Failed to download original file: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -490,55 +241,51 @@ pub async fn copy_to_my_files(
         })?;
 
     // Create new file metadata entry
-    let new_file: (Uuid, String, DateTime<Utc>) = sqlx::query_as(
-        r#"
-        INSERT INTO files_metadata (
-            id, tenant_id, department_id, name, storage_path, size_bytes, 
-            content_type, is_directory, owner_id, parent_path, visibility, ulid
+    let new_file = state
+        .store
+        .files()
+        .create(
+            new_file_id,
+            auth.tenant_id,
+            user_dept,
+            file_name.clone(),
+            new_storage_path,
+            original.size_bytes,
+            original.content_type,
+            auth.user_id,
+            None,
+            "private".to_string(),
+            new_ulid,
+            original.content_hash,
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, 'private', $10)
-        RETURNING id, name, created_at
-        "#,
-    )
-    .bind(new_file_id)
-    .bind(auth.tenant_id)
-    .bind(user_dept)
-    .bind(&file_name)
-    .bind(&new_storage_path)
-    .bind(size_bytes)
-    .bind(&content_type)
-    .bind(auth.user_id)
-    .bind::<Option<String>>(None) // Root level of private files
-    .bind(&new_ulid)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create file metadata: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create file metadata: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Log the action
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-        VALUES ($1, $2, 'file_copied_from_share', 'file', $3, $4, $5::inet)
-        "#
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(new_file_id)
-    .bind(serde_json::json!({
-        "original_file_id": file_id,
-        "file_name": file_name,
-        "share_token": input.share_token,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "file_copied_from_share",
+            "file",
+            Some(new_file_id),
+            Some(serde_json::json!({
+                "original_file_id": share.file_id,
+                "file_name": file_name,
+                "share_token": input.share_token,
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     tracing::info!(
         user_id = %auth.user_id,
-        original_file = %file_id,
+        original_file = %share.file_id,
         new_file = %new_file_id,
         "File copied from share to private files"
     );
@@ -546,9 +293,9 @@ pub async fn copy_to_my_files(
     Ok(Json(serde_json::json!({
         "success": true,
         "file": {
-            "id": new_file.0,
-            "name": new_file.1,
-            "created_at": new_file.2,
+            "id": new_file.id,
+            "name": new_file.name,
+            "created_at": new_file.created_at,
         },
         "message": format!("\"{}\" has been saved to your files", file_name)
     })))
@@ -557,28 +304,26 @@ pub async fn copy_to_my_files(
 /// Validate that a user can share with another user
 /// Returns true if sharing is allowed
 pub async fn can_share_with_user(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     sharer_id: Uuid,
     sharer_tenant_id: Uuid,
     sharer_role: &str,
     recipient_id: Uuid,
 ) -> Result<bool, StatusCode> {
     // Get recipient's tenant and department
-    let recipient: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
-        "SELECT tenant_id, department_id FROM users WHERE id = $1 AND status = 'active'",
-    )
-    .bind(recipient_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let recipient = store
+        .users()
+        .user(recipient_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (recipient_tenant_id, recipient_dept_id) = match recipient {
-        Some(r) => r,
-        None => return Ok(false), // User doesn't exist or is inactive
+    let recipient = match recipient {
+        Some(r) if r.status == "active" => r,
+        _ => return Ok(false),
     };
 
     // CRITICAL: Must be same tenant
-    if recipient_tenant_id != sharer_tenant_id {
+    if recipient.tenant_id != sharer_tenant_id {
         tracing::warn!(
             sharer_id = %sharer_id,
             recipient_id = %recipient_id,
@@ -594,20 +339,19 @@ pub async fn can_share_with_user(
 
     // For regular users, check department access
     let accessible_depts =
-        get_accessible_department_ids(pool, sharer_id, sharer_tenant_id, sharer_role).await?;
+        get_accessible_department_ids(store, sharer_id, sharer_tenant_id, sharer_role).await?;
 
     // Check if recipient is in an accessible department
-    if let Some(dept_id) = recipient_dept_id {
+    if let Some(dept_id) = recipient.department_id {
         Ok(accessible_depts.contains(&dept_id))
     } else {
         // User has no department - only allow if sharer also has no department
-        let sharer_dept: Option<(Option<Uuid>,)> =
-            sqlx::query_as("SELECT department_id FROM users WHERE id = $1")
-                .bind(sharer_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let sharer = store
+            .users()
+            .user(sharer_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        Ok(sharer_dept.and_then(|(d,)| d).is_none())
+        Ok(sharer.and_then(|u| u.department_id).is_none())
     }
 }

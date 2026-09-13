@@ -8,8 +8,6 @@ use clovalink_core::cache::Cache;
 use clovalink_extensions::routes::ExtensionState;
 use clovalink_storage::{EncryptedLocalStorage, LocalStorage, S3Storage, Storage};
 use sea_orm_migration::MigratorTrait;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use toolkit_rs::logger;
@@ -59,8 +57,6 @@ impl clovalink_core::virus_scan::FileStorageReader for VirusScanStorageAdapter {
 pub struct AppState {
     /// The only PostgreSQL capability exposed to application code.
     pub store: clovalink_entity::DataStore,
-    /// Legacy SQLx pool retained only while individual modules are migrated.
-    pub pool: PgPool,
     pub storage: Arc<dyn Storage>,
     pub redis_url: String,
     pub cache: Option<Cache>,
@@ -182,18 +178,6 @@ pub async fn run() {
         .await
         .expect("Failed to run SeaORM migrations");
 
-    // Compatibility pool for modules not migrated yet. Remove after the final
-    // SQLx call site has moved to `db`.
-    let pool = PgPoolOptions::new()
-        .max_connections(max_connections)
-        .min_connections(min_connections)
-        .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
-        .idle_timeout(Duration::from_secs(idle_timeout_secs))
-        .max_lifetime(Duration::from_secs(max_lifetime_secs))
-        .connect(database_url)
-        .await
-        .expect("Failed to connect to database");
-
     log::info!("Database connected successfully with optimized pool settings");
     let store = clovalink_entity::DataStore::new(db.clone());
 
@@ -291,7 +275,7 @@ pub async fn run() {
 
     let api_usage_writer = if api_usage_enabled {
         log::info!("API usage tracking enabled");
-        Some(Arc::new(ApiUsageWriter::new(pool.clone())))
+        Some(Arc::new(ApiUsageWriter::new(store.clone())))
     } else {
         log::info!("API usage tracking disabled");
         None
@@ -334,7 +318,6 @@ pub async fn run() {
 
     let app_state = Arc::new(AppState {
         store,
-        pool: pool.clone(),
         storage: storage.clone(),
         redis_url: redis_url.clone(),
         cache,
@@ -384,7 +367,7 @@ pub async fn run() {
 
     // Start backup scheduler in background
     {
-        let backup_pool = pool.clone();
+        let backup_pool = app_state.store.sqlx_pool().clone();
         let backup_storage = storage.clone();
         let backup_cb = app_state.backup_circuit_breaker.clone();
         let backup_sem = app_state.backup_semaphore.clone();

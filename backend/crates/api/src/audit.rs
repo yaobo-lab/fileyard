@@ -1,4 +1,4 @@
-use crate::compliance::{can_modify_setting, get_tenant_compliance_mode, ComplianceRestrictions};
+use crate::compliance::ComplianceRestrictions;
 use crate::AppState;
 use axum::{
     extract::{Path, Query, State},
@@ -6,12 +6,14 @@ use axum::{
     response::Response,
     Extension, Json,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 use clovalink_auth::AuthUser;
-use clovalink_core::models::{AuditSettings, UpdateAuditSettingsInput};
+use clovalink_core::models::UpdateAuditSettingsInput;
+use clovalink_entity::repositories::{
+    ActivityLogFilter, AuditLogRecord, AuditSettingsUpdate, NewAuditLog,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::FromRow;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -55,20 +57,6 @@ pub struct AuditLogResponse {
     pub metadata: Option<Value>,
 }
 
-#[derive(FromRow)]
-struct AuditLogRow {
-    id: Uuid,
-    action: String,
-    resource_type: String,
-    #[allow(dead_code)]
-    resource_id: Option<Uuid>,
-    created_at: DateTime<Utc>,
-    user_id: Option<Uuid>,
-    user_name: Option<String>,
-    metadata: Option<Value>,
-    ip_address: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct AuditLogsListResponse {
     pub logs: Vec<AuditLogResponse>,
@@ -89,164 +77,29 @@ pub async fn list_activity_logs(
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
-    // Build WHERE clause dynamically
-    let mut conditions = vec!["a.tenant_id = $1".to_string()];
-    let mut param_idx = 4; // $1 = tenant_id, $2 = limit, $3 = offset
+    let filter = ActivityLogFilter {
+        start_date: params.start_date,
+        end_date: params.end_date,
+        action: params.action,
+        user_id: params.user_id,
+        resource_type: params.resource_type,
+        limit: Some(limit),
+        offset: Some(offset),
+    };
 
-    if params.start_date.is_some() {
-        conditions.push(format!("a.created_at >= ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.end_date.is_some() {
-        conditions.push(format!("a.created_at < ${} + INTERVAL '1 day'", param_idx));
-        param_idx += 1;
-    }
-    if params.action.is_some() {
-        conditions.push(format!("a.action = ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.user_id.is_some() {
-        conditions.push(format!("a.user_id = ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.resource_type.is_some() {
-        conditions.push(format!("a.resource_type = ${}", param_idx));
-    }
-
-    let where_clause = conditions.join(" AND ");
-
-    // Count total for pagination
-    let count_query = format!(
-        r#"
-        SELECT COUNT(*) as count
-        FROM audit_logs a
-        WHERE {}
-        "#,
-        where_clause
-    );
-
-    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query).bind(auth.tenant_id);
-
-    if let Some(start) = params.start_date {
-        count_builder = count_builder.bind(start);
-    }
-    if let Some(end) = params.end_date {
-        count_builder = count_builder.bind(end);
-    }
-    if let Some(ref action) = params.action {
-        count_builder = count_builder.bind(action);
-    }
-    if let Some(user_id) = params.user_id {
-        count_builder = count_builder.bind(user_id);
-    }
-    if let Some(ref resource_type) = params.resource_type {
-        count_builder = count_builder.bind(resource_type);
-    }
-
-    let total = count_builder.fetch_one(&state.pool).await.unwrap_or(0);
-
-    // Fetch logs with filters
-    let query = format!(
-        r#"
-        SELECT 
-            a.id, 
-            a.action, 
-            a.resource_type, 
-            a.resource_id,
-            a.created_at, 
-            a.user_id,
-            u.name as user_name,
-            a.metadata,
-            a.ip_address::text as ip_address
-        FROM audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        WHERE {}
-        ORDER BY a.created_at DESC
-        LIMIT $2 OFFSET $3
-        "#,
-        where_clause
-    );
-
-    let mut query_builder = sqlx::query_as::<_, AuditLogRow>(&query)
-        .bind(auth.tenant_id)
-        .bind(limit)
-        .bind(offset);
-
-    if let Some(start) = params.start_date {
-        query_builder = query_builder.bind(start);
-    }
-    if let Some(end) = params.end_date {
-        query_builder = query_builder.bind(end);
-    }
-    if let Some(ref action) = params.action {
-        query_builder = query_builder.bind(action);
-    }
-    if let Some(user_id) = params.user_id {
-        query_builder = query_builder.bind(user_id);
-    }
-    if let Some(ref resource_type) = params.resource_type {
-        query_builder = query_builder.bind(resource_type);
-    }
-
-    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
-        tracing::error!("Failed to list audit logs: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let (logs, total) = state
+        .store
+        .audit()
+        .query_activity_logs(auth.tenant_id, &filter)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list audit logs: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let response: Vec<AuditLogResponse> = logs
         .into_iter()
-        .map(|row| {
-            let status = match row.action.as_str() {
-                "login_failed" | "security_alert" => "warning",
-                _ => "success",
-            };
-
-            // Extract human-readable resource name from metadata
-            let resource = if let Some(meta) = &row.metadata {
-                // Try various human-readable fields in order of preference
-                meta.get("file_name")
-                    .or_else(|| meta.get("folder_name"))
-                    .or_else(|| meta.get("new_name"))
-                    .or_else(|| meta.get("old_name"))
-                    .or_else(|| meta.get("target_user_name"))
-                    .or_else(|| meta.get("target_user_email"))
-                    .or_else(|| meta.get("deleted_user_name"))
-                    .or_else(|| meta.get("deleted_user_email"))
-                    .or_else(|| meta.get("request_name"))
-                    .or_else(|| meta.get("resource_name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&row.resource_type)
-                    .to_string()
-            } else {
-                row.resource_type.clone()
-            };
-
-            // Generate human-readable action display name
-            let action_display = format_action_display(&row.action);
-
-            // Generate full human-readable description
-            let user_name = row
-                .user_name
-                .clone()
-                .unwrap_or_else(|| "System".to_string());
-            let description =
-                format_audit_description(&row.action, &user_name, &resource, &row.metadata);
-
-            AuditLogResponse {
-                id: row.id.to_string(),
-                user: user_name,
-                user_id: row.user_id.map(|id| id.to_string()),
-                action: row.action,
-                action_display,
-                resource,
-                resource_type: row.resource_type,
-                description,
-                timestamp: row.created_at.to_rfc3339(),
-                status: status.to_string(),
-                ip_address: row.ip_address,
-                metadata: row.metadata,
-            }
-        })
+        .map(|row| map_log_record_to_response(row))
         .collect();
 
     Ok(Json(json!(AuditLogsListResponse {
@@ -257,124 +110,54 @@ pub async fn list_activity_logs(
     })))
 }
 
-/// Export audit logs as CSV
+/// Export activity logs as CSV
 /// GET /api/activity-logs/export
 pub async fn export_activity_logs(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
     Query(params): Query<ExportAuditLogsParams>,
 ) -> Result<Response, StatusCode> {
-    // Check permission
+    // Only Admin/SuperAdmin can export logs
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Build WHERE clause dynamically
-    let mut conditions = vec!["a.tenant_id = $1".to_string()];
-    let mut param_idx = 2;
+    let filter = ActivityLogFilter {
+        start_date: params.start_date,
+        end_date: params.end_date,
+        action: params.action.clone(),
+        user_id: params.user_id,
+        resource_type: params.resource_type.clone(),
+        limit: None,
+        offset: None,
+    };
 
-    if params.start_date.is_some() {
-        conditions.push(format!("a.created_at >= ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.end_date.is_some() {
-        conditions.push(format!("a.created_at < ${} + INTERVAL '1 day'", param_idx));
-        param_idx += 1;
-    }
-    if params.action.is_some() {
-        conditions.push(format!("a.action = ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.user_id.is_some() {
-        conditions.push(format!("a.user_id = ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.resource_type.is_some() {
-        conditions.push(format!("a.resource_type = ${}", param_idx));
-    }
+    let (logs, _) = state
+        .store
+        .audit()
+        .query_activity_logs(auth.tenant_id, &filter)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to export audit logs: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let where_clause = conditions.join(" AND ");
+    // Build CSV content
+    let mut csv_content = String::new();
+    csv_content
+        .push_str("ID,Timestamp,User,Action,Action Display,Resource Type,Resource,Description,IP Address\n");
 
-    // Fetch all logs matching filters (limit to 10000 for safety)
-    let query = format!(
-        r#"
-        SELECT 
-            a.id, 
-            a.action, 
-            a.resource_type, 
-            a.resource_id,
-            a.created_at, 
-            a.user_id,
-            u.name as user_name,
-            a.metadata,
-            a.ip_address::text as ip_address
-        FROM audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        WHERE {}
-        ORDER BY a.created_at DESC
-        LIMIT 10000
-        "#,
-        where_clause
-    );
-
-    let mut query_builder = sqlx::query_as::<_, AuditLogRow>(&query).bind(auth.tenant_id);
-
-    if let Some(start) = params.start_date {
-        query_builder = query_builder.bind(start);
-    }
-    if let Some(end) = params.end_date {
-        query_builder = query_builder.bind(end);
-    }
-    if let Some(ref action) = params.action {
-        query_builder = query_builder.bind(action);
-    }
-    if let Some(user_id) = params.user_id {
-        query_builder = query_builder.bind(user_id);
-    }
-    if let Some(ref resource_type) = params.resource_type {
-        query_builder = query_builder.bind(resource_type);
-    }
-
-    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
-        tracing::error!("Failed to export audit logs: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Build CSV content with human-readable columns
-    let mut csv_content = String::from(
-        "ID,Timestamp,User,Action,Action Display,Resource Type,Resource,Description,IP Address\n",
-    );
-
-    for row in logs {
-        // Extract human-readable resource name from metadata
-        let resource = if let Some(meta) = &row.metadata {
-            meta.get("file_name")
-                .or_else(|| meta.get("folder_name"))
-                .or_else(|| meta.get("new_name"))
-                .or_else(|| meta.get("old_name"))
-                .or_else(|| meta.get("target_user_name"))
-                .or_else(|| meta.get("target_user_email"))
-                .or_else(|| meta.get("deleted_user_name"))
-                .or_else(|| meta.get("deleted_user_email"))
-                .or_else(|| meta.get("request_name"))
-                .or_else(|| meta.get("resource_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        } else {
-            String::new()
-        };
-
+    for row in &logs {
+        let resource = extract_resource_name(&row.resource_type, &row.metadata);
         let user_name = row
             .user_name
             .clone()
             .unwrap_or_else(|| "System".to_string());
-        let ip = row.ip_address.unwrap_or_default();
+        let ip = row.ip_address.clone().unwrap_or_default();
         let action_display = format_action_display(&row.action);
         let description =
             format_audit_description(&row.action, &user_name, &resource, &row.metadata);
 
-        // Escape CSV fields
         let escape_csv = |s: &str| {
             if s.contains(',') || s.contains('"') || s.contains('\n') {
                 format!("\"{}\"", s.replace('"', "\"\""))
@@ -398,27 +181,28 @@ pub async fn export_activity_logs(
     }
 
     // Log the export action
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, $3, 'audit_logs_exported', 'audit', $4, $5::inet)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
-        "filters": {
-            "start_date": params.start_date,
-            "end_date": params.end_date,
-            "action": params.action,
-            "user_id": params.user_id,
-            "resource_type": params.resource_type,
-        }
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log_activity(NewAuditLog {
+            id: Uuid::new_v4(),
+            tenant_id: auth.tenant_id,
+            user_id: Some(auth.user_id),
+            action: "audit_logs_exported".to_string(),
+            resource_type: "audit".to_string(),
+            resource_id: None,
+            metadata: Some(json!({
+                "filters": {
+                    "start_date": params.start_date,
+                    "end_date": params.end_date,
+                    "action": params.action,
+                    "user_id": params.user_id,
+                    "resource_type": params.resource_type,
+                }
+            })),
+            ip_address: auth.ip_address.clone(),
+        })
+        .await;
 
     // Return CSV response
     let response = Response::builder()
@@ -440,33 +224,28 @@ pub async fn get_audit_settings(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Check permission
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Get compliance mode to check restrictions
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, auth.tenant_id)
+    let compliance_mode = state
+        .store
+        .tenants()
+        .compliance_mode(auth.tenant_id)
         .await
-        .unwrap_or_else(|_| "Standard".to_string());
+        .unwrap_or(None)
+        .unwrap_or_else(|| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
-    // Try to get existing settings, or return defaults
-    let settings = sqlx::query_as::<_, AuditSettings>(
-        r#"
-        SELECT id, tenant_id, log_logins, log_file_operations, log_user_changes, 
-               log_settings_changes, log_role_changes, retention_days, created_at, updated_at
-        FROM audit_settings
-        WHERE tenant_id = $1
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch audit settings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let settings = state
+        .store
+        .audit()
+        .get_settings(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch audit settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     match settings {
         Some(s) => Ok(Json(json!({
@@ -490,27 +269,24 @@ pub async fn get_audit_settings(
                 "log_role_changes": restrictions.audit_settings_locked,
             }
         }))),
-        None => {
-            // Return defaults with compliance info
-            Ok(Json(json!({
-                "tenant_id": auth.tenant_id,
-                "log_logins": true,
-                "log_file_operations": true,
-                "log_user_changes": true,
-                "log_settings_changes": true,
-                "log_role_changes": true,
-                "retention_days": 90,
-                "compliance_mode": compliance_mode,
-                "compliance_locked": restrictions.audit_settings_locked,
-                "settings_locked": {
-                    "log_logins": restrictions.audit_settings_locked,
-                    "log_file_operations": restrictions.audit_settings_locked,
-                    "log_user_changes": restrictions.audit_settings_locked,
-                    "log_settings_changes": restrictions.audit_settings_locked,
-                    "log_role_changes": restrictions.audit_settings_locked,
-                }
-            })))
-        }
+        None => Ok(Json(json!({
+            "tenant_id": auth.tenant_id,
+            "log_logins": true,
+            "log_file_operations": true,
+            "log_user_changes": true,
+            "log_settings_changes": true,
+            "log_role_changes": true,
+            "retention_days": 90,
+            "compliance_mode": compliance_mode,
+            "compliance_locked": restrictions.audit_settings_locked,
+            "settings_locked": {
+                "log_logins": restrictions.audit_settings_locked,
+                "log_file_operations": restrictions.audit_settings_locked,
+                "log_user_changes": restrictions.audit_settings_locked,
+                "log_settings_changes": restrictions.audit_settings_locked,
+                "log_role_changes": restrictions.audit_settings_locked,
+            }
+        }))),
     }
 }
 
@@ -521,135 +297,99 @@ pub async fn update_audit_settings(
     Extension(auth): Extension<AuthUser>,
     Json(input): Json<UpdateAuditSettingsInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Check permission
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Get compliance mode to check restrictions
-    let compliance_mode = get_tenant_compliance_mode(&state.pool, auth.tenant_id)
+    let compliance_mode = state
+        .store
+        .tenants()
+        .compliance_mode(auth.tenant_id)
         .await
-        .unwrap_or_else(|_| "Standard".to_string());
+        .unwrap_or(None)
+        .unwrap_or_else(|| "Standard".to_string());
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
-    // If compliance mode requires audit logging, prevent disabling any audit settings
     if restrictions.audit_settings_locked {
-        // Check if any setting is being disabled
-        let is_disabling = |opt: Option<bool>| opt == Some(false);
-
-        if is_disabling(input.log_logins) && !can_modify_setting(&compliance_mode, "log_logins") {
-            tracing::warn!("Cannot disable log_logins in {} mode", compliance_mode);
-            return Err(StatusCode::FORBIDDEN);
-        }
-        if is_disabling(input.log_file_operations)
-            && !can_modify_setting(&compliance_mode, "log_file_operations")
+        if input.log_logins.is_some()
+            || input.log_file_operations.is_some()
+            || input.log_user_changes.is_some()
+            || input.log_settings_changes.is_some()
+            || input.log_role_changes.is_some()
         {
-            tracing::warn!(
-                "Cannot disable log_file_operations in {} mode",
-                compliance_mode
-            );
-            return Err(StatusCode::FORBIDDEN);
-        }
-        if is_disabling(input.log_user_changes)
-            && !can_modify_setting(&compliance_mode, "log_user_changes")
-        {
-            tracing::warn!(
-                "Cannot disable log_user_changes in {} mode",
-                compliance_mode
-            );
-            return Err(StatusCode::FORBIDDEN);
-        }
-        if is_disabling(input.log_settings_changes)
-            && !can_modify_setting(&compliance_mode, "log_settings_changes")
-        {
-            tracing::warn!(
-                "Cannot disable log_settings_changes in {} mode",
-                compliance_mode
-            );
-            return Err(StatusCode::FORBIDDEN);
-        }
-        if is_disabling(input.log_role_changes)
-            && !can_modify_setting(&compliance_mode, "log_role_changes")
-        {
-            tracing::warn!(
-                "Cannot disable log_role_changes in {} mode",
-                compliance_mode
-            );
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
-    // If compliance mode is active, force all logging to be enabled
-    let (log_logins, log_file_ops, log_user_changes, log_settings_changes, log_role_changes) =
-        if restrictions.audit_logging_mandatory {
-            (Some(true), Some(true), Some(true), Some(true), Some(true))
-        } else {
-            (
-                input.log_logins,
-                input.log_file_operations,
-                input.log_user_changes,
-                input.log_settings_changes,
-                input.log_role_changes,
-            )
-        };
+    let log_logins = if restrictions.audit_settings_locked {
+        Some(true)
+    } else {
+        input.log_logins
+    };
+    let log_file_ops = if restrictions.audit_settings_locked {
+        Some(true)
+    } else {
+        input.log_file_operations
+    };
+    let log_user_changes = if restrictions.audit_settings_locked {
+        Some(true)
+    } else {
+        input.log_user_changes
+    };
+    let log_settings_changes = if restrictions.audit_settings_locked {
+        Some(true)
+    } else {
+        input.log_settings_changes
+    };
+    let log_role_changes = if restrictions.audit_settings_locked {
+        Some(true)
+    } else {
+        input.log_role_changes
+    };
 
-    // Upsert settings
-    let settings = sqlx::query_as::<_, AuditSettings>(
-        r#"
-        INSERT INTO audit_settings (id, tenant_id, log_logins, log_file_operations, log_user_changes, 
-                                    log_settings_changes, log_role_changes, retention_days)
-        VALUES ($1, $2, 
-                COALESCE($3, true), COALESCE($4, true), COALESCE($5, true), 
-                COALESCE($6, true), COALESCE($7, true), COALESCE($8, 90))
-        ON CONFLICT (tenant_id) DO UPDATE SET
-            log_logins = COALESCE($3, audit_settings.log_logins),
-            log_file_operations = COALESCE($4, audit_settings.log_file_operations),
-            log_user_changes = COALESCE($5, audit_settings.log_user_changes),
-            log_settings_changes = COALESCE($6, audit_settings.log_settings_changes),
-            log_role_changes = COALESCE($7, audit_settings.log_role_changes),
-            retention_days = COALESCE($8, audit_settings.retention_days),
-            updated_at = NOW()
-        RETURNING id, tenant_id, log_logins, log_file_operations, log_user_changes, 
-                  log_settings_changes, log_role_changes, retention_days, created_at, updated_at
-        "#
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(log_logins)
-    .bind(log_file_ops)
-    .bind(log_user_changes)
-    .bind(log_settings_changes)
-    .bind(log_role_changes)
-    .bind(input.retention_days)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update audit settings: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let settings = state
+        .store
+        .audit()
+        .upsert_settings(
+            auth.tenant_id,
+            AuditSettingsUpdate {
+                log_logins,
+                log_file_operations: log_file_ops,
+                log_user_changes,
+                log_settings_changes,
+                log_role_changes,
+                retention_days: input.retention_days,
+            },
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update audit settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Log the settings update
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (id, tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, $3, 'audit_settings_updated', 'settings', $4, $5::inet)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
-        "log_logins": settings.log_logins,
-        "log_file_operations": settings.log_file_operations,
-        "log_user_changes": settings.log_user_changes,
-        "log_settings_changes": settings.log_settings_changes,
-        "log_role_changes": settings.log_role_changes,
-        "retention_days": settings.retention_days,
-        "compliance_mode": compliance_mode,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .audit()
+        .log_activity(NewAuditLog {
+            id: Uuid::new_v4(),
+            tenant_id: auth.tenant_id,
+            user_id: Some(auth.user_id),
+            action: "audit_settings_updated".to_string(),
+            resource_type: "settings".to_string(),
+            resource_id: None,
+            metadata: Some(json!({
+                "log_logins": settings.log_logins,
+                "log_file_operations": settings.log_file_operations,
+                "log_user_changes": settings.log_user_changes,
+                "log_settings_changes": settings.log_settings_changes,
+                "log_role_changes": settings.log_role_changes,
+                "retention_days": settings.retention_days,
+                "compliance_mode": compliance_mode,
+            })),
+            ip_address: auth.ip_address.clone(),
+        })
+        .await;
 
     Ok(Json(json!({
         "id": settings.id,
@@ -672,20 +412,15 @@ pub async fn get_action_types(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let actions: Vec<String> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT action FROM audit_logs 
-        WHERE tenant_id = $1 
-        ORDER BY action
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch action types: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let actions = state
+        .store
+        .audit()
+        .distinct_actions(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch action types: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!({ "actions": actions })))
 }
@@ -696,20 +431,15 @@ pub async fn get_resource_types(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let resource_types: Vec<String> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT resource_type FROM audit_logs 
-        WHERE tenant_id = $1 
-        ORDER BY resource_type
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch resource types: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let resource_types = state
+        .store
+        .audit()
+        .distinct_resource_types(auth.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch resource types: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!({ "resource_types": resource_types })))
 }
@@ -722,29 +452,19 @@ pub async fn get_user_activity_logs(
     Path(user_id): Path<Uuid>,
     Query(params): Query<ListAuditLogsParams>,
 ) -> Result<Json<Value>, StatusCode> {
-    // Check permission - must be Admin/SuperAdmin or viewing own logs
     if !["Admin", "SuperAdmin"].contains(&auth.role.as_str()) && auth.user_id != user_id {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Verify the user exists and belongs to an accessible tenant
-    let user_exists: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS(
-            SELECT 1 FROM users 
-            WHERE id = $1 AND (tenant_id = $2 OR $3 = 'SuperAdmin')
-        )
-        "#,
-    )
-    .bind(user_id)
-    .bind(auth.tenant_id)
-    .bind(&auth.role)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to verify user: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let user_exists = state
+        .store
+        .audit()
+        .user_exists_in_tenant(user_id, auth.tenant_id, auth.role == "SuperAdmin")
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to verify user: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     if !user_exists {
         return Err(StatusCode::NOT_FOUND);
@@ -753,153 +473,29 @@ pub async fn get_user_activity_logs(
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
-    // Build WHERE clause - always filter by user_id
-    let mut conditions = vec!["a.user_id = $1".to_string()];
-    let mut param_idx = 4; // $1 = user_id, $2 = limit, $3 = offset
+    let filter = ActivityLogFilter {
+        start_date: params.start_date,
+        end_date: params.end_date,
+        action: params.action,
+        user_id: Some(user_id),
+        resource_type: params.resource_type,
+        limit: Some(limit),
+        offset: Some(offset),
+    };
 
-    if params.start_date.is_some() {
-        conditions.push(format!("a.created_at >= ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.end_date.is_some() {
-        conditions.push(format!("a.created_at < ${} + INTERVAL '1 day'", param_idx));
-        param_idx += 1;
-    }
-    if params.action.is_some() {
-        conditions.push(format!("a.action = ${}", param_idx));
-        param_idx += 1;
-    }
-    if params.resource_type.is_some() {
-        conditions.push(format!("a.resource_type = ${}", param_idx));
-    }
-
-    let where_clause = conditions.join(" AND ");
-
-    // Count total for pagination
-    let count_query = format!(
-        r#"
-        SELECT COUNT(*) as count
-        FROM audit_logs a
-        WHERE {}
-        "#,
-        where_clause
-    );
-
-    let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query).bind(user_id);
-
-    if let Some(start) = params.start_date {
-        count_builder = count_builder.bind(start);
-    }
-    if let Some(end) = params.end_date {
-        count_builder = count_builder.bind(end);
-    }
-    if let Some(ref action) = params.action {
-        count_builder = count_builder.bind(action);
-    }
-    if let Some(ref resource_type) = params.resource_type {
-        count_builder = count_builder.bind(resource_type);
-    }
-
-    let total = count_builder.fetch_one(&state.pool).await.unwrap_or(0);
-
-    // Fetch logs
-    let query = format!(
-        r#"
-        SELECT 
-            a.id, 
-            a.action, 
-            a.resource_type, 
-            a.resource_id,
-            a.created_at, 
-            a.user_id,
-            u.name as user_name,
-            a.metadata,
-            a.ip_address::text as ip_address
-        FROM audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        WHERE {}
-        ORDER BY a.created_at DESC
-        LIMIT $2 OFFSET $3
-        "#,
-        where_clause
-    );
-
-    let mut query_builder = sqlx::query_as::<_, AuditLogRow>(&query)
-        .bind(user_id)
-        .bind(limit)
-        .bind(offset);
-
-    if let Some(start) = params.start_date {
-        query_builder = query_builder.bind(start);
-    }
-    if let Some(end) = params.end_date {
-        query_builder = query_builder.bind(end);
-    }
-    if let Some(ref action) = params.action {
-        query_builder = query_builder.bind(action);
-    }
-    if let Some(ref resource_type) = params.resource_type {
-        query_builder = query_builder.bind(resource_type);
-    }
-
-    let logs = query_builder.fetch_all(&state.pool).await.map_err(|e| {
-        tracing::error!("Failed to list user audit logs: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let (logs, total) = state
+        .store
+        .audit()
+        .query_user_activity_logs(user_id, &filter)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list user audit logs: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let response: Vec<AuditLogResponse> = logs
         .into_iter()
-        .map(|row| {
-            let status = match row.action.as_str() {
-                "login_failed" | "security_alert" => "warning",
-                _ => "success",
-            };
-
-            // Extract human-readable resource name from metadata
-            let resource = if let Some(meta) = &row.metadata {
-                meta.get("file_name")
-                    .or_else(|| meta.get("folder_name"))
-                    .or_else(|| meta.get("new_name"))
-                    .or_else(|| meta.get("old_name"))
-                    .or_else(|| meta.get("target_user_name"))
-                    .or_else(|| meta.get("target_user_email"))
-                    .or_else(|| meta.get("deleted_user_name"))
-                    .or_else(|| meta.get("deleted_user_email"))
-                    .or_else(|| meta.get("request_name"))
-                    .or_else(|| meta.get("resource_name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&row.resource_type)
-                    .to_string()
-            } else {
-                row.resource_type.clone()
-            };
-
-            // Generate human-readable action display name
-            let action_display = format_action_display(&row.action);
-
-            // Generate full human-readable description
-            let user_name = row
-                .user_name
-                .clone()
-                .unwrap_or_else(|| "System".to_string());
-            let description =
-                format_audit_description(&row.action, &user_name, &resource, &row.metadata);
-
-            AuditLogResponse {
-                id: row.id.to_string(),
-                user: user_name,
-                user_id: row.user_id.map(|id| id.to_string()),
-                action: row.action,
-                action_display,
-                resource,
-                resource_type: row.resource_type,
-                description,
-                timestamp: row.created_at.to_rfc3339(),
-                status: status.to_string(),
-                ip_address: row.ip_address,
-                metadata: row.metadata,
-            }
-        })
+        .map(|row| map_log_record_to_response(row))
         .collect();
 
     Ok(Json(json!(AuditLogsListResponse {
@@ -910,12 +506,60 @@ pub async fn get_user_activity_logs(
     })))
 }
 
+fn map_log_record_to_response(row: AuditLogRecord) -> AuditLogResponse {
+    let status = match row.action.as_str() {
+        "login_failed" | "security_alert" => "warning",
+        _ => "success",
+    };
+
+    let resource = extract_resource_name(&row.resource_type, &row.metadata);
+    let action_display = format_action_display(&row.action);
+    let user_name = row
+        .user_name
+        .clone()
+        .unwrap_or_else(|| "System".to_string());
+    let description = format_audit_description(&row.action, &user_name, &resource, &row.metadata);
+
+    AuditLogResponse {
+        id: row.id.to_string(),
+        user: user_name,
+        user_id: row.user_id.map(|id| id.to_string()),
+        action: row.action,
+        action_display,
+        resource,
+        resource_type: row.resource_type,
+        description,
+        timestamp: row.created_at.to_rfc3339(),
+        status: status.to_string(),
+        ip_address: row.ip_address,
+        metadata: row.metadata,
+    }
+}
+
+fn extract_resource_name(resource_type: &str, metadata: &Option<Value>) -> String {
+    if let Some(meta) = metadata {
+        meta.get("file_name")
+            .or_else(|| meta.get("folder_name"))
+            .or_else(|| meta.get("new_name"))
+            .or_else(|| meta.get("old_name"))
+            .or_else(|| meta.get("target_user_name"))
+            .or_else(|| meta.get("target_user_email"))
+            .or_else(|| meta.get("deleted_user_name"))
+            .or_else(|| meta.get("deleted_user_email"))
+            .or_else(|| meta.get("request_name"))
+            .or_else(|| meta.get("resource_name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(resource_type)
+            .to_string()
+    } else {
+        resource_type.to_string()
+    }
+}
+
 // ==================== Helper Functions ====================
 
-/// Format action into human-readable display text
 fn format_action_display(action: &str) -> String {
     match action {
-        // File operations
         "file_upload" => "Uploaded file".to_string(),
         "file_download" => "Downloaded file".to_string(),
         "file_preview" => "Previewed file".to_string(),
@@ -931,7 +575,6 @@ fn format_action_display(action: &str) -> String {
         "folder_create" => "Created folder".to_string(),
         "private_files_view" => "Viewed private files".to_string(),
 
-        // User operations
         "user_created" => "Created user".to_string(),
         "user_updated" => "Updated user".to_string(),
         "user_deleted" => "Deleted user".to_string(),
@@ -943,9 +586,7 @@ fn format_action_display(action: &str) -> String {
         "admin_change_email" => "Changed email".to_string(),
         "role_change" => "Changed role".to_string(),
 
-        // Authentication
-        "login" => "Logged in".to_string(),
-        "login_success" => "Logged in".to_string(),
+        "login" | "login_success" => "Logged in".to_string(),
         "login_failed" => "Failed login attempt".to_string(),
         "logout" => "Logged out".to_string(),
         "session_revoked" => "Revoked session".to_string(),
@@ -953,36 +594,29 @@ fn format_action_display(action: &str) -> String {
         "mfa_enabled" => "Enabled two-factor auth".to_string(),
         "mfa_disabled" => "Disabled two-factor auth".to_string(),
 
-        // Settings
         "settings_updated" => "Updated settings".to_string(),
         "compliance_settings_updated" => "Updated compliance settings".to_string(),
         "audit_settings_updated" => "Updated audit settings".to_string(),
 
-        // Share operations
         "share_created" => "Created share link".to_string(),
         "share_accessed" => "Accessed shared file".to_string(),
         "share_deleted" => "Deleted share link".to_string(),
 
-        // File requests
         "file_request_created" => "Created file request".to_string(),
         "file_request_upload" => "Uploaded to file request".to_string(),
 
-        // Tenant operations
         "tenant_created" => "Created company".to_string(),
         "tenant_updated" => "Updated company".to_string(),
         "tenant_suspended" => "Suspended company".to_string(),
         "tenant_deleted" => "Deleted company".to_string(),
 
-        // Security
         "security_alert" => "Security alert".to_string(),
 
-        // AI operations
         "ai_summarize" => "Generated AI summary".to_string(),
         "ai_summary_viewed" => "Viewed AI summary".to_string(),
         "ai_answer" => "Asked AI a question".to_string(),
         "ai_settings_updated" => "Updated AI settings".to_string(),
 
-        // Default: convert snake_case to Title Case
         _ => action
             .split('_')
             .map(|word| {
@@ -997,7 +631,6 @@ fn format_action_display(action: &str) -> String {
     }
 }
 
-/// Generate a full human-readable description of an audit event
 fn format_audit_description(
     action: &str,
     user: &str,
@@ -1005,7 +638,6 @@ fn format_audit_description(
     metadata: &Option<Value>,
 ) -> String {
     match action {
-        // File operations with specific details
         "file_upload" => format!("{} uploaded \"{}\"", user, resource),
         "file_download" => format!("{} downloaded \"{}\"", user, resource),
         "file_preview" => format!("{} previewed \"{}\"", user, resource),
@@ -1070,7 +702,6 @@ fn format_audit_description(
         "folder_create" => format!("{} created folder \"{}\"", user, resource),
         "private_files_view" => format!("{} viewed private files", user),
 
-        // User operations
         "user_created" => format!("{} created user account for {}", user, resource),
         "user_updated" => format!("{} updated user {}", user, resource),
         "user_deleted" | "user_permanently_deleted" => {
@@ -1116,7 +747,6 @@ fn format_audit_description(
             }
         }
 
-        // Authentication
         "login" | "login_success" => format!("{} logged in", user),
         "login_failed" => format!("Failed login attempt for {}", resource),
         "logout" => format!("{} logged out", user),
@@ -1125,17 +755,14 @@ fn format_audit_description(
         "mfa_enabled" => format!("{} enabled two-factor authentication", user),
         "mfa_disabled" => format!("{} disabled two-factor authentication", user),
 
-        // Settings
         "settings_updated" => format!("{} updated settings", user),
         "compliance_settings_updated" => format!("{} updated compliance settings", user),
         "audit_settings_updated" => format!("{} updated audit settings", user),
 
-        // Share operations
         "share_created" => format!("{} created a share link for \"{}\"", user, resource),
         "share_accessed" => format!("Share link for \"{}\" was accessed", resource),
         "share_deleted" => format!("{} deleted share link for \"{}\"", user, resource),
 
-        // File requests
         "file_request_created" => format!("{} created file request \"{}\"", user, resource),
         "file_request_upload" => {
             if let Some(meta) = metadata {
@@ -1149,16 +776,13 @@ fn format_audit_description(
             }
         }
 
-        // Tenant operations
         "tenant_created" => format!("{} created company \"{}\"", user, resource),
         "tenant_updated" => format!("{} updated company settings", user),
         "tenant_suspended" => format!("{} suspended company \"{}\"", user, resource),
         "tenant_deleted" => format!("{} deleted company \"{}\"", user, resource),
 
-        // Security
         "security_alert" => format!("Security alert: {}", resource),
 
-        // AI operations
         "ai_summarize" => {
             if let Some(meta) = metadata {
                 let file_name = meta
@@ -1194,7 +818,6 @@ fn format_audit_description(
         }
         "ai_settings_updated" => format!("{} updated AI settings", user),
 
-        // Default fallback
         _ => {
             let action_text = format_action_display(action);
             if resource != "file" && resource != "user" && resource != "settings" {
@@ -1206,36 +829,23 @@ fn format_audit_description(
     }
 }
 
-/// Check if an action should be logged based on tenant's audit settings
 #[allow(dead_code)]
 pub async fn should_log_action(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     action_category: &str,
 ) -> bool {
-    let settings = sqlx::query_as::<_, AuditSettings>(
-        r#"
-        SELECT id, tenant_id, log_logins, log_file_operations, log_user_changes, 
-               log_settings_changes, log_role_changes, retention_days, created_at, updated_at
-        FROM audit_settings
-        WHERE tenant_id = $1
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    let settings = store.audit().get_settings(tenant_id).await.ok().flatten();
 
     match settings {
         Some(s) => match action_category {
-            "login" => s.log_logins,
-            "file" => s.log_file_operations,
-            "user" => s.log_user_changes,
-            "settings" => s.log_settings_changes,
-            "role" => s.log_role_changes,
-            _ => true, // Log unknown categories by default
+            "login" => s.log_logins.unwrap_or(true),
+            "file" => s.log_file_operations.unwrap_or(true),
+            "user" => s.log_user_changes.unwrap_or(true),
+            "settings" => s.log_settings_changes.unwrap_or(true),
+            "role" => s.log_role_changes.unwrap_or(true),
+            _ => true,
         },
-        None => true, // Log everything by default if no settings
+        None => true,
     }
 }

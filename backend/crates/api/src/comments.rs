@@ -83,7 +83,7 @@ pub async fn list_comments(
 
     // Check if user can access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -189,7 +189,7 @@ pub async fn create_comment(
 
     // Check if user can access this file
     if !can_access_file(
-        &state.pool,
+        &state.store,
         file_uuid,
         tenant_id,
         auth.user_id,
@@ -257,7 +257,7 @@ pub async fn create_comment(
 
     // Send Discord notification to file owner (if not commenting on own file)
     if file_owner_id != auth.user_id {
-        let pool_clone = state.pool.clone();
+        let store_clone = state.store.clone();
         let commenter_name = auth
             .email
             .split('@')
@@ -272,7 +272,7 @@ pub async fn create_comment(
 
         tokio::spawn(async move {
             crate::discord::notify_comment(
-                &pool_clone,
+                &store_clone,
                 tenant_id,
                 file_owner_id,
                 &file_name,

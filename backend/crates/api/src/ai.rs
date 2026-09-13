@@ -263,15 +263,13 @@ pub async fn summarize_file(
     Json(request): Json<SummarizeRequest>,
 ) -> Result<Json<AiActionResponse>, (StatusCode, Json<AiErrorResponse>)> {
     // Get file info for logging
-    let file_info = sqlx::query_as::<_, FileNameRecord>(
-        "SELECT name FROM files_metadata WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(request.file_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    let file_info = state
+        .store
+        .files()
+        .by_tenant_id(auth.tenant_id, request.file_id)
+        .await
+        .ok()
+        .flatten();
     let file_name = file_info.map(|f| f.name);
 
     // Get file content (includes permission check)
@@ -291,35 +289,33 @@ pub async fn summarize_file(
 
     // Check for cached summary BEFORE maintenance mode check
     // This allows returning cached summaries even during maintenance
-    let cached = sqlx::query_as::<_, CachedSummary>(
-        "SELECT summary, content_hash FROM file_summaries WHERE file_id = $1 AND tenant_id = $2",
-    )
-    .bind(request.file_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| ai_error_response(AiError::DatabaseError(e.to_string())))?;
+    let cached = state
+        .store
+        .ai()
+        .get_file_summary(request.file_id, auth.tenant_id)
+        .await
+        .map_err(|e| ai_error_response(AiError::DatabaseError(e.to_string())))?;
 
     // Return cached summary if content hasn't changed
     if let Some(cache) = cached {
         if cache.content_hash == content_hash {
             // Log the view even for cached summaries
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-                VALUES ($1, $2, 'ai_summary_viewed', 'file', $3, $4, $5::inet)
-                "#
-            )
-            .bind(auth.tenant_id)
-            .bind(auth.user_id)
-            .bind(request.file_id)
-            .bind(serde_json::json!({
-                "file_name": file_name,
-                "cached": true,
-            }))
-            .bind(&auth.ip_address)
-            .execute(&state.pool)
-            .await;
+            let _ = state
+                .store
+                .audit()
+                .log(
+                    auth.tenant_id,
+                    Some(auth.user_id),
+                    "ai_summary_viewed",
+                    "file",
+                    Some(request.file_id),
+                    Some(serde_json::json!({
+                        "file_name": file_name,
+                        "cached": true,
+                    })),
+                    auth.ip_address.clone(),
+                )
+                .await;
 
             return Ok(Json(AiActionResponse {
                 success: true,
@@ -361,55 +357,38 @@ pub async fn summarize_file(
     // Cache the new summary
     if response.success {
         if let Some(ref summary) = response.content {
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO file_summaries (file_id, tenant_id, summary, content_hash)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (file_id) DO UPDATE SET
-                    summary = EXCLUDED.summary,
-                    content_hash = EXCLUDED.content_hash,
-                    updated_at = NOW()
-                "#,
-            )
-            .bind(request.file_id)
-            .bind(auth.tenant_id)
-            .bind(summary)
-            .bind(&content_hash)
-            .execute(&state.pool)
-            .await;
+            let _ = state
+                .store
+                .ai()
+                .upsert_file_summary(
+                    request.file_id,
+                    auth.tenant_id,
+                    summary.clone(),
+                    content_hash.clone(),
+                )
+                .await;
         }
 
         // Log to main audit_logs table
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'ai_summarize', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(auth.tenant_id)
-        .bind(auth.user_id)
-        .bind(request.file_id)
-        .bind(serde_json::json!({
-            "file_name": file_name,
-            "tokens_used": response.tokens_used,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                auth.tenant_id,
+                Some(auth.user_id),
+                "ai_summarize",
+                "file",
+                Some(request.file_id),
+                Some(serde_json::json!({
+                    "file_name": file_name,
+                    "tokens_used": response.tokens_used,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     Ok(Json(response))
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct FileNameRecord {
-    name: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct CachedSummary {
-    summary: String,
-    content_hash: String,
 }
 
 /// Answer a question about a file
@@ -419,15 +398,13 @@ pub async fn answer_question(
     Json(request): Json<AnswerRequest>,
 ) -> Result<Json<AiActionResponse>, (StatusCode, Json<AiErrorResponse>)> {
     // Get file info for logging
-    let file_info = sqlx::query_as::<_, FileNameRecord>(
-        "SELECT name FROM files_metadata WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(request.file_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
+    let file_info = state
+        .store
+        .files()
+        .by_tenant_id(auth.tenant_id, request.file_id)
+        .await
+        .ok()
+        .flatten();
     let file_name = file_info.map(|f| f.name);
 
     // Get file content (includes permission check)
@@ -456,22 +433,22 @@ pub async fn answer_question(
 
     // Log to main audit_logs table (without the question content for privacy)
     if response.success {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, metadata, ip_address)
-            VALUES ($1, $2, 'ai_answer', 'file', $3, $4, $5::inet)
-            "#
-        )
-        .bind(auth.tenant_id)
-        .bind(auth.user_id)
-        .bind(request.file_id)
-        .bind(serde_json::json!({
-            "file_name": file_name,
-            "tokens_used": response.tokens_used,
-        }))
-        .bind(&auth.ip_address)
-        .execute(&state.pool)
-        .await;
+        let _ = state
+            .store
+            .audit()
+            .log(
+                auth.tenant_id,
+                Some(auth.user_id),
+                "ai_answer",
+                "file",
+                Some(request.file_id),
+                Some(serde_json::json!({
+                    "file_name": file_name,
+                    "tokens_used": response.tokens_used,
+                })),
+                auth.ip_address.clone(),
+            )
+            .await;
     }
 
     Ok(Json(response))
@@ -605,7 +582,7 @@ async fn get_file_content(
     // SECURITY: Verify user has permission to access this file
     // This checks: Admin bypass, file locks, private file ownership, department membership
     let has_access = crate::handlers::can_access_file(
-        &state.pool,
+        &state.store,
         file_id,
         tenant_id,
         user_id,
@@ -625,15 +602,14 @@ async fn get_file_content(
     }
 
     // Get file metadata
-    let file = sqlx::query_as::<_, FileRecord>(
-        "SELECT id, name, storage_path, content_type FROM files_metadata WHERE id = $1 AND tenant_id = $2 AND is_deleted = false"
-    )
-    .bind(file_id)
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AiError::DatabaseError(e.to_string()))?
-    .ok_or(AiError::FileNotFound)?;
+    let file = state
+        .store
+        .files()
+        .by_tenant_id(tenant_id, file_id)
+        .await
+        .map_err(|e| AiError::DatabaseError(e.to_string()))?
+        .filter(|f| !f.is_deleted)
+        .ok_or(AiError::FileNotFound)?;
 
     // Check if format is supported for text extraction
     let mime = file
@@ -669,12 +645,3 @@ async fn get_file_content(
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct FileRecord {
-    #[allow(dead_code)]
-    id: Uuid,
-    #[allow(dead_code)]
-    name: String,
-    storage_path: String,
-    content_type: Option<String>,
-}

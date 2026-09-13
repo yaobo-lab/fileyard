@@ -62,33 +62,21 @@ pub async fn get_compliance(
         }
     }
 
-    let tenant: (
-        String,
-        String,
-        i32,
-        Option<bool>,
-        Option<i32>,
-        Option<bool>,
-        Option<bool>,
-    ) = sqlx::query_as(
-        r#"SELECT compliance_mode, encryption_standard, retention_policy_days, 
-           mfa_required, session_timeout_minutes, public_sharing_enabled, data_export_enabled
-           FROM tenants WHERE id = $1"#,
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let (
-        compliance_mode,
-        encryption_standard,
-        retention_policy_days,
-        mfa_required,
-        session_timeout_minutes,
-        public_sharing_enabled,
-        data_export_enabled,
-    ) = tenant;
+    let compliance_mode = tenant.compliance_mode;
+    let encryption_standard = tenant.encryption_standard;
+    let retention_policy_days = tenant.retention_policy_days;
+    let mfa_required = tenant.mfa_required;
+    let session_timeout_minutes = tenant.session_timeout_minutes;
+    let public_sharing_enabled = tenant.public_sharing_enabled;
+    let data_export_enabled = tenant.data_export_enabled;
 
     // Get compliance restrictions for the mode
     let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
@@ -166,59 +154,41 @@ pub async fn update_compliance(
     let data_export_enabled = input.data_export_enabled.unwrap_or(true);
 
     // Update tenant with compliance settings
-    sqlx::query(
-        r#"UPDATE tenants SET 
-            compliance_mode = $1, 
-            retention_policy_days = $2,
-            mfa_required = $3,
-            public_sharing_enabled = $4,
-            session_timeout_minutes = COALESCE($5, session_timeout_minutes),
-            data_export_enabled = $6,
-            updated_at = NOW() 
-           WHERE id = $7"#,
-    )
-    .bind(compliance_mode)
-    .bind(retention_days)
-    .bind(mfa_required)
-    .bind(public_sharing_enabled)
-    .bind(session_timeout)
-    .bind(data_export_enabled)
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // If MFA is now required and TOTP was disabled, enable it
-    if mfa_required {
-        sqlx::query(
-            "UPDATE tenants SET enable_totp = true WHERE id = $1 AND (enable_totp IS NULL OR enable_totp = false)"
+    state
+        .store
+        .tenants()
+        .update_compliance_settings(
+            auth.tenant_id,
+            compliance_mode.to_string(),
+            retention_days,
+            mfa_required,
+            public_sharing_enabled,
+            session_timeout,
+            data_export_enabled,
         )
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
         .await
-        .ok();
-    }
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Create audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'update_compliance_mode', 'tenant', $3, $4::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
-        "new_mode": compliance_mode,
-        "new_retention_days": retention_days,
-        "mfa_required": mfa_required,
-        "public_sharing_enabled": public_sharing_enabled,
-        "enforced_settings": restrictions.enforced_settings,
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok(); // Don't fail if audit log fails
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "update_compliance_mode",
+            "tenant",
+            Some(auth.tenant_id),
+            Some(json!({
+                "new_mode": compliance_mode,
+                "new_retention_days": retention_days,
+                "mfa_required": mfa_required,
+                "public_sharing_enabled": public_sharing_enabled,
+                "enforced_settings": restrictions.enforced_settings,
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     // Invalidate compliance and tenant settings caches
     if let Some(ref cache) = state.cache {
@@ -233,11 +203,8 @@ pub async fn update_compliance(
     }
 
     // Notify all admins about the compliance mode change
-    if let Ok(tenant) = sqlx::query_as::<_, Tenant>("SELECT * FROM tenants WHERE id = $1")
-        .bind(auth.tenant_id)
-        .fetch_one(&state.pool)
-        .await
-    {
+    if let Ok(Some(tenant_model)) = state.store.tenants().by_id(auth.tenant_id).await {
+        let tenant: Tenant = tenant_model.into();
         let _ = notification_service::notify_all_admins(
             &state.store,
             &tenant,
@@ -279,16 +246,18 @@ pub async fn get_blocked_extensions(
 ) -> Result<Json<Value>, StatusCode> {
     require_admin(&auth)?;
 
-    let extensions: (Vec<String>,) = sqlx::query_as(
-        "SELECT COALESCE(blocked_extensions, ARRAY[]::TEXT[]) FROM tenants WHERE id = $1",
-    )
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let extensions = tenant.blocked_extensions.unwrap_or_default();
 
     Ok(Json(json!({
-        "blocked_extensions": extensions.0
+        "blocked_extensions": extensions
     })))
 }
 
@@ -316,30 +285,30 @@ pub async fn update_blocked_extensions(
         .collect();
 
     // Update tenant
-    sqlx::query("UPDATE tenants SET blocked_extensions = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&normalized)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    state
+        .store
+        .tenants()
+        .update_blocked_extensions(auth.tenant_id, normalized.clone())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Create audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'update_blocked_extensions', 'settings', $3, $4::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
-        "blocked_extensions": &normalized,
-        "count": normalized.len()
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "update_blocked_extensions",
+            "settings",
+            Some(auth.tenant_id),
+            Some(json!({
+                "blocked_extensions": &normalized,
+                "count": normalized.len()
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     Ok(Json(json!({
         "blocked_extensions": normalized,
@@ -416,15 +385,15 @@ pub async fn get_password_policy(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<PasswordPolicy>, StatusCode> {
-    let policy: Option<(Value,)> =
-        sqlx::query_as("SELECT password_policy FROM tenants WHERE id = $1")
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match policy {
-        Some((json_value,)) => {
+    match tenant.and_then(|t| t.password_policy) {
+        Some(json_value) => {
             let policy: PasswordPolicy = serde_json::from_value(json_value).unwrap_or_default();
             Ok(Json(policy))
         }
@@ -453,27 +422,27 @@ pub async fn update_password_policy(
     let policy_json =
         serde_json::to_value(&policy).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    sqlx::query("UPDATE tenants SET password_policy = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&policy_json)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    state
+        .store
+        .tenants()
+        .update_password_policy(auth.tenant_id, policy_json.clone())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'update_password_policy', 'settings', $3, $4::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(&policy_json)
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "update_password_policy",
+            "settings",
+            Some(auth.tenant_id),
+            Some(policy_json),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     Ok(Json(json!({ "success": true, "policy": policy })))
 }
@@ -508,19 +477,18 @@ pub async fn get_ip_restrictions(
 ) -> Result<Json<IpRestrictions>, StatusCode> {
     require_admin(&auth)?;
 
-    let restrictions: Option<(String, Vec<String>, Vec<String>)> = sqlx::query_as(
-        "SELECT ip_restriction_mode, ip_allowlist, ip_blocklist FROM tenants WHERE id = $1",
-    )
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match restrictions {
-        Some((mode, allowlist, blocklist)) => Ok(Json(IpRestrictions {
-            mode,
-            allowlist,
-            blocklist,
+    match tenant {
+        Some(t) => Ok(Json(IpRestrictions {
+            mode: t.ip_restriction_mode.unwrap_or_else(|| "disabled".to_string()),
+            allowlist: t.ip_allowlist.unwrap_or_default(),
+            blocklist: t.ip_blocklist.unwrap_or_default(),
         })),
         None => Ok(Json(IpRestrictions::default())),
     }
@@ -576,39 +544,36 @@ pub async fn update_ip_restrictions(
         .filter(|s| !s.is_empty())
         .collect();
 
-    sqlx::query(
-        r#"
-        UPDATE tenants 
-        SET ip_restriction_mode = $1, ip_allowlist = $2, ip_blocklist = $3, updated_at = NOW() 
-        WHERE id = $4
-        "#,
-    )
-    .bind(&restrictions.mode)
-    .bind(&allowlist)
-    .bind(&blocklist)
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .store
+        .tenants()
+        .update_ip_restrictions(
+            auth.tenant_id,
+            restrictions.mode.clone(),
+            allowlist.clone(),
+            blocklist.clone(),
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
-    sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, 'update_ip_restrictions', 'settings', $3, $4::inet)
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(auth.user_id)
-    .bind(json!({
-        "mode": &restrictions.mode,
-        "allowlist_count": allowlist.len(),
-        "blocklist_count": blocklist.len()
-    }))
-    .bind(&auth.ip_address)
-    .execute(&state.pool)
-    .await
-    .ok();
+    let _ = state
+        .store
+        .audit()
+        .log(
+            auth.tenant_id,
+            Some(auth.user_id),
+            "update_ip_restrictions",
+            "settings",
+            Some(auth.tenant_id),
+            Some(json!({
+                "mode": &restrictions.mode,
+                "allowlist_count": allowlist.len(),
+                "blocklist_count": blocklist.len()
+            })),
+            auth.ip_address.clone(),
+        )
+        .await;
 
     Ok(Json(json!({
         "success": true,

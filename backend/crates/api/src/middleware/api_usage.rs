@@ -8,7 +8,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use sqlx::PgPool;
+use clovalink_entity::repositories::ApiMetricItem;
+use clovalink_entity::DataStore;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -37,11 +38,11 @@ pub struct ApiUsageWriter {
 
 impl ApiUsageWriter {
     /// Create a new API usage writer with a background batch processor
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(store: DataStore) -> Self {
         let (sender, receiver) = mpsc::channel::<ApiMetric>(10000);
 
         // Spawn background task to batch write metrics
-        tokio::spawn(batch_writer(pool, receiver));
+        tokio::spawn(batch_writer(store, receiver));
 
         Self { sender }
     }
@@ -56,7 +57,7 @@ impl ApiUsageWriter {
 }
 
 /// Background task that batches metrics and writes to database
-async fn batch_writer(pool: PgPool, mut receiver: mpsc::Receiver<ApiMetric>) {
+async fn batch_writer(store: DataStore, mut receiver: mpsc::Receiver<ApiMetric>) {
     let mut buffer = Vec::with_capacity(100);
     let mut last_flush = Instant::now();
     let flush_interval = std::time::Duration::from_secs(5);
@@ -70,21 +71,21 @@ async fn batch_writer(pool: PgPool, mut receiver: mpsc::Receiver<ApiMetric>) {
 
                 // Flush if buffer is full
                 if buffer.len() >= batch_size {
-                    flush_metrics(&pool, &mut buffer).await;
+                    flush_metrics(&store, &mut buffer).await;
                     last_flush = Instant::now();
                 }
             }
             Ok(None) => {
                 // Channel closed, flush remaining and exit
                 if !buffer.is_empty() {
-                    flush_metrics(&pool, &mut buffer).await;
+                    flush_metrics(&store, &mut buffer).await;
                 }
                 break;
             }
             Err(_) => {
                 // Timeout - check if we should flush based on time
                 if last_flush.elapsed() >= flush_interval && !buffer.is_empty() {
-                    flush_metrics(&pool, &mut buffer).await;
+                    flush_metrics(&store, &mut buffer).await;
                     last_flush = Instant::now();
                 }
             }
@@ -93,33 +94,31 @@ async fn batch_writer(pool: PgPool, mut receiver: mpsc::Receiver<ApiMetric>) {
 }
 
 /// Flush metrics to database
-async fn flush_metrics(pool: &PgPool, buffer: &mut Vec<ApiMetric>) {
+async fn flush_metrics(store: &DataStore, buffer: &mut Vec<ApiMetric>) {
     if buffer.is_empty() {
         return;
     }
 
-    // Build batch insert query
-    let mut query_builder = sqlx::QueryBuilder::new(
-        "INSERT INTO api_usage (tenant_id, user_id, endpoint, method, status_code, response_time_ms, request_size_bytes, response_size_bytes, ip_address, user_agent, error_message) "
-    );
+    let items: Vec<ApiMetricItem> = buffer
+        .iter()
+        .map(|m| ApiMetricItem {
+            tenant_id: m.tenant_id,
+            user_id: m.user_id,
+            endpoint: m.endpoint.clone(),
+            method: m.method.clone(),
+            status_code: m.status_code,
+            response_time_ms: m.response_time_ms,
+            request_size_bytes: m.request_size_bytes,
+            response_size_bytes: m.response_size_bytes,
+            ip_address: m.ip_address.clone(),
+            user_agent: m.user_agent.clone(),
+            error_message: m.error_message.clone(),
+        })
+        .collect();
 
-    query_builder.push_values(buffer.iter(), |mut b, metric| {
-        b.push_bind(metric.tenant_id)
-            .push_bind(metric.user_id)
-            .push_bind(&metric.endpoint)
-            .push_bind(&metric.method)
-            .push_bind(metric.status_code as i32)
-            .push_bind(metric.response_time_ms as i32)
-            .push_bind(metric.request_size_bytes)
-            .push_bind(metric.response_size_bytes)
-            .push_bind(&metric.ip_address)
-            .push_bind(&metric.user_agent)
-            .push_bind(&metric.error_message);
-    });
-
-    match query_builder.build().execute(pool).await {
+    match store.api_usage().flush_metrics(&items).await {
         Ok(_) => {
-            tracing::debug!("Flushed {} API usage metrics to database", buffer.len());
+            tracing::debug!("Flushed {} API usage metrics to database", items.len());
         }
         Err(e) => {
             tracing::error!("Failed to write API usage metrics: {:?}", e);

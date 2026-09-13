@@ -1,11 +1,11 @@
 use sea_orm::DatabaseConnection;
 
 use crate::repositories::{
-    AiRepository, AuthRepository, CommentRepository, DashboardRepository, DepartmentRepository,
-    ExtensionPermissionRepository, ExtensionRuntimeRepository, FileRepository,
+    AiRepository, ApiUsageRepository, ApprovalRepository, AuditRepository, AuthRepository, BackupRepository, CommentRepository, ComplianceRepository, DashboardRepository, DepartmentRepository,
+    DiscordRepository, EmailTemplateRepository, ExtensionPermissionRepository, ExtensionRuntimeRepository, FileRepository, FileRequestRepository,
     GlobalSettingsRepository, GroupRepository, NotificationRepository, OidcRepository,
-    ReplicationRepository, RoleRepository, SamlRepository, SearchRepository, SecurityRepository, SsoRepository,
-    SystemRepository, UserRepository, VirusScanRepository,
+    ReplicationRepository, RoleRepository, SamlRepository, SearchRepository, SecurityRepository, ShareRepository, SsoRepository,
+    SystemRepository, TenantRepository, UserRepository, VirusScanRepository,
 };
 
 /// The only database capability exposed to application crates.
@@ -26,11 +26,30 @@ impl DataStore {
         AiRepository::new(&self.db)
     }
 
+    pub fn api_usage(&self) -> ApiUsageRepository<'_> {
+        ApiUsageRepository::new(&self.db)
+    }
+
+    pub fn approvals(&self) -> ApprovalRepository<'_> {
+        ApprovalRepository::new(&self.db)
+    }
+
+    pub fn audit(&self) -> AuditRepository<'_> {
+        AuditRepository::new(&self.db)
+    }
+
     pub fn auth(&self) -> AuthRepository<'_> {
         AuthRepository::new(&self.db)
     }
+
+    pub fn backup(&self) -> BackupRepository<'_> {
+        BackupRepository::new(&self.db)
+    }
     pub fn comments(&self) -> CommentRepository<'_> {
         CommentRepository::new(&self.db)
+    }
+    pub fn compliance(&self) -> ComplianceRepository<'_> {
+        ComplianceRepository::new(&self.db)
     }
     pub fn dashboard(&self) -> DashboardRepository<'_> {
         DashboardRepository::new(&self.db)
@@ -38,6 +57,14 @@ impl DataStore {
 
     pub fn departments(&self) -> DepartmentRepository<'_> {
         DepartmentRepository::new(&self.db)
+    }
+
+    pub fn discord(&self) -> DiscordRepository<'_> {
+        DiscordRepository::new(&self.db)
+    }
+
+    pub fn email_templates(&self) -> EmailTemplateRepository<'_> {
+        EmailTemplateRepository::new(&self.db)
     }
 
     pub fn extension_permissions(&self) -> ExtensionPermissionRepository<'_> {
@@ -57,6 +84,10 @@ impl DataStore {
 
     pub fn files(&self) -> FileRepository<'_> {
         FileRepository::new(&self.db)
+    }
+
+    pub fn file_requests(&self) -> FileRequestRepository<'_> {
+        FileRequestRepository::new(&self.db)
     }
 
     pub fn global_settings(&self) -> GlobalSettingsRepository<'_> {
@@ -89,10 +120,24 @@ impl DataStore {
         SystemRepository::new(&self.db)
     }
 
+    pub fn tenants(&self) -> TenantRepository<'_> {
+        TenantRepository::new(&self.db)
+    }
+
     pub fn virus_scan(&self) -> VirusScanRepository<'_> {
         VirusScanRepository::new(&self.db)
     }
+    pub fn shares(&self) -> ShareRepository<'_> {
+        ShareRepository::new(&self.db)
+    }
+
     pub fn users(&self) -> UserRepository<'_> {
         UserRepository::new(&self.db)
     }
+
+    /// Access the underlying PostgreSQL connection pool managed by SeaORM.
+    pub fn sqlx_pool(&self) -> &sqlx::PgPool {
+        self.db.get_postgres_connection_pool()
+    }
 }
+

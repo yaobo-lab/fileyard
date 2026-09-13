@@ -337,25 +337,18 @@ fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; KEY_SIZE], StatusCod
 /// Rate-limited: 5 failures per user per 15 minutes
 pub(crate) async fn verify_password_confirmation(
     store: &clovalink_entity::DataStore,
-    pool: &sqlx::PgPool,
     user_id: Uuid,
     headers: &HeaderMap,
 ) -> Result<(), StatusCode> {
     // Rate limit: check recent password confirmation failures
     let fifteen_min_ago = Utc::now() - chrono::Duration::minutes(15);
-    let fail_count: (i64,) = sqlx::query_as(
-        r#"SELECT COUNT(*) FROM security_alerts
-           WHERE alert_type = 'password_confirm_failed'
-           AND user_id = $1
-           AND created_at > $2"#,
-    )
-    .bind(user_id)
-    .bind(fifteen_min_ago)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let fail_count = store
+        .security()
+        .count_password_confirm_failures(user_id, fifteen_min_ago)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if fail_count.0 >= 5 {
+    if fail_count >= 5 {
         tracing::warn!("Password confirmation rate limit hit for user {}", user_id);
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -365,14 +358,14 @@ pub(crate) async fn verify_password_confirmation(
         .and_then(|v| v.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let hash: Option<(Option<String>,)> =
-        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user = store
+        .users()
+        .user(user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let hash = hash.and_then(|(h,)| h).ok_or(StatusCode::UNAUTHORIZED)?;
+    let hash = user.password_hash.ok_or(StatusCode::UNAUTHORIZED)?;
 
     let parsed = argon2::PasswordHash::new(&hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -388,9 +381,9 @@ pub(crate) async fn verify_password_confirmation(
             "Failed password confirmation for backup operation",
             &format!(
                 "Failed password confirmation attempt ({} in 15 min window)",
-                fail_count.0 + 1
+                fail_count + 1
             ),
-            json!({ "attempt_count": fail_count.0 + 1 }),
+            json!({ "attempt_count": fail_count + 1 }),
             None,
         )
         .await;
@@ -420,26 +413,17 @@ fn get_passphrase(headers: &HeaderMap) -> Result<String, StatusCode> {
 /// Check brute-force attempts for backup decrypt
 async fn check_and_record_decrypt_failure(
     store: &clovalink_entity::DataStore,
-    pool: &sqlx::PgPool,
     tenant_id: Uuid,
     user_id: Uuid,
     ip_address: &str,
 ) -> Result<bool, StatusCode> {
     // Check recent failures
     let fifteen_min_ago = Utc::now() - chrono::Duration::minutes(15);
-    let count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM security_alerts
-        WHERE alert_type = 'backup_decrypt_failed'
-        AND user_id = $1
-        AND created_at > $2
-        "#,
-    )
-    .bind(user_id)
-    .bind(fifteen_min_ago)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let count = store
+        .security()
+        .count_recent_alerts_by_user(user_id, "backup_decrypt_failed", fifteen_min_ago)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Record the failed attempt
     let _ = security_service::create_alert(
@@ -450,10 +434,10 @@ async fn check_and_record_decrypt_failure(
         "Failed backup decrypt attempt",
         &format!(
             "Failed to decrypt backup file (attempt {} in 15 min window)",
-            count.0 + 1
+            count + 1
         ),
         json!({
-            "attempt_count": count.0 + 1,
+            "attempt_count": count + 1,
             "ip_address": ip_address
         }),
         Some(ip_address),
@@ -461,16 +445,16 @@ async fn check_and_record_decrypt_failure(
     .await;
 
     // If 5+ failures, trigger brute-force alert
-    if count.0 + 1 >= 5 {
+    if count + 1 >= 5 {
         let _ = security_service::create_alert(
             store,
             Some(tenant_id),
             Some(user_id),
             AlertType::BackupBruteForce,
             "Backup brute-force attempt detected",
-            &format!("{} failed backup decrypt attempts in 15 minutes — user locked out of backup operations", count.0 + 1),
+            &format!("{} failed backup decrypt attempts in 15 minutes — user locked out of backup operations", count + 1),
             json!({
-                "attempt_count": count.0 + 1,
+                "attempt_count": count + 1,
                 "ip_address": ip_address,
                 "lockout": true
             }),
@@ -483,47 +467,38 @@ async fn check_and_record_decrypt_failure(
 }
 
 /// Check if user is locked out from backup operations
-async fn is_backup_locked_out(pool: &sqlx::PgPool, user_id: Uuid) -> Result<bool, StatusCode> {
+async fn is_backup_locked_out(store: &clovalink_entity::DataStore, user_id: Uuid) -> Result<bool, StatusCode> {
     let fifteen_min_ago = Utc::now() - chrono::Duration::minutes(15);
-    let count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*) FROM security_alerts
-        WHERE alert_type = 'backup_brute_force'
-        AND user_id = $1
-        AND created_at > $2
-        "#,
-    )
-    .bind(user_id)
-    .bind(fifteen_min_ago)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let count = store
+        .security()
+        .count_recent_alerts_by_user(user_id, "backup_brute_force", fifteen_min_ago)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(count.0 > 0)
+    Ok(count > 0)
 }
 
 /// Log a backup audit event
 async fn log_backup_audit(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     action: &str,
     metadata: Value,
     ip_address: &str,
 ) {
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, metadata, ip_address)
-        VALUES ($1, $2, $3, 'backup', $4, $5::inet)
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(user_id)
-    .bind(action)
-    .bind(&metadata)
-    .bind(ip_address)
-    .execute(pool)
-    .await;
+    let _ = store
+        .audit()
+        .log(
+            tenant_id,
+            Some(user_id),
+            action,
+            "backup",
+            None,
+            Some(metadata),
+            Some(ip_address.to_string()),
+        )
+        .await;
 }
 
 // ============================================================================
@@ -532,22 +507,21 @@ async fn log_backup_audit(
 
 /// Check if backup is enabled for this tenant (SuperAdmin bypasses)
 async fn check_backup_enabled(
-    pool: &sqlx::PgPool,
+    store: &clovalink_entity::DataStore,
     tenant_id: Uuid,
     role: &str,
 ) -> Result<(), StatusCode> {
     if role == "SuperAdmin" {
         return Ok(());
     }
-    let enabled: Option<(Option<bool>,)> =
-        sqlx::query_as("SELECT backup_enabled FROM tenants WHERE id = $1")
-            .bind(tenant_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant = store
+        .tenants()
+        .tenant(tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match enabled {
-        Some((Some(false),)) => Err(StatusCode::FORBIDDEN),
+    match tenant {
+        Some(t) if t.backup_enabled == Some(false) => Err(StatusCode::FORBIDDEN),
         _ => Ok(()), // default true
     }
 }
@@ -1164,16 +1138,16 @@ pub async fn export_tenant_backup(
     }
 
     // Per-tenant check + circuit breaker + concurrency
-    check_backup_enabled(&state.pool, auth.tenant_id, &auth.role).await?;
+    check_backup_enabled(&state.store, auth.tenant_id, &auth.role).await?;
     let _permit = check_backup_infra(&state)?;
 
     // Check lockout
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
     // Verify password
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
     // Get passphrase
     let passphrase = get_passphrase(&headers)?;
@@ -1242,7 +1216,7 @@ pub async fn export_tenant_backup(
     // Get tenant name
     let tenant_name: (String,) = sqlx::query_as("SELECT name FROM tenants WHERE id = $1")
         .bind(auth.tenant_id)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1268,27 +1242,27 @@ pub async fn export_tenant_backup(
     for section in &sections {
         let value = match section.as_str() {
             "tenant_core" => {
-                collect_tenant_core(&state.pool, auth.tenant_id, include_secrets).await?
+                collect_tenant_core(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?
             }
-            "users" => collect_users(&state.pool, auth.tenant_id, include_secrets).await?,
-            "departments" => collect_departments(&state.pool, auth.tenant_id).await?,
-            "roles" => collect_roles(&state.pool, auth.tenant_id).await?,
-            "settings_audit" => collect_audit_settings(&state.pool, auth.tenant_id).await?,
-            "settings_virus_scan" => collect_virus_scan(&state.pool, auth.tenant_id).await?,
+            "users" => collect_users(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?,
+            "departments" => collect_departments(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "roles" => collect_roles(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "settings_audit" => collect_audit_settings(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "settings_virus_scan" => collect_virus_scan(state.store.sqlx_pool(), auth.tenant_id).await?,
             "settings_ai" => {
-                collect_ai_settings(&state.pool, auth.tenant_id, include_secrets).await?
+                collect_ai_settings(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?
             }
             "settings_discord" => {
-                collect_discord_settings(&state.pool, auth.tenant_id, include_secrets).await?
+                collect_discord_settings(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?
             }
-            "sso_oidc" => collect_sso_oidc(&state.pool, auth.tenant_id, include_secrets).await?,
-            "sso_saml" => collect_sso_saml(&state.pool, auth.tenant_id, include_secrets).await?,
-            "sso_mappings" => collect_sso_mappings(&state.pool, auth.tenant_id).await?,
-            "sso_identities" => collect_sso_identities(&state.pool, auth.tenant_id).await?,
-            "approval_policies" => collect_approval_policies(&state.pool, auth.tenant_id).await?,
-            "email_templates" => collect_email_templates(&state.pool, auth.tenant_id).await?,
+            "sso_oidc" => collect_sso_oidc(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?,
+            "sso_saml" => collect_sso_saml(state.store.sqlx_pool(), auth.tenant_id, include_secrets).await?,
+            "sso_mappings" => collect_sso_mappings(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "sso_identities" => collect_sso_identities(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "approval_policies" => collect_approval_policies(state.store.sqlx_pool(), auth.tenant_id).await?,
+            "email_templates" => collect_email_templates(state.store.sqlx_pool(), auth.tenant_id).await?,
             "notification_settings" => {
-                collect_notification_settings(&state.pool, auth.tenant_id).await?
+                collect_notification_settings(state.store.sqlx_pool(), auth.tenant_id).await?
             }
             _ => continue,
         };
@@ -1299,11 +1273,11 @@ pub async fn export_tenant_backup(
     for section in &optional {
         let value = match section.as_str() {
             "file_metadata" => {
-                collect_file_metadata(&state.pool, auth.tenant_id, file_limit).await?
+                collect_file_metadata(state.store.sqlx_pool(), auth.tenant_id, file_limit).await?
             }
-            "audit_logs" => collect_audit_logs(&state.pool, auth.tenant_id, audit_days).await?,
+            "audit_logs" => collect_audit_logs(state.store.sqlx_pool(), auth.tenant_id, audit_days).await?,
             "approval_history" => {
-                collect_approval_history(&state.pool, auth.tenant_id, approval_days).await?
+                collect_approval_history(state.store.sqlx_pool(), auth.tenant_id, approval_days).await?
             }
             _ => continue,
         };
@@ -1327,7 +1301,7 @@ pub async fn export_tenant_backup(
 
     // Audit log
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_export",
@@ -1395,13 +1369,13 @@ pub async fn export_global(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_global_backup_enabled(&state.pool).await?;
+    check_global_backup_enabled(&state.store).await?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1440,8 +1414,8 @@ pub async fn export_global(
     let backup_map = backup.as_object_mut().unwrap();
     for section in &selected {
         let value = match section.as_str() {
-            "global_settings" => strip_sensitive_keys(collect_global_settings(&state.pool).await?),
-            "global_email_templates" => collect_global_email_templates(&state.pool).await?,
+            "global_settings" => strip_sensitive_keys(collect_global_settings(state.store.sqlx_pool()).await?),
+            "global_email_templates" => collect_global_email_templates(state.store.sqlx_pool()).await?,
             _ => continue,
         };
         backup_map.insert(section.clone(), value);
@@ -1454,7 +1428,7 @@ pub async fn export_global(
 
     // Audit log
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_export_global",
@@ -1499,14 +1473,14 @@ pub async fn preview_import(
     }
 
     // Per-tenant check + circuit breaker
-    check_backup_enabled(&state.pool, auth.tenant_id, &auth.role).await?;
+    check_backup_enabled(&state.store, auth.tenant_id, &auth.role).await?;
     let _permit = check_backup_infra(&state)?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1527,7 +1501,6 @@ pub async fn preview_import(
         Err(_) => {
             let locked = check_and_record_decrypt_failure(
                 &state.store,
-                &state.pool,
                 auth.tenant_id,
                 auth.user_id,
                 auth.ip_address.as_deref().unwrap_or("unknown"),
@@ -1592,7 +1565,7 @@ pub async fn preview_import(
                                 )
                                 .bind(email)
                                 .bind(auth.tenant_id)
-                                .fetch_one(&state.pool)
+                                .fetch_one(state.store.sqlx_pool())
                                 .await
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1624,7 +1597,7 @@ pub async fn preview_import(
                                 )
                                 .bind(name)
                                 .bind(auth.tenant_id)
-                                .fetch_one(&state.pool)
+                                .fetch_one(state.store.sqlx_pool())
                                 .await
                                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1655,7 +1628,7 @@ pub async fn preview_import(
                 }
                 "tenant_core" => {
                     // Show which fields would change
-                    let current = collect_tenant_core(&state.pool, auth.tenant_id, false).await?;
+                    let current = collect_tenant_core(state.store.sqlx_pool(), auth.tenant_id, false).await?;
                     let mut changes = Vec::new();
                     if let (Some(cur_map), Some(new_map)) =
                         (current.as_object(), section_data.as_object())
@@ -1732,14 +1705,14 @@ pub async fn import_tenant_backup(
     }
 
     // Per-tenant check + circuit breaker
-    check_backup_enabled(&state.pool, auth.tenant_id, &auth.role).await?;
+    check_backup_enabled(&state.store, auth.tenant_id, &auth.role).await?;
     let _permit = check_backup_infra(&state)?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -1757,7 +1730,6 @@ pub async fn import_tenant_backup(
         Err(_) => {
             let locked = check_and_record_decrypt_failure(
                 &state.store,
-                &state.pool,
                 auth.tenant_id,
                 auth.user_id,
                 auth.ip_address.as_deref().unwrap_or("unknown"),
@@ -1795,7 +1767,7 @@ pub async fn import_tenant_backup(
 
     // Run import in a transaction
     let mut tx = state
-        .pool
+        .store.sqlx_pool()
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -1851,7 +1823,7 @@ pub async fn import_tenant_backup(
 
     // Audit log
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_import",
@@ -1906,13 +1878,13 @@ pub async fn apply_settings_profile(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_backup_enabled(&state.pool, auth.tenant_id, &auth.role).await?;
+    check_backup_enabled(&state.store, auth.tenant_id, &auth.role).await?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
     let profile = &body.profile;
     let dry_run = body.dry_run.unwrap_or(false);
@@ -1958,7 +1930,7 @@ pub async fn apply_settings_profile(
     }
 
     let mut tx = state
-        .pool
+        .store.sqlx_pool()
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -2015,7 +1987,7 @@ pub async fn apply_settings_profile(
     })?;
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_apply_profile",
@@ -2058,8 +2030,8 @@ pub async fn get_current_settings(
 
     match mode {
         "global" => {
-            let global_settings = collect_global_settings(&state.pool).await?;
-            let email_templates = collect_global_email_templates(&state.pool).await?;
+            let global_settings = collect_global_settings(state.store.sqlx_pool()).await?;
+            let email_templates = collect_global_email_templates(state.store.sqlx_pool()).await?;
             Ok(Json(json!({
                 "global_settings": global_settings,
                 "global_email_templates": email_templates
@@ -2067,14 +2039,14 @@ pub async fn get_current_settings(
         }
         "tenant" | _ => {
             let tenant_id = auth.tenant_id;
-            let tenant_core = collect_tenant_core(&state.pool, tenant_id, false).await?;
-            let audit = collect_audit_settings(&state.pool, tenant_id).await?;
-            let virus = collect_virus_scan(&state.pool, tenant_id).await?;
-            let ai = collect_ai_settings(&state.pool, tenant_id, false).await?;
-            let discord = collect_discord_settings(&state.pool, tenant_id, false).await?;
-            let policies = collect_approval_policies(&state.pool, tenant_id).await?;
-            let emails = collect_email_templates(&state.pool, tenant_id).await?;
-            let notifs = collect_notification_settings(&state.pool, tenant_id).await?;
+            let tenant_core = collect_tenant_core(state.store.sqlx_pool(), tenant_id, false).await?;
+            let audit = collect_audit_settings(state.store.sqlx_pool(), tenant_id).await?;
+            let virus = collect_virus_scan(state.store.sqlx_pool(), tenant_id).await?;
+            let ai = collect_ai_settings(state.store.sqlx_pool(), tenant_id, false).await?;
+            let discord = collect_discord_settings(state.store.sqlx_pool(), tenant_id, false).await?;
+            let policies = collect_approval_policies(state.store.sqlx_pool(), tenant_id).await?;
+            let emails = collect_email_templates(state.store.sqlx_pool(), tenant_id).await?;
+            let notifs = collect_notification_settings(state.store.sqlx_pool(), tenant_id).await?;
 
             Ok(Json(json!({
                 "tenant_core": tenant_core,
@@ -2102,13 +2074,13 @@ pub async fn apply_global_settings_profile(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_global_backup_enabled(&state.pool).await?;
+    check_global_backup_enabled(&state.store).await?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
     let profile = &body.profile;
     let dry_run = body.dry_run.unwrap_or(false);
@@ -2140,7 +2112,7 @@ pub async fn apply_global_settings_profile(
     }
 
     let mut tx = state
-        .pool
+        .store.sqlx_pool()
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -2230,7 +2202,7 @@ pub async fn apply_global_settings_profile(
     }
 
     log_backup_audit(
-        &state.pool, auth.tenant_id, auth.user_id,
+        &state.store, auth.tenant_id, auth.user_id,
         "backup_apply_global_profile",
         json!({ "sections": profile_obj.keys().collect::<Vec<&String>>(), "settings_updated": updated }),
         auth.ip_address.as_deref().unwrap_or("unknown"),
@@ -2255,7 +2227,7 @@ pub async fn toggle_global_backup(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
     sqlx::query(
         r#"
@@ -2266,7 +2238,7 @@ pub async fn toggle_global_backup(
     )
     .bind(json!(body.enabled))
     .bind(auth.user_id)
-    .execute(&state.pool)
+    .execute(state.store.sqlx_pool())
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -2277,7 +2249,7 @@ pub async fn toggle_global_backup(
     }
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_global_toggle",
@@ -2290,15 +2262,15 @@ pub async fn toggle_global_backup(
 }
 
 /// Check if global backup is enabled (defaults to true)
-async fn check_global_backup_enabled(pool: &sqlx::PgPool) -> Result<(), StatusCode> {
-    let row: Option<(Value,)> =
-        sqlx::query_as("SELECT value FROM global_settings WHERE key = 'global_backup_enabled'")
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn check_global_backup_enabled(store: &clovalink_entity::DataStore) -> Result<(), StatusCode> {
+    let row = store
+        .global_settings()
+        .get("global_backup_enabled")
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     match row {
-        Some((val,)) if val == json!(false) => Err(StatusCode::FORBIDDEN),
+        Some(m) if m.value == json!(false) => Err(StatusCode::FORBIDDEN),
         _ => Ok(()),
     }
 }
@@ -2313,14 +2285,15 @@ pub async fn global_backup_status(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let row: Option<(Value,)> =
-        sqlx::query_as("SELECT value FROM global_settings WHERE key = 'global_backup_enabled'")
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row = state
+        .store
+        .global_settings
+        .get("global_backup_enabled")
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let enabled = match row {
-        Some((val,)) => val != json!(false),
+        Some(m) => m.value != json!(false),
         None => true, // default enabled
     };
 
@@ -2338,13 +2311,13 @@ pub async fn preview_global_import(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_global_backup_enabled(&state.pool).await?;
+    check_global_backup_enabled(&state.store).await?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -2374,7 +2347,7 @@ pub async fn preview_global_import(
 
     let mut changes = Vec::new();
     if let Some(new_settings) = backup.get("global_settings").and_then(|v| v.as_object()) {
-        let current = collect_global_settings(&state.pool).await?;
+        let current = collect_global_settings(state.store.sqlx_pool()).await?;
         if let Some(cur_map) = current.as_object() {
             for (key, new_val) in new_settings {
                 // Skip sensitive keys entirely
@@ -2411,13 +2384,13 @@ pub async fn import_global(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_global_backup_enabled(&state.pool).await?;
+    check_global_backup_enabled(&state.store).await?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -2452,7 +2425,7 @@ pub async fn import_global(
             .bind(key)
             .bind(value)
             .bind(auth.user_id)
-            .execute(&state.pool)
+            .execute(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             updated += 1;
@@ -2487,7 +2460,7 @@ pub async fn import_global(
             .bind(template.get("subject").and_then(|v| v.as_str()))
             .bind(template.get("body_html").and_then(|v| v.as_str()))
             .bind(template.get("body_text").and_then(|v| v.as_str()))
-            .execute(&state.pool)
+            .execute(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
@@ -2501,7 +2474,7 @@ pub async fn import_global(
     }
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_import_global",
@@ -3260,52 +3233,52 @@ pub async fn section_counts(
 
     let users: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE tenant_id = $1")
         .bind(tid)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let departments: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM departments WHERE tenant_id = $1")
             .bind(tid)
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let roles: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM roles WHERE tenant_id = $1")
         .bind(tid)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let files: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM files_metadata WHERE tenant_id = $1")
         .bind(tid)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let audit_logs: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE tenant_id = $1")
         .bind(tid)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let approval_policies: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM approval_policies WHERE tenant_id = $1")
             .bind(tid)
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let approval_requests: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1")
             .bind(tid)
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let oidc: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM tenant_oidc_providers WHERE tenant_id = $1")
             .bind(tid)
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let saml: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM tenant_saml_providers WHERE tenant_id = $1")
             .bind(tid)
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3338,14 +3311,14 @@ pub async fn save_backup_to_storage(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_backup_enabled(&state.pool, auth.tenant_id, &auth.role).await?;
+    check_backup_enabled(&state.store, auth.tenant_id, &auth.role).await?;
     let _permit = check_backup_infra(&state)?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -3405,7 +3378,7 @@ pub async fn save_backup_to_storage(
     .bind(json!(sections))
     .bind(duration_ms)
     .bind(auth.user_id)
-    .fetch_one(&state.pool)
+    .fetch_one(state.store.sqlx_pool())
     .await
     .map_err(|e| {
         tracing::error!("Failed to record backup history: {:?}", e);
@@ -3415,7 +3388,7 @@ pub async fn save_backup_to_storage(
     state.backup_circuit_breaker.record_success();
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_save",
@@ -3496,7 +3469,7 @@ async fn build_backup_payload(
 
     let tenant_name: (String,) = sqlx::query_as("SELECT name FROM tenants WHERE id = $1")
         .bind(tenant_id)
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3522,24 +3495,24 @@ async fn build_backup_payload(
 
     for section in &sections {
         let value = match section.as_str() {
-            "tenant_core" => collect_tenant_core(&state.pool, tenant_id, include_secrets).await?,
-            "users" => collect_users(&state.pool, tenant_id, include_secrets).await?,
-            "departments" => collect_departments(&state.pool, tenant_id).await?,
-            "roles" => collect_roles(&state.pool, tenant_id).await?,
-            "settings_audit" => collect_audit_settings(&state.pool, tenant_id).await?,
-            "settings_virus_scan" => collect_virus_scan(&state.pool, tenant_id).await?,
-            "settings_ai" => collect_ai_settings(&state.pool, tenant_id, include_secrets).await?,
+            "tenant_core" => collect_tenant_core(state.store.sqlx_pool(), tenant_id, include_secrets).await?,
+            "users" => collect_users(state.store.sqlx_pool(), tenant_id, include_secrets).await?,
+            "departments" => collect_departments(state.store.sqlx_pool(), tenant_id).await?,
+            "roles" => collect_roles(state.store.sqlx_pool(), tenant_id).await?,
+            "settings_audit" => collect_audit_settings(state.store.sqlx_pool(), tenant_id).await?,
+            "settings_virus_scan" => collect_virus_scan(state.store.sqlx_pool(), tenant_id).await?,
+            "settings_ai" => collect_ai_settings(state.store.sqlx_pool(), tenant_id, include_secrets).await?,
             "settings_discord" => {
-                collect_discord_settings(&state.pool, tenant_id, include_secrets).await?
+                collect_discord_settings(state.store.sqlx_pool(), tenant_id, include_secrets).await?
             }
-            "sso_oidc" => collect_sso_oidc(&state.pool, tenant_id, include_secrets).await?,
-            "sso_saml" => collect_sso_saml(&state.pool, tenant_id, include_secrets).await?,
-            "sso_mappings" => collect_sso_mappings(&state.pool, tenant_id).await?,
-            "sso_identities" => collect_sso_identities(&state.pool, tenant_id).await?,
-            "approval_policies" => collect_approval_policies(&state.pool, tenant_id).await?,
-            "email_templates" => collect_email_templates(&state.pool, tenant_id).await?,
+            "sso_oidc" => collect_sso_oidc(state.store.sqlx_pool(), tenant_id, include_secrets).await?,
+            "sso_saml" => collect_sso_saml(state.store.sqlx_pool(), tenant_id, include_secrets).await?,
+            "sso_mappings" => collect_sso_mappings(state.store.sqlx_pool(), tenant_id).await?,
+            "sso_identities" => collect_sso_identities(state.store.sqlx_pool(), tenant_id).await?,
+            "approval_policies" => collect_approval_policies(state.store.sqlx_pool(), tenant_id).await?,
+            "email_templates" => collect_email_templates(state.store.sqlx_pool(), tenant_id).await?,
             "notification_settings" => {
-                collect_notification_settings(&state.pool, tenant_id).await?
+                collect_notification_settings(state.store.sqlx_pool(), tenant_id).await?
             }
             _ => continue,
         };
@@ -3548,10 +3521,10 @@ async fn build_backup_payload(
 
     for section in &optional {
         let value = match section.as_str() {
-            "file_metadata" => collect_file_metadata(&state.pool, tenant_id, file_limit).await?,
-            "audit_logs" => collect_audit_logs(&state.pool, tenant_id, audit_days).await?,
+            "file_metadata" => collect_file_metadata(state.store.sqlx_pool(), tenant_id, file_limit).await?,
+            "audit_logs" => collect_audit_logs(state.store.sqlx_pool(), tenant_id, audit_days).await?,
             "approval_history" => {
-                collect_approval_history(&state.pool, tenant_id, approval_days).await?
+                collect_approval_history(state.store.sqlx_pool(), tenant_id, approval_days).await?
             }
             _ => continue,
         };
@@ -3612,7 +3585,7 @@ pub async fn list_saved_backups(
             LIMIT 50
             "#,
         )
-        .fetch_all(&state.pool)
+        .fetch_all(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
@@ -3627,7 +3600,7 @@ pub async fn list_saved_backups(
             "#,
         )
         .bind(auth.tenant_id)
-        .fetch_all(&state.pool)
+        .fetch_all(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     };
@@ -3669,7 +3642,7 @@ pub async fn download_saved_backup(
         "SELECT filename, storage_path, tenant_id FROM backup_history WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(state.store.sqlx_pool())
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3721,7 +3694,7 @@ pub async fn delete_saved_backup(
     let row: Option<(String, Option<Uuid>)> =
         sqlx::query_as("SELECT storage_path, tenant_id FROM backup_history WHERE id = $1")
             .bind(id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3747,12 +3720,12 @@ pub async fn delete_saved_backup(
     // Delete from history
     sqlx::query("DELETE FROM backup_history WHERE id = $1")
         .bind(id)
-        .execute(&state.pool)
+        .execute(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_delete",
@@ -3814,24 +3787,24 @@ pub async fn backup_metrics(
 
     // Aggregate stats from backup_history
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM backup_history")
-        .fetch_one(&state.pool)
+        .fetch_one(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let auto_count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM backup_history WHERE is_auto_backup = true")
-            .fetch_one(&state.pool)
+            .fetch_one(state.store.sqlx_pool())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let failed_24h: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM backup_history WHERE status = 'failed' AND created_at > NOW() - interval '24 hours'"
-    ).fetch_one(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ).fetch_one(state.store.sqlx_pool()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let total_storage: Option<(Option<i64>,)> = sqlx::query_as(
         "SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM backup_history WHERE status = 'completed'"
-    ).fetch_optional(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ).fetch_optional(state.store.sqlx_pool()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let last_backup: Option<(Option<i32>, chrono::DateTime<Utc>)> = sqlx::query_as(
         "SELECT duration_ms, created_at FROM backup_history ORDER BY created_at DESC LIMIT 1",
     )
-    .fetch_optional(&state.pool)
+    .fetch_optional(state.store.sqlx_pool())
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3847,7 +3820,7 @@ pub async fn backup_metrics(
         ORDER BY t.name
         "#,
     )
-    .fetch_all(&state.pool)
+    .fetch_all(state.store.sqlx_pool())
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -4488,14 +4461,14 @@ pub async fn save_global_backup_to_storage(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    check_global_backup_enabled(&state.pool).await?;
+    check_global_backup_enabled(&state.store).await?;
     let _permit = check_backup_infra(&state)?;
 
-    if is_backup_locked_out(&state.pool, auth.user_id).await? {
+    if is_backup_locked_out(&state.store, auth.user_id).await? {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
     let passphrase = get_passphrase(&headers)?;
     if passphrase.len() < 12 {
         return Err(StatusCode::BAD_REQUEST);
@@ -4510,7 +4483,7 @@ pub async fn save_global_backup_to_storage(
         .unwrap_or_default();
 
     let (encrypted_bytes, filename, selected_sections) =
-        build_global_backup_payload(&state.pool, auth.user_id, &sections, &passphrase)
+        build_global_backup_payload(state.store.sqlx_pool(), auth.user_id, &sections, &passphrase)
             .await
             .map_err(|e| {
                 state.backup_circuit_breaker.record_failure();
@@ -4546,7 +4519,7 @@ pub async fn save_global_backup_to_storage(
     .bind(json!(selected_sections))
     .bind(duration_ms)
     .bind(auth.user_id)
-    .fetch_one(&state.pool)
+    .fetch_one(state.store.sqlx_pool())
     .await
     .map_err(|e| {
         tracing::error!("Failed to record global backup history: {:?}", e);
@@ -4556,7 +4529,7 @@ pub async fn save_global_backup_to_storage(
     state.backup_circuit_breaker.record_success();
 
     log_backup_audit(
-        &state.pool,
+        &state.store,
         auth.tenant_id,
         auth.user_id,
         "backup_global_save",
@@ -4591,7 +4564,7 @@ pub async fn get_global_backup_schedule(
     let rows: Vec<(String, Value)> = sqlx::query_as(
         "SELECT key, value FROM global_settings WHERE key LIKE 'global_auto_backup_%'",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(state.store.sqlx_pool())
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -4636,7 +4609,7 @@ pub async fn set_global_backup_schedule(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    verify_password_confirmation(&state.store, &state.pool, auth.user_id, &headers).await?;
+    verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
     if let Some(enabled) = body.enabled {
         if enabled && !is_master_key_configured() {
@@ -4650,7 +4623,7 @@ pub async fn set_global_backup_schedule(
         )
         .bind(json!(enabled))
         .bind(auth.user_id)
-        .execute(&state.pool)
+        .execute(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
@@ -4670,7 +4643,7 @@ pub async fn set_global_backup_schedule(
         )
         .bind(json!(cron_expr))
         .bind(auth.user_id)
-        .execute(&state.pool)
+        .execute(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
@@ -4681,7 +4654,7 @@ pub async fn set_global_backup_schedule(
         )
         .bind(json!(retention))
         .bind(auth.user_id)
-        .execute(&state.pool)
+        .execute(state.store.sqlx_pool())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
@@ -4693,7 +4666,7 @@ pub async fn set_global_backup_schedule(
     }
 
     log_backup_audit(
-        &state.pool, auth.tenant_id, auth.user_id,
+        &state.store, auth.tenant_id, auth.user_id,
         "backup_global_schedule_update",
         json!({ "enabled": body.enabled, "cron": body.cron, "retention_count": body.retention_count }),
         auth.ip_address.as_deref().unwrap_or("unknown"),

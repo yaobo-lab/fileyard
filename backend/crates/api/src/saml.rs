@@ -26,10 +26,9 @@ use crate::sso_common::{
 };
 use crate::AppState;
 use clovalink_auth::{require_super_admin, AuthUser};
-use clovalink_core::models::User;
 // ==================== Models ====================
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 #[allow(dead_code)]
 pub struct SamlProvider {
     pub id: Uuid,
@@ -152,7 +151,8 @@ pub struct UpdateSamlProviderInput {
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct SamlIdentity {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -515,17 +515,14 @@ pub async fn saml_acs(
     let expiry = assertion
         .not_on_or_after
         .unwrap_or_else(|| now + chrono::Duration::hours(1));
-    let inserted: Option<(String,)> = sqlx::query_as(
-        "INSERT INTO saml_consumed_assertions (assertion_id, provider_id, consumed_at, not_on_or_after) VALUES ($1, $2, NOW(), $3) ON CONFLICT (assertion_id) DO NOTHING RETURNING assertion_id",
-    )
-    .bind(&assertion.id)
-    .bind(provider_id)
-    .bind(expiry)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
+    let inserted = state
+        .store
+        .saml()
+        .consume_assertion(&assertion.id, provider_id, expiry)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
 
-    if inserted.is_none() {
+    if !inserted {
         tracing::error!(
             "Replay detected: assertion {} already consumed",
             assertion.id
@@ -560,54 +557,46 @@ pub async fn saml_acs(
 
     // === Account Linking Flow ===
     if let Some(linking_user_id) = linking_user_id {
-        let user: Option<User> =
-            sqlx::query_as("SELECT * FROM users WHERE id = $1 AND status = 'active'")
-                .bind(linking_user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error".to_string(),
-                    )
-                })?;
-
-        let user = user.ok_or_else(|| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
+        let user = state
+            .store
+            .users()
+            .user(linking_user_id)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
+            })?
+            .filter(|u| u.status == "active")
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
 
         // Create SAML identity link
-        sqlx::query(
-            r#"
-            INSERT INTO user_saml_identities (user_id, provider_id, saml_name_id, saml_name_id_format, saml_session_index, saml_email, saml_name)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (provider_id, saml_name_id) DO UPDATE SET
-                saml_email = EXCLUDED.saml_email,
-                saml_name = EXCLUDED.saml_name,
-                saml_session_index = EXCLUDED.saml_session_index,
-                updated_at = NOW()
-            "#,
-        )
-        .bind(user.id)
-        .bind(provider_id)
-        .bind(&name_id)
-        .bind(&assertion.name_id_format)
-        .bind(&assertion.session_index)
-        .bind(&saml_email)
-        .bind(&saml_name)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to link SAML identity: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to link identity".to_string())
-        })?;
+        state
+            .store
+            .saml()
+            .link_identity(
+                user.id,
+                provider_id,
+                &name_id,
+                assertion.name_id_format.as_deref(),
+                assertion.session_index.as_deref(),
+                saml_email.as_deref(),
+                saml_name.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to link SAML identity: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to link identity".to_string())
+            })?;
 
         // Update identity_provider to hybrid if currently local
         if user.identity_provider == "local" {
-            let _ = sqlx::query(
-                "UPDATE users SET identity_provider = 'hybrid', updated_at = NOW() WHERE id = $1",
-            )
-            .bind(user.id)
-            .execute(&state.pool)
-            .await;
+            let _ = state
+                .store
+                .saml()
+                .set_identity_provider(user.id, "hybrid")
+                .await;
         }
 
         tracing::info!(user_id = %user.id, provider = %provider.name, "SAML identity linked");
@@ -676,21 +665,17 @@ pub async fn saml_acs(
     };
 
     // Update SAML identity login tracking
-    let _ = sqlx::query(
-        r#"
-        UPDATE user_saml_identities
-        SET last_login_at = NOW(), login_count = login_count + 1,
-            saml_email = $3, saml_name = $4, saml_session_index = $5, updated_at = NOW()
-        WHERE provider_id = $1 AND saml_name_id = $2
-        "#,
-    )
-    .bind(provider_id)
-    .bind(&name_id)
-    .bind(&saml_email)
-    .bind(&saml_name)
-    .bind(&assertion.session_index)
-    .execute(&state.pool)
-    .await;
+    let _ = state
+        .store
+        .saml()
+        .touch_identity(
+            provider_id,
+            &name_id,
+            saml_email.as_deref(),
+            saml_name.as_deref(),
+            assertion.session_index.as_deref(),
+        )
+        .await;
 
     // Load tenant
     let tenant = state
@@ -748,13 +733,15 @@ pub async fn list_providers(
 ) -> Result<Json<Value>, StatusCode> {
     require_super_admin(&auth)?;
 
-    let providers: Vec<SamlProvider> = sqlx::query_as(
-        "SELECT * FROM tenant_saml_providers WHERE tenant_id = $1 ORDER BY created_at DESC",
-    )
-    .bind(auth.tenant_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let providers: Vec<SamlProvider> = state
+        .store
+        .saml()
+        .list(auth.tenant_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(SamlProvider::from)
+        .collect();
 
     Ok(Json(json!({ "providers": providers })))
 }
@@ -779,68 +766,51 @@ pub async fn create_provider(
     let base_url = types::config::get_config().web.base_url.clone();
     let sp_entity_id = format!("{}/api/auth/saml/metadata/{}", base_url, input.slug);
 
-    let provider: SamlProvider = sqlx::query_as(
-        r#"
-        INSERT INTO tenant_saml_providers (
-            tenant_id, name, slug, provider_type,
-            idp_entity_id, idp_sso_url, idp_slo_url, idp_metadata_url,
-            idp_signing_certificate, sp_entity_id,
-            nameid_format, sso_binding,
-            attribute_email, attribute_name,
-            auto_provision, default_role, default_custom_role_id, default_department_id,
-            email_domains, trust_idp_mfa, enabled
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-        RETURNING *
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(&input.name)
-    .bind(&input.slug)
-    .bind(input.provider_type.as_deref().unwrap_or("generic"))
-    .bind(&input.idp_entity_id)
-    .bind(&input.idp_sso_url)
-    .bind(input.idp_slo_url.as_deref())
-    .bind(input.idp_metadata_url.as_deref())
-    .bind(&input.idp_signing_certificate)
-    .bind(&sp_entity_id)
-    .bind(input.nameid_format.as_deref().unwrap_or("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"))
-    .bind(input.sso_binding.as_deref().unwrap_or("HTTP-POST"))
-    .bind(input.attribute_email.as_deref().unwrap_or("email"))
-    .bind(input.attribute_name.as_deref().unwrap_or("displayName"))
-    .bind(input.auto_provision.unwrap_or(false))
-    .bind(input.default_role.as_deref().unwrap_or("Employee"))
-    .bind(input.default_custom_role_id)
-    .bind(input.default_department_id)
-    .bind(&input.email_domains.unwrap_or_default())
-    .bind(input.trust_idp_mfa.unwrap_or(true))
-    .bind(input.enabled.unwrap_or(true))
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create SAML provider: {:?}", e);
-        if e.to_string().contains("duplicate") || e.to_string().contains("unique") {
-            (StatusCode::CONFLICT, Json(json!({"error": "A SAML provider with this slug already exists"})))
-        } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to create SAML provider"})))
-        }
-    })?;
+    let provider_model = state
+        .store
+        .saml()
+        .create(clovalink_entity::NewSamlProvider {
+            tenant_id: auth.tenant_id,
+            name: input.name,
+            slug: input.slug,
+            provider_type: input.provider_type.unwrap_or_else(|| "generic".to_string()),
+            idp_entity_id: input.idp_entity_id,
+            idp_sso_url: input.idp_sso_url,
+            idp_slo_url: input.idp_slo_url,
+            idp_metadata_url: input.idp_metadata_url,
+            idp_signing_certificate: input.idp_signing_certificate,
+            sp_entity_id,
+            nameid_format: input
+                .nameid_format
+                .unwrap_or_else(|| "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress".to_string()),
+            sso_binding: input.sso_binding.unwrap_or_else(|| "HTTP-POST".to_string()),
+            attribute_email: input.attribute_email.unwrap_or_else(|| "email".to_string()),
+            attribute_name: input.attribute_name.unwrap_or_else(|| "displayName".to_string()),
+            auto_provision: input.auto_provision.unwrap_or(false),
+            default_role: input.default_role.unwrap_or_else(|| "Employee".to_string()),
+            default_custom_role_id: input.default_custom_role_id,
+            default_department_id: input.default_department_id,
+            email_domains: input.email_domains.unwrap_or_default(),
+            trust_idp_mfa: input.trust_idp_mfa.unwrap_or(true),
+            enabled: input.enabled.unwrap_or(true),
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create SAML provider: {:?}", e);
+            if e.to_string().contains("duplicate") || e.to_string().contains("unique") {
+                (
+                    StatusCode::CONFLICT,
+                    Json(json!({"error": "A SAML provider with this slug already exists"})),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Failed to create SAML provider"})),
+                )
+            }
+        })?;
 
-    // Ensure tenant has 'saml' in auth_methods
-    let _ = sqlx::query(
-        r#"
-        UPDATE tenants
-        SET auth_methods = CASE
-            WHEN NOT ('saml' = ANY(auth_methods)) THEN array_append(auth_methods, 'saml')
-            ELSE auth_methods
-        END,
-        updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .execute(&state.pool)
-    .await;
+    let provider = SamlProvider::from(provider_model);
 
     Ok(Json(json!({
         "provider": provider,
@@ -863,25 +833,23 @@ pub async fn update_provider(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Verify provider belongs to tenant
-    let existing: Option<SamlProvider> =
-        sqlx::query_as("SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2")
-            .bind(id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?;
-
-    let _existing = existing.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Provider not found"})),
-        )
-    })?;
+    let _existing = state
+        .store
+        .saml()
+        .tenant_provider(auth.tenant_id, id, None)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found"})),
+            )
+        })?;
 
     // Validate certificate if being updated
     if let Some(ref cert) = input.idp_signing_certificate {
@@ -893,63 +861,50 @@ pub async fn update_provider(
         }
     }
 
-    let provider: SamlProvider = sqlx::query_as(
-        r#"
-        UPDATE tenant_saml_providers SET
-            name = COALESCE($1, name),
-            slug = COALESCE($2, slug),
-            provider_type = COALESCE($3, provider_type),
-            idp_entity_id = COALESCE($4, idp_entity_id),
-            idp_sso_url = COALESCE($5, idp_sso_url),
-            idp_slo_url = COALESCE($6, idp_slo_url),
-            idp_metadata_url = COALESCE($7, idp_metadata_url),
-            idp_signing_certificate = COALESCE($8, idp_signing_certificate),
-            nameid_format = COALESCE($9, nameid_format),
-            sso_binding = COALESCE($10, sso_binding),
-            attribute_email = COALESCE($11, attribute_email),
-            attribute_name = COALESCE($12, attribute_name),
-            auto_provision = COALESCE($13, auto_provision),
-            default_role = COALESCE($14, default_role),
-            default_custom_role_id = COALESCE($15, default_custom_role_id),
-            default_department_id = COALESCE($16, default_department_id),
-            email_domains = COALESCE($17, email_domains),
-            trust_idp_mfa = COALESCE($18, trust_idp_mfa),
-            enabled = COALESCE($19, enabled),
-            updated_at = NOW()
-        WHERE id = $20 AND tenant_id = $21
-        RETURNING *
-        "#,
-    )
-    .bind(input.name.as_deref())
-    .bind(input.slug.as_deref())
-    .bind(input.provider_type.as_deref())
-    .bind(input.idp_entity_id.as_deref())
-    .bind(input.idp_sso_url.as_deref())
-    .bind(input.idp_slo_url.as_deref())
-    .bind(input.idp_metadata_url.as_deref())
-    .bind(input.idp_signing_certificate.as_deref())
-    .bind(input.nameid_format.as_deref())
-    .bind(input.sso_binding.as_deref())
-    .bind(input.attribute_email.as_deref())
-    .bind(input.attribute_name.as_deref())
-    .bind(input.auto_provision)
-    .bind(input.default_role.as_deref())
-    .bind(input.default_custom_role_id)
-    .bind(input.default_department_id)
-    .bind(input.email_domains.as_deref())
-    .bind(input.trust_idp_mfa)
-    .bind(input.enabled)
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update SAML provider: {:?}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update SAML provider"})),
+    let provider_model = state
+        .store
+        .saml()
+        .update(
+            auth.tenant_id,
+            id,
+            clovalink_entity::SamlProviderPatch {
+                name: input.name,
+                slug: input.slug,
+                provider_type: input.provider_type,
+                idp_entity_id: input.idp_entity_id,
+                idp_sso_url: input.idp_sso_url,
+                idp_slo_url: input.idp_slo_url,
+                idp_metadata_url: input.idp_metadata_url,
+                idp_signing_certificate: input.idp_signing_certificate,
+                nameid_format: input.nameid_format,
+                sso_binding: input.sso_binding,
+                attribute_email: input.attribute_email,
+                attribute_name: input.attribute_name,
+                auto_provision: input.auto_provision,
+                default_role: input.default_role,
+                default_custom_role_id: input.default_custom_role_id,
+                default_department_id: input.default_department_id,
+                email_domains: input.email_domains,
+                trust_idp_mfa: input.trust_idp_mfa,
+                enabled: input.enabled,
+            },
         )
-    })?;
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update SAML provider: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update SAML provider"})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found"})),
+            )
+        })?;
+
+    let provider = SamlProvider::from(provider_model);
 
     Ok(Json(json!({ "provider": provider })))
 }
@@ -964,37 +919,10 @@ pub async fn delete_provider(
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
     // Check for SAML-only users that would be locked out
-    let saml_only_count: (i64,) = sqlx::query_as(
-        r#"
-        SELECT COUNT(*)
-        FROM users u
-        JOIN user_saml_identities i ON i.user_id = u.id
-        WHERE i.provider_id = $1 AND u.identity_provider = 'saml' AND u.tenant_id = $2
-        "#,
-    )
-    .bind(id)
-    .bind(auth.tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })?;
-
-    if saml_only_count.0 > 0 {
-        return Ok(Json(json!({
-            "error": "provider_has_sso_only_users",
-            "message": format!("{} user(s) use only this provider for login and would be locked out. Set passwords for them first.", saml_only_count.0),
-            "affected_count": saml_only_count.0,
-        })));
-    }
-
-    sqlx::query("DELETE FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2")
-        .bind(id)
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
+    let saml_only_count = state
+        .store
+        .saml()
+        .saml_only_count(auth.tenant_id, id)
         .await
         .map_err(|_| {
             (
@@ -1003,27 +931,25 @@ pub async fn delete_provider(
             )
         })?;
 
-    // Check if tenant still has SAML providers; if not, remove 'saml' from auth_methods
-    let remaining: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tenant_saml_providers WHERE tenant_id = $1")
-            .bind(auth.tenant_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?;
-
-    if remaining.0 == 0 {
-        let _ = sqlx::query(
-            "UPDATE tenants SET auth_methods = array_remove(auth_methods, 'saml'), updated_at = NOW() WHERE id = $1",
-        )
-        .bind(auth.tenant_id)
-        .execute(&state.pool)
-        .await;
+    if saml_only_count > 0 {
+        return Ok(Json(json!({
+            "error": "provider_has_sso_only_users",
+            "message": format!("{} user(s) use only this provider for login and would be locked out. Set passwords for them first.", saml_only_count),
+            "affected_count": saml_only_count,
+        })));
     }
+
+    state
+        .store
+        .saml()
+        .delete(auth.tenant_id, id)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -1037,24 +963,25 @@ pub async fn test_provider(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_super_admin(&auth).map_err(|s| (s, Json(json!({"error": "Forbidden"}))))?;
 
-    let provider: SamlProvider =
-        sqlx::query_as("SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2")
-            .bind(id)
-            .bind(auth.tenant_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"})),
-                )
-            })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Provider not found"})),
-                )
-            })?;
+    let provider_model = state
+        .store
+        .saml()
+        .tenant_provider(auth.tenant_id, id, None)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found"})),
+            )
+        })?;
+
+    let provider = SamlProvider::from(provider_model);
 
     // Validate certificate
     let cert_valid = match saml_crypto::parse_x509_pem(&provider.idp_signing_certificate) {
@@ -1114,25 +1041,23 @@ pub async fn link_saml_identity(
     (StatusCode, Json<Value>),
 > {
     // Verify provider belongs to user's tenant
-    let _provider = sqlx::query_as::<_, SamlProvider>(
-        "SELECT * FROM tenant_saml_providers WHERE id = $1 AND tenant_id = $2 AND enabled = true",
-    )
-    .bind(provider_id)
-    .bind(auth.tenant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Database error"})),
-        )
-    })?
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Provider not found"})),
-        )
-    })?;
+    let _provider = state
+        .store
+        .saml()
+        .tenant_provider(auth.tenant_id, provider_id, Some(true))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Database error"})),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Provider not found"})),
+            )
+        })?;
 
     start_saml_flow(&state, provider_id, Some(auth.user_id)).await
 }
@@ -1145,39 +1070,32 @@ pub async fn unlink_saml_identity(
     Path(identity_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
     // Verify identity belongs to user
-    let identity: Option<SamlIdentity> =
-        sqlx::query_as("SELECT * FROM user_saml_identities WHERE id = $1 AND user_id = $2")
-            .bind(identity_id)
-            .bind(auth.user_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let _identity = identity.ok_or(StatusCode::NOT_FOUND)?;
+    let _identity = state
+        .store
+        .saml()
+        .identity(auth.user_id, identity_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Check if user has a password or other identities — prevent lockout
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
-        .bind(auth.user_id)
-        .fetch_one(&state.pool)
+    let user = state
+        .store
+        .users()
+        .user(auth.user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Count remaining SSO identities (both OIDC + SAML)
+    let (saml_count, oidc_count) = state
+        .store
+        .saml()
+        .counts(auth.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Count remaining SSO identities (both OIDC + SAML)
-    let saml_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM user_saml_identities WHERE user_id = $1")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let oidc_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM user_oidc_identities WHERE user_id = $1")
-            .bind(auth.user_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let total_sso = saml_count.0 + oidc_count.0;
+    let total_sso = saml_count + oidc_count;
 
     if user.password_hash.is_none() && total_sso <= 1 {
         return Ok(Json(json!({
@@ -1186,23 +1104,21 @@ pub async fn unlink_saml_identity(
         })));
     }
 
-    sqlx::query("DELETE FROM user_saml_identities WHERE id = $1 AND user_id = $2")
-        .bind(identity_id)
-        .bind(auth.user_id)
-        .execute(&state.pool)
+    state
+        .store
+        .saml()
+        .delete_identity(auth.user_id, identity_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Update identity_provider if no more SSO identities
     if total_sso <= 1 && user.password_hash.is_some() {
-        // Check if any OIDC identities remain
-        if oidc_count.0 == 0 {
-            let _ = sqlx::query(
-                "UPDATE users SET identity_provider = 'local', updated_at = NOW() WHERE id = $1",
-            )
-            .bind(auth.user_id)
-            .execute(&state.pool)
-            .await;
+        if oidc_count == 0 {
+            let _ = state
+                .store
+                .saml()
+                .set_local(auth.user_id)
+                .await;
         }
     }
 
@@ -1215,29 +1131,30 @@ pub async fn list_my_identities(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
 ) -> Result<Json<Value>, StatusCode> {
-    let identities: Vec<SamlIdentity> = sqlx::query_as(
-        "SELECT * FROM user_saml_identities WHERE user_id = $1 ORDER BY created_at DESC",
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut result = Vec::new();
-    for identity in &identities {
-        let provider_info: Option<(String, String, String)> = sqlx::query_as(
-            "SELECT name, slug, provider_type FROM tenant_saml_providers WHERE id = $1",
-        )
-        .bind(identity.provider_id)
-        .fetch_optional(&state.pool)
+    let identities = state
+        .store
+        .saml()
+        .identities(auth.user_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let (provider_name, provider_slug, provider_type) = provider_info.unwrap_or((
-            "Unknown".to_string(),
-            "unknown".to_string(),
-            "generic".to_string(),
-        ));
+    let mut result = Vec::new();
+    for identity in &identities {
+        let provider_info = state
+            .store
+            .saml()
+            .provider(identity.provider_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let (provider_name, provider_slug, provider_type) = match provider_info {
+            Some(p) => (p.name, p.slug, p.provider_type),
+            None => (
+                "Unknown".to_string(),
+                "unknown".to_string(),
+                "generic".to_string(),
+            ),
+        };
 
         result.push(json!({
             "id": identity.id,

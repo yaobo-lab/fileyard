@@ -54,6 +54,15 @@ impl<'a> UserRepository<'a> {
     pub async fn tenant(&self, id: Uuid) -> DataResult<Option<tenants::Model>> {
         Ok(tenants::Entity::find_by_id(id).one(self.db).await?)
     }
+    pub async fn find_users_by_ids(&self, ids: &[Uuid]) -> DataResult<Vec<users::Model>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(users::Entity::find()
+            .filter(users::Column::Id.is_in(ids.to_vec()))
+            .all(self.db)
+            .await?)
+    }
     pub async fn departments(
         &self,
         id: Uuid,
