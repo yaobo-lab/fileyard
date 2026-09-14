@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Statement,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -77,6 +77,74 @@ impl<'a> BackupRepository<'a> {
             .exec(self.db)
             .await?;
         Ok(res.rows_affected > 0)
+    }
+
+    pub async fn record_backup(
+        &self,
+        tenant_id: Option<Uuid>,
+        filename: String,
+        storage_path: String,
+        size_bytes: i64,
+        sections: Value,
+        is_auto: bool,
+        duration_ms: i32,
+        user_id: Option<Uuid>,
+    ) -> DataResult<backup_history::Model> {
+        let active = backup_history::ActiveModel {
+            id: sea_orm::Set(Uuid::new_v4()),
+            tenant_id: sea_orm::Set(tenant_id),
+            filename: sea_orm::Set(filename),
+            storage_path: sea_orm::Set(storage_path),
+            size_bytes: sea_orm::Set(size_bytes),
+            sections: sea_orm::Set(sections),
+            is_auto_backup: sea_orm::Set(is_auto),
+            status: sea_orm::Set("completed".to_string()),
+            duration_ms: sea_orm::Set(Some(duration_ms)),
+            created_by: sea_orm::Set(user_id),
+            created_at: sea_orm::Set(Utc::now().fixed_offset()),
+            ..Default::default()
+        };
+        Ok(active.insert(self.db).await?)
+    }
+
+    pub async fn get_old_backups(
+        &self,
+        tenant_id: Option<Uuid>,
+        retention_count: u64,
+    ) -> DataResult<Vec<(Uuid, String)>> {
+        let mut query = backup_history::Entity::find()
+            .filter(backup_history::Column::IsAutoBackup.eq(true))
+            .filter(backup_history::Column::Status.eq("completed"));
+        if let Some(tid) = tenant_id {
+            query = query.filter(backup_history::Column::TenantId.eq(tid));
+        } else {
+            query = query.filter(backup_history::Column::TenantId.is_null());
+        }
+        let list = query
+            .order_by_desc(backup_history::Column::CreatedAt)
+            .offset(retention_count)
+            .all(self.db)
+            .await?;
+        Ok(list.into_iter().map(|m| (m.id, m.storage_path)).collect())
+    }
+
+    pub async fn get_last_auto_backup_time(
+        &self,
+        tenant_id: Option<Uuid>,
+    ) -> DataResult<Option<DateTime<Utc>>> {
+        let mut query = backup_history::Entity::find()
+            .filter(backup_history::Column::IsAutoBackup.eq(true))
+            .filter(backup_history::Column::Status.eq("completed"));
+        if let Some(tid) = tenant_id {
+            query = query.filter(backup_history::Column::TenantId.eq(tid));
+        } else {
+            query = query.filter(backup_history::Column::TenantId.is_null());
+        }
+        let last = query
+            .order_by_desc(backup_history::Column::CreatedAt)
+            .one(self.db)
+            .await?;
+        Ok(last.map(|m| m.created_at.with_timezone(&Utc)))
     }
 
     pub async fn get_metrics(&self) -> DataResult<BackupMetricsData> {

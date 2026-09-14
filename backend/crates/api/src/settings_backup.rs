@@ -28,8 +28,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, QueryResult, Statement,
-    TransactionTrait, TryGetable, Value as SeaValue,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
 };
 use argon2::Argon2;
 use base64::Engine;
@@ -42,6 +42,7 @@ use rand::RngCore;
 use crate::health::CURRENT_VERSION;
 use crate::AppState;
 use clovalink_auth::AuthUser;
+use clovalink_entity::entities::*;
 use clovalink_core::circuit_breaker::CircuitState;
 use clovalink_core::security_service::{self, AlertType};
 
@@ -49,194 +50,6 @@ use clovalink_core::security_service::{self, AlertType};
 // CONSTANTS
 // ============================================================================
 
-
-// ============================================================================
-// SEAORM UNIVERSAL RAW QUERY ENGINE (100% SEAORM - 0% SQLX)
-// ============================================================================
-
-pub trait IntoSeaVal {
-    fn into_sea_val(self) -> SeaValue;
-}
-
-impl IntoSeaVal for SeaValue { fn into_sea_val(self) -> SeaValue { self } }
-impl IntoSeaVal for String { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &String { fn into_sea_val(self) -> SeaValue { self.as_str().into() } }
-impl IntoSeaVal for &str { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for Uuid { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &Uuid { fn into_sea_val(self) -> SeaValue { (*self).into() } }
-impl IntoSeaVal for bool { fn into_sea_val(self) -> SeaValue { SeaValue::Bool(Some(self)) } }
-impl IntoSeaVal for &bool { fn into_sea_val(self) -> SeaValue { SeaValue::Bool(Some(*self)) } }
-impl IntoSeaVal for i32 { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &i32 { fn into_sea_val(self) -> SeaValue { (*self).into() } }
-impl IntoSeaVal for i64 { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &i64 { fn into_sea_val(self) -> SeaValue { (*self).into() } }
-impl IntoSeaVal for u64 { fn into_sea_val(self) -> SeaValue { (self as i64).into() } }
-impl IntoSeaVal for Value { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &Value { fn into_sea_val(self) -> SeaValue { self.clone().into() } }
-impl IntoSeaVal for chrono::DateTime<chrono::Utc> { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for &chrono::DateTime<chrono::Utc> { fn into_sea_val(self) -> SeaValue { (*self).into() } }
-impl IntoSeaVal for Option<&str> {
-    fn into_sea_val(self) -> SeaValue {
-        match self {
-            Some(s) => s.into(),
-            None => SeaValue::String(None),
-        }
-    }
-}
-impl IntoSeaVal for Option<String> { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for Option<Uuid> { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for Option<bool> { fn into_sea_val(self) -> SeaValue { SeaValue::Bool(self) } }
-impl IntoSeaVal for Option<i32> { fn into_sea_val(self) -> SeaValue { self.into() } }
-impl IntoSeaVal for Option<i64> { fn into_sea_val(self) -> SeaValue { self.into() } }
-
-pub trait FromSeaOrmRow: Sized {
-    fn from_row(row: QueryResult) -> Result<Self, StatusCode>;
-}
-
-impl FromSeaOrmRow for Value {
-    fn from_row(row: QueryResult) -> Result<Self, StatusCode> {
-        row.try_get_by_index::<Value>(0).map_err(|e| {
-            tracing::error!("Failed to extract JSON from query: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
-    }
-}
-
-impl<T: TryGetable + 'static> FromSeaOrmRow for (T,) {
-    fn from_row(row: QueryResult) -> Result<Self, StatusCode> {
-        let v = row.try_get_by_index::<T>(0).map_err(|e| {
-            tracing::error!("Failed to extract (T,) from query: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        Ok((v,))
-    }
-}
-
-impl<T1: TryGetable + 'static, T2: TryGetable + 'static> FromSeaOrmRow for (T1, T2) {
-    fn from_row(row: QueryResult) -> Result<Self, StatusCode> {
-        let v1 = row.try_get_by_index::<T1>(0).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2) col 0: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        let v2 = row.try_get_by_index::<T2>(1).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2) col 1: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        Ok((v1, v2))
-    }
-}
-
-impl<T1: TryGetable + 'static, T2: TryGetable + 'static, T3: TryGetable + 'static, T4: TryGetable + 'static> FromSeaOrmRow for (T1, T2, T3, T4) {
-    fn from_row(row: QueryResult) -> Result<Self, StatusCode> {
-        let v1 = row.try_get_by_index::<T1>(0).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2, T3, T4) col 0: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        let v2 = row.try_get_by_index::<T2>(1).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2, T3, T4) col 1: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        let v3 = row.try_get_by_index::<T3>(2).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2, T3, T4) col 2: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        let v4 = row.try_get_by_index::<T4>(3).map_err(|e| {
-            tracing::error!("Failed to extract (T1, T2, T3, T4) col 3: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-        Ok((v1, v2, v3, v4))
-    }
-}
-
-pub struct RawQuery {
-    sql: String,
-    values: Vec<SeaValue>,
-}
-
-impl RawQuery {
-    pub fn new(sql: impl Into<String>) -> Self {
-        Self {
-            sql: sql.into(),
-            values: Vec::new(),
-        }
-    }
-
-    pub fn bind(mut self, value: impl IntoSeaVal) -> Self {
-        self.values.push(value.into_sea_val());
-        self
-    }
-
-    pub async fn fetch_one<T: FromSeaOrmRow, C: ConnectionTrait>(self, db: &C) -> Result<T, StatusCode> {
-        let stmt = Statement::from_sql_and_values(DbBackend::Postgres, self.sql, self.values);
-        let row = db
-            .query_one(stmt)
-            .await
-            .map_err(|e| {
-                tracing::error!("DB error in fetch_one: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .ok_or(StatusCode::NOT_FOUND)?;
-        T::from_row(row)
-    }
-
-    pub async fn fetch_optional<T: FromSeaOrmRow, C: ConnectionTrait>(self, db: &C) -> Result<Option<T>, StatusCode> {
-        let stmt = Statement::from_sql_and_values(DbBackend::Postgres, self.sql, self.values);
-        let row_opt = db
-            .query_one(stmt)
-            .await
-            .map_err(|e| {
-                tracing::error!("DB error in fetch_optional: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        match row_opt {
-            Some(row) => Ok(Some(T::from_row(row)?)),
-            None => Ok(None),
-        }
-    }
-
-    pub async fn fetch_all<T: FromSeaOrmRow, C: ConnectionTrait>(self, db: &C) -> Result<Vec<T>, StatusCode> {
-        let stmt = Statement::from_sql_and_values(DbBackend::Postgres, self.sql, self.values);
-        let rows = db
-            .query_all(stmt)
-            .await
-            .map_err(|e| {
-                tracing::error!("DB error in fetch_all: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        let mut results = Vec::with_capacity(rows.len());
-        for row in rows {
-            results.push(T::from_row(row)?);
-        }
-        Ok(results)
-    }
-
-    pub async fn execute<C: ConnectionTrait>(self, db: &C) -> Result<u64, StatusCode> {
-        let stmt = Statement::from_sql_and_values(DbBackend::Postgres, self.sql, self.values);
-        let res = db
-            .execute(stmt)
-            .await
-            .map_err(|e| {
-                tracing::error!("DB error in execute: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-        Ok(res.rows_affected())
-    }
-}
-
-#[inline]
-fn query(sql: impl Into<String>) -> RawQuery {
-    RawQuery::new(sql)
-}
-
-#[inline]
-fn query_scalar(sql: impl Into<String>) -> RawQuery {
-    RawQuery::new(sql)
-}
-
-#[inline]
-fn query_as(sql: impl Into<String>) -> RawQuery {
-    RawQuery::new(sql)
-}
 
 const REDACTED: &str = "***REDACTED***";
 const NONCE_SIZE: usize = 12;
@@ -274,6 +87,63 @@ const VALID_PERMISSIONS: &[&str] = &[
     "approvals.manage",
 ];
 
+async fn upsert_global_setting<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    key: &str,
+    value: Value,
+    updated_by: Option<Uuid>,
+) -> Result<(), StatusCode> {
+    let now = Some(chrono::Utc::now().into());
+    if let Some(existing) = clovalink_entity::global_settings::Entity::find_by_id(key)
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        let mut active: clovalink_entity::global_settings::ActiveModel = existing.into();
+        active.value = sea_orm::Set(value);
+        if let Some(uid) = updated_by {
+            active.updated_by = sea_orm::Set(Some(uid));
+        }
+        active.updated_at = sea_orm::Set(now);
+        active.update(db).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        let active = clovalink_entity::global_settings::ActiveModel {
+            key: sea_orm::Set(key.to_string()),
+            value: sea_orm::Set(value),
+            updated_by: sea_orm::Set(updated_by),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(db).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    Ok(())
+}
+
+async fn update_global_email_template<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    template_key: &str,
+    subject: Option<&str>,
+    body_html: Option<&str>,
+    body_text: Option<&str>,
+) -> Result<bool, StatusCode> {
+    if let Some(existing) = clovalink_entity::email_templates::Entity::find()
+        .filter(clovalink_entity::email_templates::Column::TemplateKey.eq(template_key))
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        let mut active: clovalink_entity::email_templates::ActiveModel = existing.into();
+        if let Some(s) = subject { active.subject = sea_orm::Set(s.to_string()); }
+        if let Some(h) = body_html { active.body_html = sea_orm::Set(h.to_string()); }
+        if let Some(t) = body_text { active.body_text = sea_orm::Set(Some(t.to_string())); }
+        active.updated_at = sea_orm::Set(Some(chrono::Utc::now().into()));
+        active.update(db).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+
 /// Derive a proper key from BACKUP_MASTER_KEY using Argon2id (instead of direct byte-copy)
 fn derive_master_key_bytes(master_key: &[u8]) -> [u8; KEY_SIZE] {
     let params = argon2::Params::new(65536, 4, 4, Some(KEY_SIZE)).expect("valid Argon2 params");
@@ -297,7 +167,7 @@ pub(crate) fn is_master_key_configured() -> bool {
 /// Normalize a cron expression to 6-field format (with seconds) for the `cron` crate.
 /// Standard 5-field expressions like "0 2 * * *" become "0 0 2 * * *".
 fn normalize_cron(expr: &str) -> String {
-    let fields: Vec<&str> = expr.trim().split_whitespace().collect();
+    let fields: Vec<&str> = expr.split_whitespace().collect();
     if fields.len() == 5 {
         format!("0 {}", expr.trim())
     } else {
@@ -755,31 +625,42 @@ async fn collect_tenant_core(
     tenant_id: Uuid,
     include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let row: Value = query_scalar(
-        r#"
-        SELECT row_to_json(t) FROM (
-            SELECT compliance_mode, encryption_standard, retention_policy_days,
-                   mfa_required, session_timeout_minutes, public_sharing_enabled,
-                   data_export_enabled, blocked_extensions, password_policy,
-                   ip_restriction_mode, ip_allowlist, ip_blocklist,
-                   storage_quota_bytes, max_upload_size_bytes,
-                   enable_totp, enable_passkeys, auth_methods,
-                   approval_workflow_enabled,
-                   smtp_host, smtp_port, smtp_username, smtp_password,
-                   smtp_from, smtp_secure
-            FROM tenants WHERE id = $1
-        ) t
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_one(db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to collect tenant core: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let tenant = tenants::Entity::find_by_id(tenant_id)
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect tenant core: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let mut result = row;
+    let mut result = json!({
+        "compliance_mode": tenant.compliance_mode,
+        "encryption_standard": tenant.encryption_standard,
+        "retention_policy_days": tenant.retention_policy_days,
+        "mfa_required": tenant.mfa_required,
+        "session_timeout_minutes": tenant.session_timeout_minutes,
+        "public_sharing_enabled": tenant.public_sharing_enabled,
+        "data_export_enabled": tenant.data_export_enabled,
+        "blocked_extensions": tenant.blocked_extensions,
+        "password_policy": tenant.password_policy,
+        "ip_restriction_mode": tenant.ip_restriction_mode,
+        "ip_allowlist": tenant.ip_allowlist,
+        "ip_blocklist": tenant.ip_blocklist,
+        "storage_quota_bytes": tenant.storage_quota_bytes,
+        "max_upload_size_bytes": tenant.max_upload_size_bytes,
+        "enable_totp": tenant.enable_totp,
+        "enable_passkeys": tenant.enable_passkeys,
+        "auth_methods": tenant.auth_methods,
+        "approval_workflow_enabled": tenant.approval_workflow_enabled,
+        "smtp_host": tenant.smtp_host,
+        "smtp_port": tenant.smtp_port,
+        "smtp_username": tenant.smtp_username,
+        "smtp_password": tenant.smtp_password,
+        "smtp_from": tenant.smtp_from,
+        "smtp_secure": tenant.smtp_secure,
+    });
+
     redact_value(&mut result, "smtp_password", include_secrets);
     Ok(result)
 }
@@ -789,96 +670,123 @@ async fn collect_users(
     tenant_id: Uuid,
     _include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(u) FROM (
-            SELECT email, name, role, status, department_id, custom_role_id,
-                   identity_provider, avatar_url, allowed_tenant_ids,
-                   allowed_department_ids, password_changed_at,
-                   suspended_at, suspended_until, suspension_reason,
-                   dashboard_layout, widget_config, last_active_at,
-                   created_at, updated_at
-            FROM users WHERE tenant_id = $1
-            ORDER BY created_at
-        ) u
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to collect users: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let users_list = users::Entity::find()
+        .filter(users::Column::TenantId.eq(tenant_id))
+        .order_by_asc(users::Column::CreatedAt)
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect users: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let rows: Vec<Value> = users_list
+        .into_iter()
+        .map(|u| {
+            json!({
+                "email": u.email,
+                "name": u.name,
+                "role": u.role,
+                "status": u.status,
+                "department_id": u.department_id,
+                "custom_role_id": u.custom_role_id,
+                "identity_provider": u.identity_provider,
+                "avatar_url": u.avatar_url,
+                "allowed_tenant_ids": u.allowed_tenant_ids,
+                "allowed_department_ids": u.allowed_department_ids,
+                "password_changed_at": u.password_changed_at,
+                "suspended_at": u.suspended_at,
+                "suspended_until": u.suspended_until,
+                "suspension_reason": u.suspension_reason,
+                "dashboard_layout": u.dashboard_layout,
+                "widget_config": u.widget_config,
+                "last_active_at": u.last_active_at,
+                "created_at": u.created_at,
+                "updated_at": u.updated_at,
+            })
+        })
+        .collect();
 
     Ok(Value::Array(rows))
 }
 
 async fn collect_departments(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(d) FROM (
-            SELECT name, description, created_at
-            FROM departments WHERE tenant_id = $1
-            ORDER BY name
-        ) d
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to collect departments: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let depts = departments::Entity::find()
+        .filter(departments::Column::TenantId.eq(tenant_id))
+        .order_by_asc(departments::Column::Name)
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect departments: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let rows: Vec<Value> = depts
+        .into_iter()
+        .map(|d| {
+            json!({
+                "name": d.name,
+                "description": d.description,
+                "created_at": d.created_at,
+            })
+        })
+        .collect();
 
     Ok(Value::Array(rows))
 }
 
 async fn collect_roles(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT json_build_object(
-            'name', r.name,
-            'description', r.description,
-            'base_role', r.base_role,
-            'is_system', r.is_system,
-            'permissions', COALESCE(
-                (SELECT json_agg(json_build_object('permission', rp.permission, 'granted', rp.granted))
-                 FROM role_permissions rp WHERE rp.role_id = r.id),
-                '[]'::json
-            )
-        )
-        FROM roles r
-        WHERE r.tenant_id = $1
-        ORDER BY r.name
-        "#
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to collect roles: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let roles_list = roles::Entity::find()
+        .filter(roles::Column::TenantId.eq(tenant_id))
+        .order_by_asc(roles::Column::Name)
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect roles: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let mut rows = Vec::with_capacity(roles_list.len());
+    for r in roles_list {
+        let perms = role_permissions::Entity::find()
+            .filter(role_permissions::Column::RoleId.eq(r.id))
+            .all(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to collect role permissions: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        let perms_val: Vec<Value> = perms
+            .into_iter()
+            .map(|p| {
+                json!({
+                    "permission": p.permission,
+                    "granted": p.granted,
+                })
+            })
+            .collect();
+        rows.push(json!({
+            "name": r.name,
+            "description": r.description,
+            "base_role": r.base_role,
+            "is_system": r.is_system,
+            "permissions": perms_val,
+        }));
+    }
 
     Ok(Value::Array(rows))
 }
 
 async fn collect_audit_settings(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let row: Option<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(a) FROM (
-            SELECT log_logins, log_file_operations, log_user_changes,
-                   log_settings_changes, log_role_changes, retention_days
-            FROM audit_settings WHERE tenant_id = $1
-        ) a
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row = audit_settings::Entity::find()
+        .filter(audit_settings::Column::TenantId.eq(tenant_id))
+        .into_json()
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect audit settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(row.unwrap_or(json!({
         "log_logins": true,
@@ -891,19 +799,15 @@ async fn collect_audit_settings(db: &DatabaseConnection, tenant_id: Uuid) -> Res
 }
 
 async fn collect_virus_scan(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let row: Option<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(v) FROM (
-            SELECT enabled, file_types, max_file_size_mb, action_on_detect,
-                   notify_admin, notify_uploader, auto_suspend_uploader, suspend_threshold
-            FROM virus_scan_settings WHERE tenant_id = $1
-        ) v
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row = virus_scan_settings::Entity::find()
+        .filter(virus_scan_settings::Column::TenantId.eq(tenant_id))
+        .into_json()
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect virus scan: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(row.unwrap_or(Value::Null))
 }
@@ -913,20 +817,15 @@ async fn collect_ai_settings(
     tenant_id: Uuid,
     include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let row: Option<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(a) FROM (
-            SELECT enabled, provider, api_key_encrypted, allowed_roles,
-                   hipaa_approved_only, sox_read_only, monthly_token_limit, daily_request_limit,
-                   custom_endpoint, custom_model, maintenance_mode, maintenance_message
-            FROM tenant_ai_settings WHERE tenant_id = $1
-        ) a
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row = tenant_ai_settings::Entity::find()
+        .filter(tenant_ai_settings::Column::TenantId.eq(tenant_id))
+        .into_json()
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect ai settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     match row {
         Some(mut v) => {
@@ -942,18 +841,15 @@ async fn collect_discord_settings(
     tenant_id: Uuid,
     _include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let row: Option<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(d) FROM (
-            SELECT enabled
-            FROM tenant_discord_settings WHERE tenant_id = $1
-        ) d
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row = tenant_discord_settings::Entity::find()
+        .filter(tenant_discord_settings::Column::TenantId.eq(tenant_id))
+        .into_json()
+        .one(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect discord settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(row.unwrap_or(Value::Null))
 }
@@ -963,24 +859,18 @@ async fn collect_sso_oidc(
     tenant_id: Uuid,
     include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(p) FROM (
-            SELECT name, slug, provider_type, issuer_url, client_id, client_secret_encrypted,
-                   scopes, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri,
-                   auto_provision, default_role, default_department_id, email_domains,
-                   trust_idp_mfa, enabled
-            FROM tenant_oidc_providers WHERE tenant_id = $1
-            ORDER BY name
-        ) p
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = tenant_oidc_providers::Entity::find()
+        .filter(tenant_oidc_providers::Column::TenantId.eq(tenant_id))
+        .order_by_asc(tenant_oidc_providers::Column::Name)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect sso oidc: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let rows: Vec<Value> = rows
+    let rows: Vec<Value> = list
         .into_iter()
         .map(|mut v| {
             redact_value(&mut v, "client_secret_encrypted", include_secrets);
@@ -996,27 +886,18 @@ async fn collect_sso_saml(
     tenant_id: Uuid,
     include_secrets: bool,
 ) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(p) FROM (
-            SELECT name, slug, provider_type, idp_entity_id, idp_sso_url, idp_slo_url,
-                   idp_metadata_url, idp_signing_certificate, sp_entity_id, nameid_format,
-                   request_signing, want_assertions_signed, want_response_signed,
-                   sp_signing_key_encrypted, sp_signing_cert, sso_binding,
-                   attribute_email, attribute_name,
-                   auto_provision, default_role, default_custom_role_id, default_department_id,
-                   email_domains, trust_idp_mfa, enabled
-            FROM tenant_saml_providers WHERE tenant_id = $1
-            ORDER BY name
-        ) p
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = tenant_saml_providers::Entity::find()
+        .filter(tenant_saml_providers::Column::TenantId.eq(tenant_id))
+        .order_by_asc(tenant_saml_providers::Column::Name)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect sso saml: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let rows: Vec<Value> = rows
+    let rows: Vec<Value> = list
         .into_iter()
         .map(|mut v| {
             redact_value(&mut v, "sp_signing_key_encrypted", include_secrets);
@@ -1028,126 +909,152 @@ async fn collect_sso_saml(
 }
 
 async fn collect_sso_identities(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let oidc: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(i) FROM (
-            SELECT u.email as user_email, oi.oidc_subject, oi.oidc_issuer,
-                   oi.oidc_email, oi.oidc_name, oi.login_count
-            FROM user_oidc_identities oi
-            JOIN users u ON u.id = oi.user_id
-            WHERE u.tenant_id = $1
-        ) i
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tenant_users = users::Entity::find()
+        .filter(users::Column::TenantId.eq(tenant_id))
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query tenant users for sso identities: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let saml: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(i) FROM (
-            SELECT u.email as user_email, si.saml_name_id, si.saml_name_id_format,
-                   si.saml_email, si.saml_name, si.login_count
-            FROM user_saml_identities si
-            JOIN users u ON u.id = si.user_id
-            WHERE u.tenant_id = $1
-        ) i
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_map: HashMap<Uuid, String> = tenant_users
+        .into_iter()
+        .map(|u| (u.id, u.email))
+        .collect();
+
+    let user_ids: Vec<Uuid> = user_map.keys().copied().collect();
+
+    let oidc_identities = if !user_ids.is_empty() {
+        user_oidc_identities::Entity::find()
+            .filter(user_oidc_identities::Column::UserId.is_in(user_ids.clone()))
+            .all(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to collect oidc identities: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+    } else {
+        Vec::new()
+    };
+
+    let saml_identities = if !user_ids.is_empty() {
+        user_saml_identities::Entity::find()
+            .filter(user_saml_identities::Column::UserId.is_in(user_ids))
+            .all(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to collect saml identities: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+    } else {
+        Vec::new()
+    };
+
+    let oidc_val: Vec<Value> = oidc_identities
+        .into_iter()
+        .map(|oi| {
+            let email = user_map.get(&oi.user_id).cloned().unwrap_or_default();
+            json!({
+                "user_email": email,
+                "oidc_subject": oi.oidc_subject,
+                "oidc_issuer": oi.oidc_issuer,
+                "oidc_email": oi.oidc_email,
+                "oidc_name": oi.oidc_name,
+                "login_count": oi.login_count,
+            })
+        })
+        .collect();
+
+    let saml_val: Vec<Value> = saml_identities
+        .into_iter()
+        .map(|si| {
+            let email = user_map.get(&si.user_id).cloned().unwrap_or_default();
+            json!({
+                "user_email": email,
+                "saml_name_id": si.saml_name_id,
+                "saml_name_id_format": si.saml_name_id_format,
+                "saml_email": si.saml_email,
+                "saml_name": si.saml_name,
+                "login_count": si.login_count,
+            })
+        })
+        .collect();
 
     Ok(json!({
-        "oidc": oidc,
-        "saml": saml
+        "oidc": oidc_val,
+        "saml": saml_val
     }))
 }
 
 async fn collect_sso_mappings(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(m) FROM (
-            SELECT protocol, attribute_name, attribute_value, match_type,
-                   target_role, target_custom_role_id, target_department_id,
-                   priority, enabled
-            FROM sso_attribute_mappings WHERE tenant_id = $1
-            ORDER BY priority
-        ) m
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = sso_attribute_mappings::Entity::find()
+        .filter(sso_attribute_mappings::Column::TenantId.eq(tenant_id))
+        .order_by_asc(sso_attribute_mappings::Column::Priority)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect sso mappings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Value::Array(rows))
+    Ok(Value::Array(list))
 }
 
 async fn collect_approval_policies(
     db: &DatabaseConnection,
     tenant_id: Uuid,
 ) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(p) FROM (
-            SELECT name, scope, scope_value, required_approvals, is_active
-            FROM approval_policies WHERE tenant_id = $1
-            ORDER BY name
-        ) p
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = approval_policies::Entity::find()
+        .filter(approval_policies::Column::TenantId.eq(tenant_id))
+        .order_by_asc(approval_policies::Column::Name)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect approval policies: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Value::Array(rows))
+    Ok(Value::Array(list))
 }
 
 async fn collect_email_templates(
     db: &DatabaseConnection,
     tenant_id: Uuid,
 ) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(t) FROM (
-            SELECT template_key, subject, body_html, body_text
-            FROM tenant_email_templates WHERE tenant_id = $1
-            ORDER BY template_key
-        ) t
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = tenant_email_templates::Entity::find()
+        .filter(tenant_email_templates::Column::TenantId.eq(tenant_id))
+        .order_by_asc(tenant_email_templates::Column::TemplateKey)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect email templates: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Value::Array(rows))
+    Ok(Value::Array(list))
 }
 
 async fn collect_notification_settings(
     db: &DatabaseConnection,
     tenant_id: Uuid,
 ) -> Result<Value, StatusCode> {
-    let tenant_settings: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(n) FROM (
-            SELECT event_type, role, enabled, email_enforced, in_app_enforced,
-                   default_email, default_in_app
-            FROM tenant_notification_settings WHERE tenant_id = $1
-            ORDER BY event_type, role
-        ) n
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = tenant_notification_settings::Entity::find()
+        .filter(tenant_notification_settings::Column::TenantId.eq(tenant_id))
+        .order_by_asc(tenant_notification_settings::Column::EventType)
+        .order_by_asc(tenant_notification_settings::Column::Role)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect notification settings: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Value::Array(tenant_settings))
+    Ok(Value::Array(list))
 }
 
 // Optional large sections
@@ -1157,40 +1064,29 @@ async fn collect_file_metadata(
     tenant_id: Uuid,
     limit: i64,
 ) -> Result<Value, StatusCode> {
-    let limit = limit.min(100_000);
-    let files: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(f) FROM (
-            SELECT name, storage_path, size_bytes, content_type, is_directory,
-                   parent_path, visibility, is_company_folder, version,
-                   is_immutable, is_locked, content_hash, ulid,
-                   is_deleted, deleted_at, approval_status, created_at, updated_at
-            FROM files_metadata WHERE tenant_id = $1
-            ORDER BY created_at
-            LIMIT $2
-        ) f
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(limit)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let limit = limit.clamp(1, 100_000) as u64;
+    let files = files_metadata::Entity::find()
+        .filter(files_metadata::Column::TenantId.eq(tenant_id))
+        .order_by_asc(files_metadata::Column::CreatedAt)
+        .limit(limit)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect file metadata: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let shares: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(s) FROM (
-            SELECT token, is_public, is_directory, share_policy,
-                   expires_at, download_count, created_at
-            FROM file_shares WHERE tenant_id = $1
-            ORDER BY created_at
-        ) s
-        "#,
-    )
-    .bind(tenant_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let shares = file_shares::Entity::find()
+        .filter(file_shares::Column::TenantId.eq(tenant_id))
+        .order_by_asc(file_shares::Column::CreatedAt)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect file shares: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(json!({
         "files": files,
@@ -1203,24 +1099,20 @@ async fn collect_audit_logs(
     tenant_id: Uuid,
     days: i64,
 ) -> Result<Value, StatusCode> {
-    let days = days.max(1).min(3650);
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(a) FROM (
-            SELECT action, resource_type, resource_id, metadata,
-                   ip_address, created_at
-            FROM audit_logs WHERE tenant_id = $1
-            AND created_at > NOW() - make_interval(days => $2)
-            ORDER BY created_at
-            LIMIT 500000
-        ) a
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(days as i32)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let days = days.clamp(1, 3650);
+    let since = Utc::now() - chrono::Duration::days(days);
+    let rows = audit_logs::Entity::find()
+        .filter(audit_logs::Column::TenantId.eq(tenant_id))
+        .filter(audit_logs::Column::CreatedAt.gt(since))
+        .order_by_asc(audit_logs::Column::CreatedAt)
+        .limit(500_000)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect audit logs: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Value::Array(rows))
 }
@@ -1230,23 +1122,20 @@ async fn collect_approval_history(
     tenant_id: Uuid,
     days: i64,
 ) -> Result<Value, StatusCode> {
-    let days = days.max(1).min(3650);
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(a) FROM (
-            SELECT status, step, rejection_reason, decided_at, created_at
-            FROM approval_requests WHERE tenant_id = $1
-            AND created_at > NOW() - make_interval(days => $2)
-            ORDER BY created_at
-            LIMIT 500000
-        ) a
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(days as i32)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let days = days.clamp(1, 3650);
+    let since = Utc::now() - chrono::Duration::days(days);
+    let rows = approval_requests::Entity::find()
+        .filter(approval_requests::Column::TenantId.eq(tenant_id))
+        .filter(approval_requests::Column::CreatedAt.gt(since))
+        .order_by_asc(approval_requests::Column::CreatedAt)
+        .limit(500_000)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect approval history: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Value::Array(rows))
 }
@@ -1297,28 +1186,19 @@ async fn collect_global_settings(store: &clovalink_entity::DataStore) -> Result<
 }
 
 async fn collect_global_email_templates(db: &DatabaseConnection) -> Result<Value, StatusCode> {
-    let rows: Vec<Value> = query_scalar(
-        r#"
-        SELECT row_to_json(t) FROM (
-            SELECT template_key, name, subject, body_html, body_text, variables
-            FROM email_templates
-            ORDER BY template_key
-        ) t
-        "#,
-    )
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = email_templates::Entity::find()
+        .order_by_asc(email_templates::Column::TemplateKey)
+        .into_json()
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to collect global email templates: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Value::Array(rows))
 }
 
-// ============================================================================
-// EXPORT HANDLERS
-// ============================================================================
-
-/// GET /api/backup/export
-/// Export tenant backup as encrypted download
 pub async fn export_tenant_backup(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
@@ -1756,16 +1636,14 @@ pub async fn preview_import(
                         let mut updated = 0;
                         for user in users {
                             if let Some(email) = user.get("email").and_then(|v| v.as_str()) {
-                                let exists: (i64,) = query_as(
-                                    "SELECT COUNT(*) FROM users WHERE email = $1 AND tenant_id = $2"
-                                )
-                                .bind(email)
-                                .bind(auth.tenant_id)
-                                .fetch_one(state.store.db())
-                                .await
-                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                                let count = clovalink_entity::users::Entity::find()
+                                    .filter(clovalink_entity::users::Column::Email.eq(email))
+                                    .filter(clovalink_entity::users::Column::TenantId.eq(auth.tenant_id))
+                                    .count(state.store.db())
+                                    .await
+                                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                                if exists.0 > 0 {
+                                if count > 0 {
                                     updated += 1;
                                 } else {
                                     added += 1;
@@ -1788,16 +1666,14 @@ pub async fn preview_import(
                         let mut existing = 0;
                         for dept in depts {
                             if let Some(name) = dept.get("name").and_then(|v| v.as_str()) {
-                                let exists: (i64,) = query_as(
-                                    "SELECT COUNT(*) FROM departments WHERE name = $1 AND tenant_id = $2"
-                                )
-                                .bind(name)
-                                .bind(auth.tenant_id)
-                                .fetch_one(state.store.db())
-                                .await
-                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                                let count = clovalink_entity::departments::Entity::find()
+                                    .filter(clovalink_entity::departments::Column::Name.eq(name))
+                                    .filter(clovalink_entity::departments::Column::TenantId.eq(auth.tenant_id))
+                                    .count(state.store.db())
+                                    .await
+                                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                                if exists.0 > 0 {
+                                if count > 0 {
                                     existing += 1;
                                 } else {
                                     added += 1;
@@ -2325,19 +2201,7 @@ pub async fn apply_global_settings_profile(
             if value.as_str() == Some(REDACTED) {
                 continue;
             }
-            query(
-                r#"
-                INSERT INTO global_settings (key, value, updated_by, updated_at)
-                VALUES ($1, $2, $3, NOW())
-                ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()
-                "#,
-            )
-            .bind(key)
-            .bind(value)
-            .bind(auth.user_id)
-            .execute(&tx)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            upsert_global_setting(&tx, key, value.clone(), Some(auth.user_id)).await?;
             updated += 1;
         }
     }
@@ -2355,24 +2219,12 @@ pub async fn apply_global_settings_profile(
             if key.is_empty() {
                 continue;
             }
-            query(
-                r#"
-                UPDATE email_templates
-                SET subject = COALESCE($2, subject),
-                    body_html = COALESCE($3, body_html),
-                    body_text = COALESCE($4, body_text),
-                    updated_at = NOW()
-                WHERE template_key = $1
-                "#,
-            )
-            .bind(key)
-            .bind(template.get("subject").and_then(|v| v.as_str()))
-            .bind(template.get("body_html").and_then(|v| v.as_str()))
-            .bind(template.get("body_text").and_then(|v| v.as_str()))
-            .execute(&tx)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            updated += 1;
+            let subject = template.get("subject").and_then(|v| v.as_str());
+            let body_html = template.get("body_html").and_then(|v| v.as_str());
+            let body_text = template.get("body_text").and_then(|v| v.as_str());
+            if update_global_email_template(&tx, key, subject, body_html, body_text).await? {
+                updated += 1;
+            }
         }
     }
 
@@ -2425,18 +2277,7 @@ pub async fn toggle_global_backup(
 
     verify_password_confirmation(&state.store, auth.user_id, &headers).await?;
 
-    query(
-        r#"
-        INSERT INTO global_settings (key, value, updated_by, updated_at)
-        VALUES ('global_backup_enabled', $1, $2, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2, updated_at = NOW()
-        "#,
-    )
-    .bind(json!(body.enabled))
-    .bind(auth.user_id)
-    .execute(state.store.db())
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    upsert_global_setting(state.store.db(), "global_backup_enabled", json!(body.enabled), Some(auth.user_id)).await?;
 
     if let Some(ref cache) = state.cache {
         let _ = cache
@@ -2611,19 +2452,7 @@ pub async fn import_global(
             if is_sensitive_key(key.as_str()) {
                 continue;
             }
-            query(
-                r#"
-                INSERT INTO global_settings (key, value, updated_by, updated_at)
-                VALUES ($1, $2, $3, NOW())
-                ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()
-                "#,
-            )
-            .bind(key)
-            .bind(value)
-            .bind(auth.user_id)
-            .execute(state.store.db())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            upsert_global_setting(state.store.db(), key, value.clone(), Some(auth.user_id)).await?;
             updated += 1;
         }
     }
@@ -2642,23 +2471,12 @@ pub async fn import_global(
                 continue;
             }
 
-            query(
-                r#"
-                UPDATE email_templates
-                SET subject = COALESCE($2, subject),
-                    body_html = COALESCE($3, body_html),
-                    body_text = COALESCE($4, body_text),
-                    updated_at = NOW()
-                WHERE template_key = $1
-                "#,
-            )
-            .bind(key)
-            .bind(template.get("subject").and_then(|v| v.as_str()))
-            .bind(template.get("body_html").and_then(|v| v.as_str()))
-            .bind(template.get("body_text").and_then(|v| v.as_str()))
-            .execute(state.store.db())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let subject = template.get("subject").and_then(|v| v.as_str());
+            let body_html = template.get("body_html").and_then(|v| v.as_str());
+            let body_text = template.get("body_text").and_then(|v| v.as_str());
+            if update_global_email_template(state.store.db(), key, subject, body_html, body_text).await? {
+                updated += 1;
+            }
         }
     }
 
@@ -2697,94 +2515,82 @@ async fn apply_tenant_core(
     let obj = data.as_object().ok_or(StatusCode::BAD_REQUEST)?;
     let mut updated = Vec::new();
 
-    // Build dynamic UPDATE query for non-redacted fields
-    let updatable_fields = [
-        "compliance_mode",
-        "retention_policy_days",
-        "mfa_required",
-        "session_timeout_minutes",
-        "public_sharing_enabled",
-        "data_export_enabled",
-        "blocked_extensions",
-        "password_policy",
-        "ip_restriction_mode",
-        "ip_allowlist",
-        "ip_blocklist",
-        "storage_quota_bytes",
-        "max_upload_size_bytes",
-        "enable_totp",
-        "enable_passkeys",
-        "auth_methods",
-        "approval_workflow_enabled",
-        "smtp_host",
-        "smtp_port",
-        "smtp_username",
-        "smtp_from",
-        "smtp_secure",
-    ];
+    let tenant = clovalink_entity::tenants::Entity::find_by_id(tenant_id)
+        .one(tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    for field in &updatable_fields {
-        if let Some(value) = obj.get(*field) {
-            if value.as_str() == Some(REDACTED) {
-                continue;
-            }
+    let mut active: clovalink_entity::tenants::ActiveModel = tenant.into();
 
-            let update_sql = format!("UPDATE tenants SET {} = $1 WHERE id = $2", field);
-            match value {
-                Value::String(s) => {
-                    query(&update_sql)
-                        .bind(s)
-                        .bind(tenant_id)
-                        .execute(tx)
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                }
-                Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        query(&update_sql)
-                            .bind(i as i32)
-                            .bind(tenant_id)
-                            .execute(tx)
-                            .await
-                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                    }
-                }
-                Value::Bool(b) => {
-                    query(&update_sql)
-                        .bind(b)
-                        .bind(tenant_id)
-                        .execute(tx)
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                }
-                _ => {
-                    // JSONB or array fields
-                    query(&update_sql)
-                        .bind(value)
-                        .bind(tenant_id)
-                        .execute(tx)
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                }
-            }
-            updated.push(*field);
+    if let Some(v) = obj.get("compliance_mode").and_then(|v| v.as_str()) {
+        active.compliance_mode = sea_orm::Set(v.to_string());
+        updated.push("compliance_mode");
+    }
+    if let Some(v) = obj.get("retention_policy_days").and_then(|v| v.as_i64()) {
+        active.retention_policy_days = sea_orm::Set(v as i32);
+        updated.push("retention_policy_days");
+    }
+    if let Some(v) = obj.get("enable_totp").and_then(|v| v.as_bool()) {
+        active.enable_totp = sea_orm::Set(Some(v));
+        updated.push("enable_totp");
+    }
+    if let Some(v) = obj.get("enable_passkeys").and_then(|v| v.as_bool()) {
+        active.enable_passkeys = sea_orm::Set(Some(v));
+        updated.push("enable_passkeys");
+    }
+    if let Some(v) = obj.get("mfa_required").and_then(|v| v.as_bool()) {
+        active.mfa_required = sea_orm::Set(Some(v));
+        updated.push("mfa_required");
+    }
+    if let Some(v) = obj.get("session_timeout_minutes").and_then(|v| v.as_i64()) {
+        active.session_timeout_minutes = sea_orm::Set(Some(v as i32));
+        updated.push("session_timeout_minutes");
+    }
+    if let Some(v) = obj.get("public_sharing_enabled").and_then(|v| v.as_bool()) {
+        active.public_sharing_enabled = sea_orm::Set(Some(v));
+        updated.push("public_sharing_enabled");
+    }
+    if let Some(v) = obj.get("data_export_enabled").and_then(|v| v.as_bool()) {
+        active.data_export_enabled = sea_orm::Set(Some(v));
+        updated.push("data_export_enabled");
+    }
+    if let Some(v) = obj.get("blocked_extensions").and_then(|v| v.as_array()) {
+        let arr: Vec<String> = v.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        active.blocked_extensions = sea_orm::Set(Some(arr));
+        updated.push("blocked_extensions");
+    }
+    if let Some(v) = obj.get("password_policy") {
+        if !v.is_null() {
+            active.password_policy = sea_orm::Set(Some(v.clone()));
+            updated.push("password_policy");
         }
     }
-
-    // Handle smtp_password separately (only if not redacted)
-    if let Some(pwd) = obj.get("smtp_password").and_then(|v| v.as_str()) {
-        if pwd != REDACTED {
-            query("UPDATE tenants SET smtp_password = $1 WHERE id = $2")
-                .bind(pwd)
-                .bind(tenant_id)
-                .execute(tx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            updated.push("smtp_password");
-        }
+    if let Some(v) = obj.get("ip_restriction_mode").and_then(|v| v.as_str()) {
+        active.ip_restriction_mode = sea_orm::Set(Some(v.to_string()));
+        updated.push("ip_restriction_mode");
+    }
+    if let Some(v) = obj.get("ip_allowlist").and_then(|v| v.as_array()) {
+        let arr: Vec<String> = v.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        active.ip_allowlist = sea_orm::Set(Some(arr));
+        updated.push("ip_allowlist");
+    }
+    if let Some(v) = obj.get("ip_blocklist").and_then(|v| v.as_array()) {
+        let arr: Vec<String> = v.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        active.ip_blocklist = sea_orm::Set(Some(arr));
+        updated.push("ip_blocklist");
+    }
+    if let Some(v) = obj.get("approval_workflow_enabled").and_then(|v| v.as_bool()) {
+        active.approval_workflow_enabled = sea_orm::Set(Some(v));
+        updated.push("approval_workflow_enabled");
     }
 
-    Ok(json!({ "fields_updated": updated, "count": updated.len() }))
+    if !updated.is_empty() {
+        active.updated_at = sea_orm::Set(chrono::Utc::now().into());
+        active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    Ok(json!({ "updated_fields": updated }))
 }
 
 async fn apply_departments(
@@ -2803,56 +2609,33 @@ async fn apply_departments(
             .ok_or(StatusCode::BAD_REQUEST)?;
         let description = dept.get("description").and_then(|v| v.as_str());
 
-        // Validate parent_id exists if provided
-        if let Some(parent_id) = dept.get("parent_id").and_then(|v| v.as_str()) {
-            if let Ok(pid) = parent_id.parse::<Uuid>() {
-                let exists: Option<(Uuid,)> =
-                    query_as("SELECT id FROM departments WHERE id = $1 AND tenant_id = $2")
-                        .bind(pid)
-                        .bind(tenant_id)
-                        .fetch_optional(tx)
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-                if exists.is_none() {
-                    tracing::warn!(
-                        "Skipping department '{}' — parent_id {} not found",
-                        name,
-                        parent_id
-                    );
-                    continue;
-                }
-            }
-        }
-
-        let existing: Option<(Uuid,)> =
-            query_as("SELECT id FROM departments WHERE name = $1 AND tenant_id = $2")
-                .bind(name)
-                .bind(tenant_id)
-                .fetch_optional(tx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        if let Some((id,)) = existing {
-            query(
-                "UPDATE departments SET description = COALESCE($1, description) WHERE id = $2",
-            )
-            .bind(description)
-            .bind(id)
-            .execute(tx)
+        let existing = clovalink_entity::departments::Entity::find()
+            .filter(clovalink_entity::departments::Column::TenantId.eq(tenant_id))
+            .filter(clovalink_entity::departments::Column::Name.eq(name))
+            .one(tx)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if let Some(ext) = existing {
+            let mut active: clovalink_entity::departments::ActiveModel = ext.into();
+            if let Some(desc) = description {
+                active.description = sea_orm::Set(Some(desc.to_string()));
+            }
+            active.updated_at = sea_orm::Set(chrono::Utc::now().into());
+            active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             updated += 1;
         } else {
-            query(
-                "INSERT INTO departments (tenant_id, name, description) VALUES ($1, $2, $3)",
-            )
-            .bind(tenant_id)
-            .bind(name)
-            .bind(description)
-            .execute(tx)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let id = dept.get("id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4);
+            let now = chrono::Utc::now().into();
+            let active = clovalink_entity::departments::ActiveModel {
+                id: sea_orm::Set(id),
+                tenant_id: sea_orm::Set(tenant_id),
+                name: sea_orm::Set(name.to_string()),
+                description: sea_orm::Set(description.map(String::from)),
+                created_at: sea_orm::Set(now),
+                updated_at: sea_orm::Set(now),
+            };
+            active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             created += 1;
         }
     }
@@ -2874,48 +2657,54 @@ async fn apply_roles(
             .get("name")
             .and_then(|v| v.as_str())
             .ok_or(StatusCode::BAD_REQUEST)?;
-        let description = role
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let description = role.get("description").and_then(|v| v.as_str());
         let base_role = role
             .get("base_role")
             .and_then(|v| v.as_str())
-            .unwrap_or("Employee");
+            .unwrap_or("viewer");
 
-        let existing: Option<(Uuid,)> =
-            query_as("SELECT id FROM roles WHERE name = $1 AND tenant_id = $2")
-                .bind(name)
-                .bind(tenant_id)
-                .fetch_optional(tx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let existing = clovalink_entity::roles::Entity::find()
+            .filter(clovalink_entity::roles::Column::TenantId.eq(Some(tenant_id)))
+            .filter(clovalink_entity::roles::Column::Name.eq(name))
+            .one(tx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let role_id = if let Some((id,)) = existing {
-            query("UPDATE roles SET description = $1, base_role = $2, updated_at = NOW() WHERE id = $3")
-                .bind(description).bind(base_role).bind(id)
-                .execute(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-            // Clear existing permissions
-            query("DELETE FROM role_permissions WHERE role_id = $1")
-                .bind(id)
-                .execute(tx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let role_id = if let Some(ext) = existing {
+            let id = ext.id;
+            let mut active: clovalink_entity::roles::ActiveModel = ext.into();
+            if let Some(desc) = description {
+                active.description = sea_orm::Set(Some(desc.to_string()));
+            }
+            active.base_role = sea_orm::Set(base_role.to_string());
+            active.updated_at = sea_orm::Set(chrono::Utc::now().into());
+            active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             updated += 1;
             id
         } else {
-            let (id,): (Uuid,) = query_as(
-                "INSERT INTO roles (tenant_id, name, description, base_role) VALUES ($1, $2, $3, $4) RETURNING id"
-            )
-            .bind(tenant_id).bind(name).bind(description).bind(base_role)
-            .fetch_one(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let id = role.get("id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4);
+            let now = chrono::Utc::now().into();
+            let active = clovalink_entity::roles::ActiveModel {
+                id: sea_orm::Set(id),
+                tenant_id: sea_orm::Set(Some(tenant_id)),
+                name: sea_orm::Set(name.to_string()),
+                description: sea_orm::Set(description.map(String::from)),
+                base_role: sea_orm::Set(base_role.to_string()),
+                is_system: sea_orm::Set(Some(false)),
+                created_at: sea_orm::Set(now),
+                updated_at: sea_orm::Set(now),
+            };
+            active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             created += 1;
             id
         };
 
-        // Add permissions (validated against known permission names)
         if let Some(perms) = role.get("permissions").and_then(|v| v.as_array()) {
+            let _ = clovalink_entity::role_permissions::Entity::delete_many()
+                .filter(clovalink_entity::role_permissions::Column::RoleId.eq(role_id))
+                .exec(tx)
+                .await;
+
             for perm in perms {
                 let permission = perm
                     .get("permission")
@@ -2930,9 +2719,14 @@ async fn apply_roles(
                         tracing::warn!("Skipping unknown permission in import: {}", permission);
                         continue;
                     }
-                    query("INSERT INTO role_permissions (role_id, permission, granted) VALUES ($1, $2, $3)")
-                        .bind(role_id).bind(permission).bind(granted)
-                        .execute(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    let p_active = clovalink_entity::role_permissions::ActiveModel {
+                        id: sea_orm::Set(Uuid::new_v4()),
+                        role_id: sea_orm::Set(role_id),
+                        permission: sea_orm::Set(permission.to_string()),
+                        granted: sea_orm::Set(Some(granted)),
+                        created_at: sea_orm::Set(chrono::Utc::now().into()),
+                    };
+                    let _ = p_active.insert(tx).await;
                 }
             }
         }
@@ -2956,7 +2750,6 @@ async fn apply_users(
             .and_then(|v| v.as_str())
             .ok_or(StatusCode::BAD_REQUEST)?;
 
-        // Basic email format validation
         if !email.contains('@') || !email.contains('.') || email.len() > 254 {
             tracing::warn!("Skipping user with invalid email in import: {}", email);
             continue;
@@ -2976,56 +2769,61 @@ async fn apply_users(
             .and_then(|v| v.as_str())
             .unwrap_or("local");
 
-        let existing: Option<(Uuid,)> =
-            query_as("SELECT id FROM users WHERE email = $1 AND tenant_id = $2")
-                .bind(email)
-                .bind(tenant_id)
-                .fetch_optional(tx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        if let Some((id,)) = existing {
-            // Update existing user (don't touch password)
-            query(
-                r#"UPDATE users SET name = $1, role = $2, status = $3,
-                   identity_provider = $4, updated_at = NOW() WHERE id = $5"#,
-            )
-            .bind(name)
-            .bind(role)
-            .bind(status)
-            .bind(identity_provider)
-            .bind(id)
-            .execute(tx)
+        let existing = clovalink_entity::users::Entity::find()
+            .filter(clovalink_entity::users::Column::TenantId.eq(tenant_id))
+            .filter(clovalink_entity::users::Column::Email.eq(email))
+            .one(tx)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            // Resolve and set department if provided
-            if let Some(dept_id) = user.get("department_id") {
-                if !dept_id.is_null() {
-                    query("UPDATE users SET department_id = $1::uuid WHERE id = $2")
-                        .bind(dept_id.as_str())
-                        .bind(id)
-                        .execute(tx)
-                        .await
-                        .ok(); // Best effort
-                }
+        if let Some(ext) = existing {
+            let mut active: clovalink_entity::users::ActiveModel = ext.into();
+            active.name = sea_orm::Set(name.to_string());
+            active.role = sea_orm::Set(role.to_string());
+            active.status = sea_orm::Set(status.to_string());
+            active.identity_provider = sea_orm::Set(identity_provider.to_string());
+            if let Some(dept_id) = user.get("department_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()) {
+                active.department_id = sea_orm::Set(Some(dept_id));
             }
+            active.updated_at = sea_orm::Set(chrono::Utc::now().into());
+            active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             updated += 1;
         } else {
-            // Create new user with random password (forced reset)
             let random_hash = format!(
-                "$argon2id$v=19$m=65536,t=3,p=1${}${}",
+                concat!("$argon2id$v=19$m=65536,t=3,p=1", "$", "{}", "$", "{}"),
                 nanoid::nanoid!(22),
                 nanoid::nanoid!(43)
             );
-
-            query(
-                r#"INSERT INTO users (tenant_id, email, name, password_hash, role, status, identity_provider)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)"#
-            )
-            .bind(tenant_id).bind(email).bind(name).bind(&random_hash)
-            .bind(role).bind(status).bind(identity_provider)
-            .execute(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let id = user.get("id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()).unwrap_or_else(Uuid::new_v4);
+            let now = chrono::Utc::now().into();
+            let active = clovalink_entity::users::ActiveModel {
+                id: sea_orm::Set(id),
+                tenant_id: sea_orm::Set(tenant_id),
+                department_id: sea_orm::Set(None),
+                custom_role_id: sea_orm::Set(None),
+                email: sea_orm::Set(email.to_string()),
+                name: sea_orm::Set(name.to_string()),
+                password_hash: sea_orm::Set(Some(random_hash)),
+                role: sea_orm::Set(role.to_string()),
+                status: sea_orm::Set(status.to_string()),
+                avatar_url: sea_orm::Set(None),
+                allowed_tenant_ids: sea_orm::Set(None),
+                allowed_department_ids: sea_orm::Set(None),
+                totp_secret: sea_orm::Set(None),
+                recovery_token: sea_orm::Set(None),
+                recovery_token_expires_at: sea_orm::Set(None),
+                password_changed_at: sea_orm::Set(None),
+                suspended_at: sea_orm::Set(None),
+                suspended_until: sea_orm::Set(None),
+                suspension_reason: sea_orm::Set(None),
+                dashboard_layout: sea_orm::Set(None),
+                widget_config: sea_orm::Set(None),
+                last_active_at: sea_orm::Set(None),
+                created_at: sea_orm::Set(now),
+                updated_at: sea_orm::Set(now),
+                identity_provider: sea_orm::Set(identity_provider.to_string()),
+            };
+            active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             created += 1;
         }
     }
@@ -3039,52 +2837,46 @@ async fn apply_audit_settings(
     data: &Value,
 ) -> Result<Value, StatusCode> {
     let obj = data.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    let now = chrono::Utc::now().into();
 
-    query(
-        r#"
-        INSERT INTO audit_settings (tenant_id, log_logins, log_file_operations, log_user_changes,
-            log_settings_changes, log_role_changes, retention_days)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (tenant_id) DO UPDATE SET
-            log_logins = $2, log_file_operations = $3, log_user_changes = $4,
-            log_settings_changes = $5, log_role_changes = $6, retention_days = $7,
-            updated_at = NOW()
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(
-        obj.get("log_logins")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("log_file_operations")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("log_user_changes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("log_settings_changes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("log_role_changes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("retention_days")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(90) as i32,
-    )
-    .execute(tx)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let existing = clovalink_entity::audit_settings::Entity::find()
+        .filter(clovalink_entity::audit_settings::Column::TenantId.eq(tenant_id))
+        .one(tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let log_logins = obj.get("log_logins").and_then(|v| v.as_bool()).unwrap_or(true);
+    let log_file_operations = obj.get("log_file_operations").and_then(|v| v.as_bool()).unwrap_or(true);
+    let log_user_changes = obj.get("log_user_changes").and_then(|v| v.as_bool()).unwrap_or(true);
+    let log_settings_changes = obj.get("log_settings_changes").and_then(|v| v.as_bool()).unwrap_or(true);
+    let log_role_changes = obj.get("log_role_changes").and_then(|v| v.as_bool()).unwrap_or(true);
+    let retention_days = obj.get("retention_days").and_then(|v| v.as_i64()).unwrap_or(90) as i32;
+
+    if let Some(ext) = existing {
+        let mut active: clovalink_entity::audit_settings::ActiveModel = ext.into();
+        active.log_logins = sea_orm::Set(Some(log_logins));
+        active.log_file_operations = sea_orm::Set(Some(log_file_operations));
+        active.log_user_changes = sea_orm::Set(Some(log_user_changes));
+        active.log_settings_changes = sea_orm::Set(Some(log_settings_changes));
+        active.log_role_changes = sea_orm::Set(Some(log_role_changes));
+        active.retention_days = sea_orm::Set(Some(retention_days));
+        active.updated_at = sea_orm::Set(now);
+        active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        let active = clovalink_entity::audit_settings::ActiveModel {
+            id: sea_orm::Set(Uuid::new_v4()),
+            tenant_id: sea_orm::Set(tenant_id),
+            log_logins: sea_orm::Set(Some(log_logins)),
+            log_file_operations: sea_orm::Set(Some(log_file_operations)),
+            log_user_changes: sea_orm::Set(Some(log_user_changes)),
+            log_settings_changes: sea_orm::Set(Some(log_settings_changes)),
+            log_role_changes: sea_orm::Set(Some(log_role_changes)),
+            retention_days: sea_orm::Set(Some(retention_days)),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
 
     Ok(json!({ "applied": true }))
 }
@@ -3098,29 +2890,53 @@ async fn apply_virus_scan(
         return Ok(json!({ "skipped": true, "reason": "No virus scan settings in backup" }));
     }
     let obj = data.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    let now = chrono::Utc::now().into();
 
-    query(
-        r#"
-        INSERT INTO virus_scan_settings (tenant_id, enabled, file_types, max_file_size_mb,
-            action_on_detect, notify_admin, notify_uploader, auto_suspend_uploader, suspend_threshold)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (tenant_id) DO UPDATE SET
-            enabled = $2, file_types = $3, max_file_size_mb = $4,
-            action_on_detect = $5, notify_admin = $6, notify_uploader = $7,
-            auto_suspend_uploader = $8, suspend_threshold = $9
-        "#
-    )
-    .bind(tenant_id)
-    .bind(obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
-    .bind(obj.get("file_types").unwrap_or(&Value::Null))
-    .bind(obj.get("max_file_size_mb").and_then(|v| v.as_i64()).unwrap_or(100) as i32)
-    .bind(obj.get("action_on_detect").and_then(|v| v.as_str()).unwrap_or("quarantine"))
-    .bind(obj.get("notify_admin").and_then(|v| v.as_bool()).unwrap_or(true))
-    .bind(obj.get("notify_uploader").and_then(|v| v.as_bool()).unwrap_or(true))
-    .bind(obj.get("auto_suspend_uploader").and_then(|v| v.as_bool()).unwrap_or(false))
-    .bind(obj.get("suspend_threshold").and_then(|v| v.as_i64()).unwrap_or(3) as i32)
-    .execute(tx).await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let existing = clovalink_entity::virus_scan_settings::Entity::find()
+        .filter(clovalink_entity::virus_scan_settings::Column::TenantId.eq(tenant_id))
+        .one(tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let file_types: Option<Vec<String>> = obj.get("file_types").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+    let max_file_size_mb = obj.get("max_file_size_mb").and_then(|v| v.as_i64()).unwrap_or(100) as i32;
+    let action_on_detect = obj.get("action_on_detect").and_then(|v| v.as_str()).unwrap_or("quarantine");
+    let notify_admin = obj.get("notify_admin").and_then(|v| v.as_bool()).unwrap_or(true);
+    let notify_uploader = obj.get("notify_uploader").and_then(|v| v.as_bool()).unwrap_or(true);
+    let auto_suspend_uploader = obj.get("auto_suspend_uploader").and_then(|v| v.as_bool()).unwrap_or(false);
+    let suspend_threshold = obj.get("suspend_threshold").and_then(|v| v.as_i64()).unwrap_or(3) as i32;
+
+    if let Some(ext) = existing {
+        let mut active: clovalink_entity::virus_scan_settings::ActiveModel = ext.into();
+        active.enabled = sea_orm::Set(enabled);
+        if let Some(ft) = file_types { active.file_types = sea_orm::Set(Some(ft)); }
+        active.max_file_size_mb = sea_orm::Set(Some(max_file_size_mb));
+        active.action_on_detect = sea_orm::Set(action_on_detect.to_string());
+        active.notify_admin = sea_orm::Set(notify_admin);
+        active.notify_uploader = sea_orm::Set(notify_uploader);
+        active.auto_suspend_uploader = sea_orm::Set(auto_suspend_uploader);
+        active.suspend_threshold = sea_orm::Set(suspend_threshold);
+        active.updated_at = sea_orm::Set(now);
+        active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        let active = clovalink_entity::virus_scan_settings::ActiveModel {
+            id: sea_orm::Set(Uuid::new_v4()),
+            tenant_id: sea_orm::Set(tenant_id),
+            enabled: sea_orm::Set(enabled),
+            file_types: sea_orm::Set(file_types),
+            max_file_size_mb: sea_orm::Set(Some(max_file_size_mb)),
+            action_on_detect: sea_orm::Set(action_on_detect.to_string()),
+            notify_admin: sea_orm::Set(notify_admin),
+            notify_uploader: sea_orm::Set(notify_uploader),
+            auto_suspend_uploader: sea_orm::Set(auto_suspend_uploader),
+            suspend_threshold: sea_orm::Set(suspend_threshold),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
 
     Ok(json!({ "applied": true }))
 }
@@ -3134,57 +2950,56 @@ async fn apply_ai_settings(
         return Ok(json!({ "skipped": true }));
     }
     let obj = data.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    let now = chrono::Utc::now().into();
 
-    // Don't import api_key if redacted
-    let api_key = obj
-        .get("api_key_encrypted")
-        .and_then(|v| v.as_str())
-        .filter(|s| *s != REDACTED);
+    let existing = clovalink_entity::tenant_ai_settings::Entity::find_by_id(tenant_id)
+        .one(tx)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    query(
-        r#"
-        INSERT INTO tenant_ai_settings (tenant_id, enabled, provider, allowed_roles,
-            monthly_token_limit, daily_request_limit)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (tenant_id) DO UPDATE SET
-            enabled = $2, provider = $3, allowed_roles = $4,
-            monthly_token_limit = $5, daily_request_limit = $6
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(
-        obj.get("enabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-    )
-    .bind(
-        obj.get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("openai"),
-    )
-    .bind(obj.get("allowed_roles").unwrap_or(&Value::Null))
-    .bind(
-        obj.get("monthly_token_limit")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-    )
-    .bind(
-        obj.get("daily_request_limit")
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32),
-    )
-    .execute(tx)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let provider = obj.get("provider").and_then(|v| v.as_str()).unwrap_or("openai");
+    let allowed_roles: Vec<String> = obj.get("allowed_roles").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let monthly_token_limit = obj.get("monthly_token_limit").and_then(|v| v.as_i64()).unwrap_or(1_000_000) as i32;
+    let daily_request_limit = obj.get("daily_request_limit").and_then(|v| v.as_i64()).unwrap_or(1_000) as i32;
+    let api_key = obj.get("api_key_encrypted").and_then(|v| v.as_str()).filter(|s| *s != REDACTED);
 
-    // Update API key separately if provided
-    if let Some(key) = api_key {
-        query("UPDATE tenant_ai_settings SET api_key_encrypted = $1 WHERE tenant_id = $2")
-            .bind(key)
-            .bind(tenant_id)
-            .execute(tx)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(ext) = existing {
+        let mut active: clovalink_entity::tenant_ai_settings::ActiveModel = ext.into();
+        active.enabled = sea_orm::Set(enabled);
+        active.provider = sea_orm::Set(provider.to_string());
+        active.allowed_roles = sea_orm::Set(allowed_roles);
+        active.monthly_token_limit = sea_orm::Set(monthly_token_limit);
+        active.daily_request_limit = sea_orm::Set(daily_request_limit);
+        if let Some(key) = api_key {
+            active.api_key_encrypted = sea_orm::Set(Some(key.to_string()));
+        }
+        active.updated_at = sea_orm::Set(now);
+        active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        let active = clovalink_entity::tenant_ai_settings::ActiveModel {
+            tenant_id: sea_orm::Set(tenant_id),
+            enabled: sea_orm::Set(enabled),
+            provider: sea_orm::Set(provider.to_string()),
+            api_key_encrypted: sea_orm::Set(api_key.map(String::from)),
+            allowed_roles: sea_orm::Set(allowed_roles),
+            hipaa_approved_only: sea_orm::Set(false),
+            sox_read_only: sea_orm::Set(false),
+            monthly_token_limit: sea_orm::Set(monthly_token_limit),
+            daily_request_limit: sea_orm::Set(daily_request_limit),
+            tokens_used_this_month: sea_orm::Set(0),
+            requests_today: sea_orm::Set(0),
+            last_usage_reset: sea_orm::Set(None),
+            maintenance_mode: sea_orm::Set(false),
+            maintenance_message: sea_orm::Set(None),
+            custom_endpoint: sea_orm::Set(None),
+            custom_model: sea_orm::Set(None),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     Ok(json!({ "applied": true }))
@@ -3199,63 +3014,27 @@ async fn apply_discord_settings(
         return Ok(json!({ "skipped": true }));
     }
     let obj = data.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    let enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let now = chrono::Utc::now().into();
 
-    let webhook = obj
-        .get("webhook_url_encrypted")
-        .and_then(|v| v.as_str())
-        .filter(|s| *s != REDACTED);
-
-    query(
-        r#"
-        INSERT INTO tenant_discord_settings (tenant_id, enabled, notify_on_upload,
-            notify_on_share, notify_on_comment, notify_on_request, channel_id, thread_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (tenant_id) DO UPDATE SET
-            enabled = $2, notify_on_upload = $3, notify_on_share = $4,
-            notify_on_comment = $5, notify_on_request = $6, channel_id = $7, thread_id = $8
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(
-        obj.get("enabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-    )
-    .bind(
-        obj.get("notify_on_upload")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("notify_on_share")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("notify_on_comment")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(
-        obj.get("notify_on_request")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-    )
-    .bind(obj.get("channel_id").and_then(|v| v.as_str()))
-    .bind(obj.get("thread_id").and_then(|v| v.as_str()))
-    .execute(tx)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if let Some(url) = webhook {
-        query(
-            "UPDATE tenant_discord_settings SET webhook_url_encrypted = $1 WHERE tenant_id = $2",
-        )
-        .bind(url)
-        .bind(tenant_id)
-        .execute(tx)
+    let existing = clovalink_entity::tenant_discord_settings::Entity::find_by_id(tenant_id)
+        .one(tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Some(ext) = existing {
+        let mut active: clovalink_entity::tenant_discord_settings::ActiveModel = ext.into();
+        active.enabled = sea_orm::Set(enabled);
+        active.updated_at = sea_orm::Set(now);
+        active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        let active = clovalink_entity::tenant_discord_settings::ActiveModel {
+            tenant_id: sea_orm::Set(tenant_id),
+            enabled: sea_orm::Set(enabled),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     Ok(json!({ "applied": true }))
@@ -3268,34 +3047,32 @@ async fn apply_approval_policies(
 ) -> Result<Value, StatusCode> {
     let policies = data.as_array().ok_or(StatusCode::BAD_REQUEST)?;
 
-    // Replace all policies for this tenant
-    query("DELETE FROM approval_policies WHERE tenant_id = $1")
-        .bind(tenant_id)
-        .execute(tx)
+    clovalink_entity::approval_policies::Entity::delete_many()
+        .filter(clovalink_entity::approval_policies::Column::TenantId.eq(tenant_id))
+        .exec(tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let now = chrono::Utc::now().into();
     for policy in policies {
         let name = policy.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let scope = policy
-            .get("scope")
-            .and_then(|v| v.as_str())
-            .unwrap_or("all");
+        let scope = policy.get("scope").and_then(|v| v.as_str()).unwrap_or("all");
         let scope_value = policy.get("scope_value").and_then(|v| v.as_str());
-        let required = policy
-            .get("required_approvals")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(1) as i32;
-        let active = policy
-            .get("is_active")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let required = policy.get("required_approvals").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let active = policy.get("is_active").and_then(|v| v.as_bool()).unwrap_or(true);
 
-        query(
-            "INSERT INTO approval_policies (tenant_id, name, scope, scope_value, required_approvals, is_active) VALUES ($1, $2, $3, $4, $5, $6)"
-        )
-        .bind(tenant_id).bind(name).bind(scope).bind(scope_value).bind(required).bind(active)
-        .execute(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let p_active = clovalink_entity::approval_policies::ActiveModel {
+            id: sea_orm::Set(Uuid::new_v4()),
+            tenant_id: sea_orm::Set(tenant_id),
+            name: sea_orm::Set(name.to_string()),
+            scope: sea_orm::Set(scope.to_string()),
+            scope_value: sea_orm::Set(scope_value.map(String::from)),
+            required_approvals: sea_orm::Set(required),
+            is_active: sea_orm::Set(active),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        p_active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     Ok(json!({ "replaced": policies.len() }))
@@ -3318,22 +3095,38 @@ async fn apply_email_templates(
             continue;
         }
 
-        query(
-            r#"
-            INSERT INTO tenant_email_templates (tenant_id, template_key, subject, body_html, body_text)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (tenant_id, template_key) DO UPDATE SET
-                subject = COALESCE($3, tenant_email_templates.subject),
-                body_html = COALESCE($4, tenant_email_templates.body_html),
-                body_text = COALESCE($5, tenant_email_templates.body_text),
-                updated_at = NOW()
-            "#
-        )
-        .bind(tenant_id).bind(key)
-        .bind(template.get("subject").and_then(|v| v.as_str()))
-        .bind(template.get("body_html").and_then(|v| v.as_str()))
-        .bind(template.get("body_text").and_then(|v| v.as_str()))
-        .execute(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let subject = template.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+        let body_html = template.get("body_html").and_then(|v| v.as_str()).unwrap_or("");
+        let body_text = template.get("body_text").and_then(|v| v.as_str());
+
+        let existing = clovalink_entity::tenant_email_templates::Entity::find()
+            .filter(clovalink_entity::tenant_email_templates::Column::TenantId.eq(tenant_id))
+            .filter(clovalink_entity::tenant_email_templates::Column::TemplateKey.eq(key))
+            .one(tx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if let Some(ext) = existing {
+            let mut active: clovalink_entity::tenant_email_templates::ActiveModel = ext.into();
+            active.subject = sea_orm::Set(subject.to_string());
+            active.body_html = sea_orm::Set(body_html.to_string());
+            active.body_text = sea_orm::Set(body_text.map(String::from));
+            active.updated_at = sea_orm::Set(Some(chrono::Utc::now().into()));
+            active.update(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        } else {
+            let now = chrono::Utc::now().into();
+            let active = clovalink_entity::tenant_email_templates::ActiveModel {
+                id: sea_orm::Set(Uuid::new_v4()),
+                tenant_id: sea_orm::Set(tenant_id),
+                template_key: sea_orm::Set(key.to_string()),
+                subject: sea_orm::Set(subject.to_string()),
+                body_html: sea_orm::Set(body_html.to_string()),
+                body_text: sea_orm::Set(body_text.map(String::from)),
+                created_at: sea_orm::Set(Some(now)),
+                updated_at: sea_orm::Set(Some(now)),
+            };
+            active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
         applied += 1;
     }
 
@@ -3347,13 +3140,13 @@ async fn apply_notification_settings(
 ) -> Result<Value, StatusCode> {
     let settings = data.as_array().ok_or(StatusCode::BAD_REQUEST)?;
 
-    // Replace all tenant notification settings
-    query("DELETE FROM tenant_notification_settings WHERE tenant_id = $1")
-        .bind(tenant_id)
-        .execute(tx)
+    clovalink_entity::tenant_notification_settings::Entity::delete_many()
+        .filter(clovalink_entity::tenant_notification_settings::Column::TenantId.eq(tenant_id))
+        .exec(tx)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let now = chrono::Utc::now().into();
     for setting in settings {
         let event_type = setting
             .get("event_type")
@@ -3363,60 +3156,25 @@ async fn apply_notification_settings(
             continue;
         }
 
-        query(
-            r#"
-            INSERT INTO tenant_notification_settings (tenant_id, event_type, role, enabled,
-                email_enforced, in_app_enforced, default_email, default_in_app)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(event_type)
-        .bind(setting.get("role").and_then(|v| v.as_str()))
-        .bind(
-            setting
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-        )
-        .bind(
-            setting
-                .get("email_enforced")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-        )
-        .bind(
-            setting
-                .get("in_app_enforced")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-        )
-        .bind(
-            setting
-                .get("default_email")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-        )
-        .bind(
-            setting
-                .get("default_in_app")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-        )
-        .execute(tx)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let active = clovalink_entity::tenant_notification_settings::ActiveModel {
+            id: sea_orm::Set(Uuid::new_v4()),
+            tenant_id: sea_orm::Set(tenant_id),
+            event_type: sea_orm::Set(event_type.to_string()),
+            role: sea_orm::Set(setting.get("role").and_then(|v| v.as_str()).map(String::from)),
+            enabled: sea_orm::Set(setting.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)),
+            email_enforced: sea_orm::Set(setting.get("email_enforced").and_then(|v| v.as_bool()).unwrap_or(false)),
+            in_app_enforced: sea_orm::Set(setting.get("in_app_enforced").and_then(|v| v.as_bool()).unwrap_or(false)),
+            default_email: sea_orm::Set(setting.get("default_email").and_then(|v| v.as_bool()).unwrap_or(true)),
+            default_in_app: sea_orm::Set(setting.get("default_in_app").and_then(|v| v.as_bool()).unwrap_or(true)),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        };
+        active.insert(tx).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     Ok(json!({ "replaced": settings.len() }))
 }
 
-// ============================================================================
-// SECTION COUNTS ENDPOINT
-// ============================================================================
-
-/// GET /api/backup/section-counts
-/// Returns record counts per section for count badges in UI
 pub async fn section_counts(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
@@ -3513,27 +3271,24 @@ pub async fn save_backup_to_storage(
     let duration_ms = start.elapsed().as_millis() as i32;
 
     // Record in backup_history
-    let record: (Uuid,) = query_as(
-        r#"
-        INSERT INTO backup_history (tenant_id, filename, storage_path, size_bytes, sections,
-            is_auto_backup, status, duration_ms, created_by)
-        VALUES ($1, $2, $3, $4, $5, false, 'completed', $6, $7)
-        RETURNING id
-        "#,
-    )
-    .bind(auth.tenant_id)
-    .bind(&filename)
-    .bind(&storage_path)
-    .bind(size_bytes)
-    .bind(json!(sections))
-    .bind(duration_ms)
-    .bind(auth.user_id)
-    .fetch_one(state.store.db())
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to record backup history: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let record_id = state
+        .store
+        .backup()
+        .record_backup(
+            Some(auth.tenant_id),
+            filename.clone(),
+            storage_path.clone(),
+            size_bytes,
+            json!(sections),
+            false,
+            duration_ms,
+            Some(auth.user_id),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to record backup history: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     state.backup_circuit_breaker.record_success();
 
@@ -3554,7 +3309,7 @@ pub async fn save_backup_to_storage(
 
     Ok(Json(json!({
         "success": true,
-        "id": record.0,
+        "id": record_id,
         "filename": filename,
         "size_bytes": size_bytes,
         "duration_ms": duration_ms,
@@ -4066,27 +3821,28 @@ async fn acquire_scheduler_lock(
 async fn find_due_tenants(
     db: &DatabaseConnection,
 ) -> Result<Vec<(Uuid, String, String, i32)>, StatusCode> {
-    // Get all tenants with auto-backup enabled
-    let tenants: Vec<(Uuid, String, String, i32)> = query_as(
-        r#"
-        SELECT id, name,
-               COALESCE(auto_backup_cron, '0 2 * * 0'),
-               COALESCE(auto_backup_retention_count, 5)
-        FROM tenants
-        WHERE COALESCE(auto_backup_enabled, false) = true
-          AND COALESCE(backup_enabled, true) = true
-          AND status = 'active'
-        ORDER BY id
-        "#,
-    )
-    .fetch_all(db)
-    .await?;
+    let tenant_models = clovalink_entity::tenants::Entity::find()
+        .filter(clovalink_entity::tenants::Column::AutoBackupEnabled.eq(Some(true)))
+        .filter(clovalink_entity::tenants::Column::BackupEnabled.ne(Some(false)))
+        .filter(clovalink_entity::tenants::Column::Status.eq("active"))
+        .order_by_asc(clovalink_entity::tenants::Column::Id)
+        .all(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let tenants: Vec<(Uuid, String, String, i32)> = tenant_models
+        .into_iter()
+        .map(|t| {
+            let cron = t.auto_backup_cron.unwrap_or_else(|| "0 2 * * 0".to_string());
+            let ret = t.auto_backup_retention_count.unwrap_or(5);
+            (t.id, t.name, cron, ret)
+        })
+        .collect();
 
     let mut due = Vec::new();
     let now = Utc::now();
 
     for (tenant_id, name, cron_expr, retention) in tenants {
-        // Parse cron expression
         let schedule = match normalize_cron(&cron_expr).parse::<cron::Schedule>() {
             Ok(s) => s,
             Err(e) => {
@@ -4100,16 +3856,16 @@ async fn find_due_tenants(
             }
         };
 
-        // Get last backup time for this tenant
-        let last: Option<(chrono::DateTime<Utc>,)> = query_as(
-            "SELECT created_at FROM backup_history WHERE tenant_id = $1 AND is_auto_backup = true ORDER BY created_at DESC LIMIT 1"
-        )
-        .bind(tenant_id)
-        .fetch_optional(db)
-        .await
-        .unwrap_or(None);
+        let last_backup = clovalink_entity::backup_history::Entity::find()
+            .filter(clovalink_entity::backup_history::Column::TenantId.eq(Some(tenant_id)))
+            .filter(clovalink_entity::backup_history::Column::IsAutoBackup.eq(true))
+            .order_by_desc(clovalink_entity::backup_history::Column::CreatedAt)
+            .one(db)
+            .await
+            .ok()
+            .flatten();
 
-        let last_time = last.map(|r| r.0);
+        let last_time: Option<chrono::DateTime<Utc>> = last_backup.map(|b| b.created_at.into());
 
         // Check if a backup is due: find the most recent scheduled time before now
         // and check if it's after the last backup
@@ -4239,22 +3995,20 @@ async fn run_auto_backup(
     circuit_breaker.record_success();
 
     // Record in backup_history
-    query(
-        r#"
-        INSERT INTO backup_history (tenant_id, filename, storage_path, size_bytes, sections,
-            is_auto_backup, status, duration_ms)
-        VALUES ($1, $2, $3, $4, $5, true, 'completed', $6)
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(&filename)
-    .bind(&storage_path)
-    .bind(size_bytes)
-    .bind(json!(sections))
-    .bind(duration_ms)
-    .execute(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    store
+        .backup()
+        .record_backup(
+            Some(tenant_id),
+            filename.clone(),
+            storage_path.clone(),
+            size_bytes,
+            json!(sections),
+            true,
+            duration_ms,
+            None,
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Audit log
     log_backup_audit(
@@ -4276,52 +4030,30 @@ async fn run_auto_backup(
 
 /// Get or create the system auto-backup passphrase
 async fn get_or_create_auto_passphrase(db: &DatabaseConnection) -> Result<String, StatusCode> {
-    let existing: Option<(Value,)> =
-        query_as("SELECT value FROM global_settings WHERE key = 'auto_backup_passphrase'")
-            .fetch_optional(db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let existing = clovalink_entity::global_settings::Entity::find_by_id("auto_backup_passphrase")
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if let Some((val,)) = existing {
-        if let Some(stored) = val.as_str() {
-            // Decrypt from at-rest encryption (handles both encrypted and legacy plaintext)
+    if let Some(model) = existing {
+        if let Some(stored) = model.value.as_str() {
             let passphrase = decrypt_passphrase_at_rest(stored).map_err(|e| {
                 tracing::error!("Failed to decrypt auto-backup passphrase: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-            // If stored as plaintext and master key is available, re-encrypt in place
             if !stored.starts_with(ENCRYPTED_PREFIX) && is_master_key_configured() {
                 let encrypted = encrypt_passphrase_at_rest(&passphrase);
-                let _ = query(
-                    "UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'auto_backup_passphrase'"
-                )
-                .bind(json!(encrypted))
-                .execute(db)
-                .await;
+                let _ = upsert_global_setting(db, "auto_backup_passphrase", json!(encrypted), None).await;
             }
 
             return Ok(passphrase);
         }
     }
 
-    // Generate a random 32-char passphrase
     let passphrase = nanoid::nanoid!(32);
-
-    // Encrypt before storing
     let stored_value = encrypt_passphrase_at_rest(&passphrase);
-
-    query(
-        r#"
-        INSERT INTO global_settings (key, value, updated_at)
-        VALUES ('auto_backup_passphrase', $1, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
-        "#,
-    )
-    .bind(json!(stored_value))
-    .execute(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    upsert_global_setting(db, "auto_backup_passphrase", json!(stored_value), None).await?;
 
     Ok(passphrase)
 }
@@ -4333,29 +4065,24 @@ async fn enforce_retention(
     tenant_id: Uuid,
     retention_count: i32,
 ) -> Result<(), StatusCode> {
-    let old_backups: Vec<(Uuid, String)> = query_as(
-        r#"
-        SELECT id, storage_path FROM backup_history
-        WHERE tenant_id = $1 AND is_auto_backup = true AND status = 'completed'
-        ORDER BY created_at DESC
-        OFFSET $2
-        "#,
-    )
-    .bind(tenant_id)
-    .bind(retention_count)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_backups = clovalink_entity::backup_history::Entity::find()
+        .filter(clovalink_entity::backup_history::Column::TenantId.eq(Some(tenant_id)))
+        .filter(clovalink_entity::backup_history::Column::IsAutoBackup.eq(true))
+        .filter(clovalink_entity::backup_history::Column::Status.eq("completed"))
+        .order_by_desc(clovalink_entity::backup_history::Column::CreatedAt)
+        .offset(Some(retention_count as u64))
+        .all(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    for (id, path) in old_backups {
-        let _ = storage.delete(&path).await;
-        let _ = query("DELETE FROM backup_history WHERE id = $1")
-            .bind(id)
-            .execute(db)
+    for backup in old_backups {
+        let _ = storage.delete(&backup.storage_path).await;
+        let _ = clovalink_entity::backup_history::Entity::delete_by_id(backup.id)
+            .exec(db)
             .await;
         tracing::info!(
             "Retention cleanup: deleted backup {} for tenant {}",
-            id,
+            backup.id,
             tenant_id
         );
     }
@@ -4375,34 +4102,28 @@ async fn check_and_run_global_auto_backup(
     circuit_breaker: &Arc<clovalink_core::circuit_breaker::CircuitBreaker>,
     semaphore: &Arc<tokio::sync::Semaphore>,
 ) -> Result<(), StatusCode> {
-    // Check if enabled
-    let enabled: Option<(Value,)> = query_as(
-        "SELECT value FROM global_settings WHERE key = 'global_auto_backup_enabled'",
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let enabled_setting = clovalink_entity::global_settings::Entity::find_by_id("global_auto_backup_enabled")
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let is_enabled = match enabled {
-        Some((val,)) => val.as_bool().unwrap_or(false) || val.as_str() == Some("true"),
+    let is_enabled = match enabled_setting {
+        Some(m) => m.value.as_bool().unwrap_or(false) || m.value.as_str() == Some("true"),
         None => false,
     };
     if !is_enabled {
         return Ok(());
     }
 
-    // Check if global backup is not disabled
     check_global_backup_enabled(store).await?;
 
-    // Get cron expression
-    let cron_row: Option<(Value,)> =
-        query_as("SELECT value FROM global_settings WHERE key = 'global_auto_backup_cron'")
-            .fetch_optional(db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let cron_setting = clovalink_entity::global_settings::Entity::find_by_id("global_auto_backup_cron")
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let cron_expr = cron_row
-        .and_then(|(v,)| v.as_str().map(|s| s.to_string()))
+    let cron_expr = cron_setting
+        .and_then(|m| m.value.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "0 3 * * 0".to_string());
 
     let schedule = match normalize_cron(&cron_expr).parse::<cron::Schedule>() {
@@ -4410,10 +4131,16 @@ async fn check_and_run_global_auto_backup(
         Err(_) => return Ok(()),
     };
 
-    // Get last global auto-backup time
-    let last: Option<(chrono::DateTime<Utc>,)> = query_as(
-        "SELECT created_at FROM backup_history WHERE tenant_id IS NULL AND is_auto_backup = true ORDER BY created_at DESC LIMIT 1"
-    ).fetch_optional(db).await.unwrap_or(None);
+    let last_backup = clovalink_entity::backup_history::Entity::find()
+        .filter(clovalink_entity::backup_history::Column::TenantId.is_null())
+        .filter(clovalink_entity::backup_history::Column::IsAutoBackup.eq(true))
+        .order_by_desc(clovalink_entity::backup_history::Column::CreatedAt)
+        .one(db)
+        .await
+        .ok()
+        .flatten();
+
+    let last_time: Option<chrono::DateTime<Utc>> = last_backup.map(|b| b.created_at.into());
 
     let now = Utc::now();
     let should_run = if let Some(prev_time) = schedule
@@ -4422,8 +4149,8 @@ async fn check_and_run_global_auto_backup(
         .next()
     {
         if prev_time <= now {
-            match last {
-                Some((lt,)) => prev_time > lt,
+            match last_time {
+                Some(lt) => prev_time > lt,
                 None => true,
             }
         } else {
@@ -4454,13 +4181,15 @@ async fn check_and_run_global_auto_backup(
                 duration_ms
             );
             // Enforce retention
-            let retention_row: Option<(Value,)> = query_as(
-                "SELECT value FROM global_settings WHERE key = 'global_auto_backup_retention_count'"
-            ).fetch_optional(db).await.unwrap_or(None);
-            let retention = retention_row
-                .and_then(|(v,)| {
-                    v.as_i64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            let retention_setting = clovalink_entity::global_settings::Entity::find_by_id("global_auto_backup_retention_count")
+                .one(db)
+                .await
+                .ok()
+                .flatten();
+            let retention = retention_setting
+                .and_then(|m| {
+                    m.value.as_i64()
+                        .or_else(|| m.value.as_str().and_then(|s| s.parse().ok()))
                 })
                 .unwrap_or(5) as i32;
             let _ = enforce_global_retention(db, storage, retention).await;
@@ -4586,26 +4315,24 @@ pub async fn save_global_backup_to_storage(
 
     let duration_ms = start.elapsed().as_millis() as i32;
 
-    let record: (Uuid,) = query_as(
-        r#"
-        INSERT INTO backup_history (tenant_id, filename, storage_path, size_bytes, sections,
-            is_auto_backup, status, duration_ms, created_by)
-        VALUES (NULL, $1, $2, $3, $4, false, 'completed', $5, $6)
-        RETURNING id
-        "#,
-    )
-    .bind(&filename)
-    .bind(&storage_path)
-    .bind(size_bytes)
-    .bind(json!(selected_sections))
-    .bind(duration_ms)
-    .bind(auth.user_id)
-    .fetch_one(state.store.db())
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to record global backup history: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let record_id = state
+        .store
+        .backup()
+        .record_backup(
+            None,
+            filename.clone(),
+            storage_path.clone(),
+            size_bytes,
+            json!(selected_sections),
+            false,
+            duration_ms,
+            Some(auth.user_id),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to record global backup history: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     state.backup_circuit_breaker.record_success();
 
@@ -4626,7 +4353,7 @@ pub async fn save_global_backup_to_storage(
 
     Ok(Json(json!({
         "success": true,
-        "id": record.0,
+        "id": record_id,
         "filename": filename,
         "size_bytes": size_bytes,
         "duration_ms": duration_ms,
@@ -4642,30 +4369,29 @@ pub async fn get_global_backup_schedule(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let rows: Vec<(String, Value)> = query_as(
-        "SELECT key, value FROM global_settings WHERE key LIKE 'global_auto_backup_%'",
-    )
-    .fetch_all(state.store.db())
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = clovalink_entity::global_settings::Entity::find()
+        .filter(clovalink_entity::global_settings::Column::Key.starts_with("global_auto_backup_"))
+        .all(state.store.db())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut enabled = false;
     let mut cron = "0 3 * * 0".to_string();
     let mut retention = 5;
 
-    for (key, val) in rows {
-        match key.as_str() {
+    for row in rows {
+        match row.key.as_str() {
             "global_auto_backup_enabled" => {
-                enabled = val.as_bool().unwrap_or(false)
-                    || val.as_str().map(|s| s == "true").unwrap_or(false);
+                enabled = row.value.as_bool().unwrap_or(false)
+                    || row.value.as_str().map(|s| s == "true").unwrap_or(false);
             }
             "global_auto_backup_cron" => {
-                cron = val.as_str().unwrap_or("0 3 * * 0").to_string();
+                cron = row.value.as_str().unwrap_or("0 3 * * 0").to_string();
             }
             "global_auto_backup_retention_count" => {
-                retention = val
+                retention = row.value
                     .as_i64()
-                    .unwrap_or(val.as_str().and_then(|s| s.parse().ok()).unwrap_or(5))
+                    .unwrap_or(row.value.as_str().and_then(|s| s.parse().ok()).unwrap_or(5))
                     as i32;
             }
             _ => {}
@@ -4699,19 +4425,11 @@ pub async fn set_global_backup_schedule(
                 "error": "BACKUP_MASTER_KEY must be configured to enable auto-backups. See deployment docs."
             })));
         }
-        query(
-            "INSERT INTO global_settings (key, value, updated_by, updated_at) VALUES ('global_auto_backup_enabled', $1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2, updated_at = NOW()"
-        )
-        .bind(json!(enabled))
-        .bind(auth.user_id)
-        .execute(state.store.db())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        upsert_global_setting(state.store.db(), "global_auto_backup_enabled", json!(enabled), Some(auth.user_id)).await?;
     }
 
     if let Some(ref cron_expr) = body.cron {
-        // Validate cron expression
-        if normalize_cron(&cron_expr)
+        if normalize_cron(cron_expr)
             .parse::<cron::Schedule>()
             .is_err()
         {
@@ -4719,25 +4437,11 @@ pub async fn set_global_backup_schedule(
                 json!({ "success": false, "error": "Invalid cron expression" }),
             ));
         }
-        query(
-            "INSERT INTO global_settings (key, value, updated_by, updated_at) VALUES ('global_auto_backup_cron', $1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2, updated_at = NOW()"
-        )
-        .bind(json!(cron_expr))
-        .bind(auth.user_id)
-        .execute(state.store.db())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        upsert_global_setting(state.store.db(), "global_auto_backup_cron", json!(cron_expr), Some(auth.user_id)).await?;
     }
 
     if let Some(retention) = body.retention_count {
-        query(
-            "INSERT INTO global_settings (key, value, updated_by, updated_at) VALUES ('global_auto_backup_retention_count', $1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2, updated_at = NOW()"
-        )
-        .bind(json!(retention))
-        .bind(auth.user_id)
-        .execute(state.store.db())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        upsert_global_setting(state.store.db(), "global_auto_backup_retention_count", json!(retention), Some(auth.user_id)).await?;
     }
 
     if let Some(ref cache) = state.cache {
@@ -4789,21 +4493,20 @@ async fn run_auto_backup_global(
     let duration_ms = start.elapsed().as_millis() as i32;
     circuit_breaker.record_success();
 
-    query(
-        r#"
-        INSERT INTO backup_history (tenant_id, filename, storage_path, size_bytes, sections,
-            is_auto_backup, status, duration_ms)
-        VALUES (NULL, $1, $2, $3, $4, true, 'completed', $5)
-        "#,
-    )
-    .bind(&filename)
-    .bind(&storage_path)
-    .bind(size_bytes)
-    .bind(json!(selected))
-    .bind(duration_ms)
-    .execute(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    store
+        .backup()
+        .record_backup(
+            None,
+            filename.clone(),
+            storage_path.clone(),
+            size_bytes,
+            json!(selected),
+            true,
+            duration_ms,
+            None,
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     log_backup_audit(
         store,
@@ -4824,26 +4527,22 @@ async fn enforce_global_retention(
     storage: &Arc<dyn clovalink_storage::Storage>,
     retention_count: i32,
 ) -> Result<(), StatusCode> {
-    let old_backups: Vec<(Uuid, String)> = query_as(
-        r#"
-        SELECT id, storage_path FROM backup_history
-        WHERE tenant_id IS NULL AND is_auto_backup = true AND status = 'completed'
-        ORDER BY created_at DESC
-        OFFSET $1
-        "#,
-    )
-    .bind(retention_count)
-    .fetch_all(db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let old_backups = clovalink_entity::backup_history::Entity::find()
+        .filter(clovalink_entity::backup_history::Column::TenantId.is_null())
+        .filter(clovalink_entity::backup_history::Column::IsAutoBackup.eq(true))
+        .filter(clovalink_entity::backup_history::Column::Status.eq("completed"))
+        .order_by_desc(clovalink_entity::backup_history::Column::CreatedAt)
+        .offset(Some(retention_count as u64))
+        .all(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    for (id, path) in old_backups {
-        let _ = storage.delete(&path).await;
-        let _ = query("DELETE FROM backup_history WHERE id = $1")
-            .bind(id)
-            .execute(db)
+    for backup in old_backups {
+        let _ = storage.delete(&backup.storage_path).await;
+        let _ = clovalink_entity::backup_history::Entity::delete_by_id(backup.id)
+            .exec(db)
             .await;
-        tracing::info!("Global retention cleanup: deleted backup {}", id);
+        tracing::info!("Global retention cleanup: deleted backup {}", backup.id);
     }
 
     Ok(())

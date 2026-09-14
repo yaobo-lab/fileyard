@@ -45,12 +45,8 @@ cargo run
 
 If you just want to get the frontend working first:
 
-```bash
-# Comment out all sqlx::query! macros temporarily
-# Or use: cargo build --features offline
-
-# The backend won't work but frontend can be developed
-```
+# SeaORM does not require a live database to compile:
+cargo check --workspace
 
 ## Test Backend
 
