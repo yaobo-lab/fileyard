@@ -367,14 +367,14 @@ pub async fn run() {
 
     // Start backup scheduler in background
     {
-        let backup_pool = app_state.store.sqlx_pool().clone();
+        let backup_store = app_state.store.clone();
         let backup_storage = storage.clone();
         let backup_cb = app_state.backup_circuit_breaker.clone();
         let backup_sem = app_state.backup_semaphore.clone();
         let backup_redis = redis_url.clone();
         tokio::spawn(async move {
             settings_backup::start_backup_scheduler(
-                backup_pool,
+                backup_store,
                 backup_storage,
                 backup_cb,
                 backup_sem,

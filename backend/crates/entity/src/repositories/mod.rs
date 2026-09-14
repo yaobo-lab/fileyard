@@ -39,7 +39,7 @@ pub use audit::{
     ActivityLogFilter, AuditLogRecord, AuditRepository, AuditSettingsUpdate, NewAuditLog,
 };
 pub use auth::{AuthRepository, AuthUserStatus, TenantIpRestrictions};
-pub use backup::BackupRepository;
+pub use backup::{BackupMetricsData, BackupRepository, SectionCountsData, TenantBackupStat};
 pub use comments::{CommentRepository, CommentRow};
 pub use compliance::ComplianceRepository;
 pub use dashboard::{ActiveFileRequest, DashboardRepository, StorageDistribution};

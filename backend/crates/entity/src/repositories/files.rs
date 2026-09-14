@@ -592,7 +592,7 @@ impl<'a> FileRepository<'a> {
         let old_prefix = format!("{}/", old_folder_path);
         let nested_children = files_metadata::Entity::find()
             .filter(files_metadata::Column::TenantId.eq(tenant_id))
-            .filter(files_metadata::Column::ParentPath.like(&format!("{}%", old_prefix)))
+            .filter(files_metadata::Column::ParentPath.like(format!("{}%", old_prefix)))
             .all(self.db)
             .await?;
 

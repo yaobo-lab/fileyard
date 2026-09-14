@@ -1089,16 +1089,16 @@ fn strip_sensitive_keys(mut settings: Value) -> Value {
 }
 
 // Global settings collector
-async fn collect_global_settings(pool: &sqlx::PgPool) -> Result<Value, StatusCode> {
-    let settings: Vec<(String, Value)> =
-        sqlx::query_as("SELECT key, value FROM global_settings ORDER BY key")
-            .fetch_all(pool)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn collect_global_settings(store: &clovalink_entity::DataStore) -> Result<Value, StatusCode> {
+    let settings = store
+        .global_settings()
+        .all()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut map = serde_json::Map::new();
-    for (key, value) in settings {
-        map.insert(key, value);
+    for item in settings {
+        map.insert(item.key, item.value);
     }
     Ok(Value::Object(map))
 }
@@ -1214,11 +1214,14 @@ pub async fn export_tenant_backup(
     }
 
     // Get tenant name
-    let tenant_name: (String,) = sqlx::query_as("SELECT name FROM tenants WHERE id = $1")
-        .bind(auth.tenant_id)
-        .fetch_one(state.store.sqlx_pool())
+    let tenant_name = state
+        .store
+        .tenants()
+        .tenant(auth.tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(|t| t.name)
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Build backup JSON
     let mut backup = json!({
@@ -1228,7 +1231,7 @@ pub async fn export_tenant_backup(
             "clovalink_version": CURRENT_VERSION,
             "export_type": "tenant",
             "tenant_id": auth.tenant_id.to_string(),
-            "tenant_name": tenant_name.0,
+            "tenant_name": tenant_name,
             "exported_at": Utc::now().to_rfc3339(),
             "exported_by": auth.user_id.to_string(),
             "include_secrets": include_secrets,
@@ -1325,11 +1328,11 @@ pub async fn export_tenant_backup(
             "Backup exported with secrets",
             &format!(
                 "User exported backup including encrypted secrets for tenant {}",
-                tenant_name.0
+                tenant_name
             ),
             json!({
                 "sections": &sections,
-                "tenant_name": tenant_name.0
+                "tenant_name": tenant_name
             }),
             auth.ip_address.as_deref(),
         )
@@ -1339,7 +1342,7 @@ pub async fn export_tenant_backup(
     // Build response with download headers
     let filename = format!(
         "clovalink-backup-{}-{}-{:06x}.clovalink.json",
-        tenant_name.0.to_lowercase().replace(' ', "-"),
+        tenant_name.to_lowercase().replace(' ', "-"),
         Utc::now().format("%Y%m%d-%H%M%S"),
         rand::random::<u32>() & 0xFFFFFF
     );
@@ -1414,7 +1417,7 @@ pub async fn export_global(
     let backup_map = backup.as_object_mut().unwrap();
     for section in &selected {
         let value = match section.as_str() {
-            "global_settings" => strip_sensitive_keys(collect_global_settings(state.store.sqlx_pool()).await?),
+            "global_settings" => strip_sensitive_keys(collect_global_settings(&state.store).await?),
             "global_email_templates" => collect_global_email_templates(state.store.sqlx_pool()).await?,
             _ => continue,
         };
@@ -2030,7 +2033,7 @@ pub async fn get_current_settings(
 
     match mode {
         "global" => {
-            let global_settings = collect_global_settings(state.store.sqlx_pool()).await?;
+            let global_settings = collect_global_settings(&state.store).await?;
             let email_templates = collect_global_email_templates(state.store.sqlx_pool()).await?;
             Ok(Json(json!({
                 "global_settings": global_settings,
@@ -2287,7 +2290,7 @@ pub async fn global_backup_status(
 
     let row = state
         .store
-        .global_settings
+        .global_settings()
         .get("global_backup_enabled")
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -2347,7 +2350,7 @@ pub async fn preview_global_import(
 
     let mut changes = Vec::new();
     if let Some(new_settings) = backup.get("global_settings").and_then(|v| v.as_object()) {
-        let current = collect_global_settings(state.store.sqlx_pool()).await?;
+        let current = collect_global_settings(&state.store).await?;
         if let Some(cur_map) = current.as_object() {
             for (key, new_val) in new_settings {
                 // Skip sensitive keys entirely
@@ -3229,69 +3232,23 @@ pub async fn section_counts(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let tid = auth.tenant_id;
-
-    let users: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE tenant_id = $1")
-        .bind(tid)
-        .fetch_one(state.store.sqlx_pool())
+    let counts = state
+        .store
+        .backup()
+        .section_counts(auth.tenant_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let departments: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM departments WHERE tenant_id = $1")
-            .bind(tid)
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let roles: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM roles WHERE tenant_id = $1")
-        .bind(tid)
-        .fetch_one(state.store.sqlx_pool())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let files: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM files_metadata WHERE tenant_id = $1")
-        .bind(tid)
-        .fetch_one(state.store.sqlx_pool())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let audit_logs: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM audit_logs WHERE tenant_id = $1")
-        .bind(tid)
-        .fetch_one(state.store.sqlx_pool())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let approval_policies: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM approval_policies WHERE tenant_id = $1")
-            .bind(tid)
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let approval_requests: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM approval_requests WHERE tenant_id = $1")
-            .bind(tid)
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let oidc: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tenant_oidc_providers WHERE tenant_id = $1")
-            .bind(tid)
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let saml: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tenant_saml_providers WHERE tenant_id = $1")
-            .bind(tid)
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({
-        "users": users.0,
-        "departments": departments.0,
-        "roles": roles.0,
-        "file_metadata": files.0,
-        "audit_logs": audit_logs.0,
-        "approval_policies": approval_policies.0,
-        "approval_history": approval_requests.0,
-        "sso_oidc": oidc.0,
-        "sso_saml": saml.0,
+        "users": counts.users,
+        "departments": counts.departments,
+        "roles": counts.roles,
+        "file_metadata": counts.file_metadata,
+        "audit_logs": counts.audit_logs,
+        "approval_policies": counts.approval_policies,
+        "approval_history": counts.approval_history,
+        "sso_oidc": counts.sso_oidc,
+        "sso_saml": counts.sso_saml,
     })))
 }
 
@@ -3467,11 +3424,14 @@ async fn build_backup_payload(
     let file_limit = params.file_limit.unwrap_or(50000);
     let approval_days = params.approval_days.unwrap_or(90);
 
-    let tenant_name: (String,) = sqlx::query_as("SELECT name FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_one(state.store.sqlx_pool())
+    let tenant_name = state
+        .store
+        .tenants()
+        .tenant(tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(|t| t.name)
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     let mut all_sections = sections.clone();
     all_sections.extend(optional.iter().cloned());
@@ -3483,7 +3443,7 @@ async fn build_backup_payload(
             "clovalink_version": CURRENT_VERSION,
             "export_type": "tenant",
             "tenant_id": tenant_id.to_string(),
-            "tenant_name": tenant_name.0,
+            "tenant_name": tenant_name,
             "exported_at": Utc::now().to_rfc3339(),
             "exported_by": user_id.to_string(),
             "include_secrets": include_secrets,
@@ -3538,7 +3498,7 @@ async fn build_backup_payload(
 
     let filename = format!(
         "clovalink-backup-{}-{}-{:06x}.clovalink.json",
-        tenant_name.0.to_lowercase().replace(' ', "-"),
+        tenant_name.to_lowercase().replace(' ', "-"),
         Utc::now().format("%Y%m%d-%H%M%S"),
         rand::random::<u32>() & 0xFFFFFF
     );
@@ -3562,64 +3522,29 @@ pub async fn list_saved_backups(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let rows: Vec<(
-        Uuid,
-        String,
-        String,
-        i64,
-        Value,
-        bool,
-        String,
-        Option<String>,
-        Option<i32>,
-        Option<Uuid>,
-        chrono::DateTime<Utc>,
-    )> = if is_global {
-        sqlx::query_as(
-            r#"
-            SELECT id, filename, storage_path, size_bytes, sections, is_auto_backup,
-                   status, error_message, duration_ms, created_by, created_at
-            FROM backup_history
-            WHERE tenant_id IS NULL
-            ORDER BY created_at DESC
-            LIMIT 50
-            "#,
-        )
-        .fetch_all(state.store.sqlx_pool())
+    let tenant_id = if is_global { None } else { Some(auth.tenant_id) };
+    let rows = state
+        .store
+        .backup()
+        .list_history(tenant_id, 50)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    } else {
-        sqlx::query_as(
-            r#"
-            SELECT id, filename, storage_path, size_bytes, sections, is_auto_backup,
-                   status, error_message, duration_ms, created_by, created_at
-            FROM backup_history
-            WHERE tenant_id = $1
-            ORDER BY created_at DESC
-            LIMIT 50
-            "#,
-        )
-        .bind(auth.tenant_id)
-        .fetch_all(state.store.sqlx_pool())
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    };
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let backups: Vec<Value> = rows
         .into_iter()
         .map(|r| {
             json!({
-                "id": r.0,
-                "filename": r.1,
-                "storage_path": r.2,
-                "size_bytes": r.3,
-                "sections": r.4,
-                "is_auto_backup": r.5,
-                "status": r.6,
-                "error_message": r.7,
-                "duration_ms": r.8,
-                "created_by": r.9,
-                "created_at": r.10,
+                "id": r.id,
+                "filename": r.filename,
+                "storage_path": r.storage_path,
+                "size_bytes": r.size_bytes,
+                "sections": r.sections,
+                "is_auto_backup": r.is_auto_backup,
+                "status": r.status,
+                "error_message": r.error_message,
+                "duration_ms": r.duration_ms,
+                "created_by": r.created_by,
+                "created_at": r.created_at,
             })
         })
         .collect();
@@ -3638,18 +3563,16 @@ pub async fn download_saved_backup(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let row: Option<(String, String, Option<Uuid>)> = sqlx::query_as(
-        "SELECT filename, storage_path, tenant_id FROM backup_history WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(state.store.sqlx_pool())
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let (filename, storage_path, backup_tenant_id) = row.ok_or(StatusCode::NOT_FOUND)?;
+    let backup = state
+        .store
+        .backup()
+        .find_history_by_id(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Authorization: global backups require SuperAdmin, tenant backups require matching tenant
-    match backup_tenant_id {
+    match backup.tenant_id {
         None => {
             if auth.role != "SuperAdmin" {
                 return Err(StatusCode::FORBIDDEN);
@@ -3662,7 +3585,7 @@ pub async fn download_saved_backup(
         }
     }
 
-    let data = state.storage.download(&storage_path).await.map_err(|e| {
+    let data = state.storage.download(&backup.storage_path).await.map_err(|e| {
         tracing::error!("Failed to download backup from storage: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -3672,7 +3595,7 @@ pub async fn download_saved_backup(
         .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", filename),
+            format!("attachment; filename=\"{}\"", backup.filename),
         )
         .header(header::CACHE_CONTROL, "no-store")
         .header("X-Content-Type-Options", "nosniff")
@@ -3691,17 +3614,16 @@ pub async fn delete_saved_backup(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let row: Option<(String, Option<Uuid>)> =
-        sqlx::query_as("SELECT storage_path, tenant_id FROM backup_history WHERE id = $1")
-            .bind(id)
-            .fetch_optional(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let (storage_path, backup_tenant_id) = row.ok_or(StatusCode::NOT_FOUND)?;
+    let backup = state
+        .store
+        .backup()
+        .find_history_by_id(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     // Authorization: global backups require SuperAdmin, tenant backups require matching tenant
-    match backup_tenant_id {
+    match backup.tenant_id {
         None => {
             if auth.role != "SuperAdmin" {
                 return Err(StatusCode::FORBIDDEN);
@@ -3715,12 +3637,13 @@ pub async fn delete_saved_backup(
     }
 
     // Delete from storage (best effort)
-    let _ = state.storage.delete(&storage_path).await;
+    let _ = state.storage.delete(&backup.storage_path).await;
 
     // Delete from history
-    sqlx::query("DELETE FROM backup_history WHERE id = $1")
-        .bind(id)
-        .execute(state.store.sqlx_pool())
+    state
+        .store
+        .backup()
+        .delete_history_by_id(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -3729,17 +3652,13 @@ pub async fn delete_saved_backup(
         auth.tenant_id,
         auth.user_id,
         "backup_delete",
-        json!({ "backup_id": id, "storage_path": storage_path }),
+        json!({ "backup_id": id, "storage_path": backup.storage_path }),
         auth.ip_address.as_deref().unwrap_or("unknown"),
     )
     .await;
 
     Ok(Json(json!({ "success": true })))
 }
-
-// ============================================================================
-// HEALTH + METRICS ENDPOINTS
-// ============================================================================
 
 /// GET /api/backup/health
 /// Circuit breaker state
@@ -3785,53 +3704,22 @@ pub async fn backup_metrics(
     let max_concurrent = types::config::get_config().backup.max_concurrent;
     let available = state.backup_semaphore.available_permits();
 
-    // Aggregate stats from backup_history
-    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM backup_history")
-        .fetch_one(state.store.sqlx_pool())
+    let metrics = state
+        .store
+        .backup()
+        .get_metrics()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let auto_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM backup_history WHERE is_auto_backup = true")
-            .fetch_one(state.store.sqlx_pool())
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let failed_24h: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM backup_history WHERE status = 'failed' AND created_at > NOW() - interval '24 hours'"
-    ).fetch_one(state.store.sqlx_pool()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let total_storage: Option<(Option<i64>,)> = sqlx::query_as(
-        "SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM backup_history WHERE status = 'completed'"
-    ).fetch_optional(state.store.sqlx_pool()).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let last_backup: Option<(Option<i32>, chrono::DateTime<Utc>)> = sqlx::query_as(
-        "SELECT duration_ms, created_at FROM backup_history ORDER BY created_at DESC LIMIT 1",
-    )
-    .fetch_optional(state.store.sqlx_pool())
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Per-tenant breakdown
-    let by_tenant: Vec<(String, i64, Option<chrono::DateTime<Utc>>, bool)> = sqlx::query_as(
-        r#"
-        SELECT t.name, COUNT(bh.id), MAX(bh.created_at),
-               COALESCE(t.auto_backup_enabled, false)
-        FROM tenants t
-        LEFT JOIN backup_history bh ON bh.tenant_id = t.id
-        WHERE t.status = 'active'
-        GROUP BY t.id, t.name, t.auto_backup_enabled
-        ORDER BY t.name
-        "#,
-    )
-    .fetch_all(state.store.sqlx_pool())
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let tenant_list: Vec<Value> = by_tenant
+    let tenant_list: Vec<Value> = metrics
+        .by_tenant
         .into_iter()
-        .map(|(name, count, last, auto)| {
+        .map(|t| {
             json!({
-                "tenant_name": name,
-                "backup_count": count,
-                "last_backup": last,
-                "auto_enabled": auto,
+                "tenant_name": t.tenant_name,
+                "backup_count": t.backup_count,
+                "last_backup": t.last_backup,
+                "auto_enabled": t.auto_enabled,
             })
         })
         .collect();
@@ -3839,34 +3727,29 @@ pub async fn backup_metrics(
     Ok(Json(json!({
         "circuit_breaker": { "state": cb_state, "failure_count": cb.metrics().failure_count },
         "concurrency": { "max": max_concurrent, "available": available, "active": max_concurrent - available },
-        "total_backups": total.0,
-        "total_auto_backups": auto_count.0,
-        "total_manual_backups": total.0 - auto_count.0,
-        "last_backup_at": last_backup.as_ref().map(|r| r.1),
-        "last_backup_duration_ms": last_backup.as_ref().and_then(|r| r.0),
-        "failed_backups_24h": failed_24h.0,
-        "total_storage_bytes": total_storage.and_then(|r| r.0).unwrap_or(0),
+        "total_backups": metrics.total,
+        "total_auto_backups": metrics.auto_count,
+        "total_manual_backups": metrics.total - metrics.auto_count,
+        "last_backup_at": metrics.last_backup_at,
+        "last_backup_duration_ms": metrics.last_backup_duration_ms,
+        "failed_backups_24h": metrics.failed_24h,
+        "total_storage_bytes": metrics.total_storage,
         "by_tenant": tenant_list,
     })))
 }
 
-// ============================================================================
-// BACKUP SCHEDULER
-// ============================================================================
-
-/// Background task that polls for tenants with auto-backup enabled and runs
-/// scheduled backups. Uses Redis distributed lock to prevent duplicate runs
-/// across instances.
 pub async fn start_backup_scheduler(
-    pool: sqlx::PgPool,
+    store: clovalink_entity::DataStore,
     storage: Arc<dyn clovalink_storage::Storage>,
     circuit_breaker: Arc<clovalink_core::circuit_breaker::CircuitBreaker>,
     semaphore: Arc<tokio::sync::Semaphore>,
     redis_url: String,
 ) {
     tracing::info!("Backup scheduler started");
+    let pool = store.sqlx_pool().clone();
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+
 
     loop {
         interval.tick().await;
@@ -3900,7 +3783,7 @@ pub async fn start_backup_scheduler(
 
         // Check for global auto-backup
         if let Err(e) =
-            check_and_run_global_auto_backup(&pool, &storage, &circuit_breaker, &semaphore).await
+            check_and_run_global_auto_backup(&store, &pool, &storage, &circuit_breaker, &semaphore).await
         {
             tracing::debug!("Global auto-backup check: {:?}", e);
         }
@@ -3931,11 +3814,13 @@ pub async fn start_backup_scheduler(
             let jitter_ms = rand::random::<u64>() % 30_000;
             tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
 
+            let store_clone = store.clone();
             let pool_clone = pool.clone();
             let storage_clone = storage.clone();
             let cb_clone = circuit_breaker.clone();
 
             let result = run_auto_backup(
+                &store_clone,
                 &pool_clone,
                 &storage_clone,
                 &cb_clone,
@@ -4062,6 +3947,7 @@ async fn find_due_tenants(
 
 /// Run an automatic backup for a tenant
 async fn run_auto_backup(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     storage: &Arc<dyn clovalink_storage::Storage>,
     circuit_breaker: &Arc<clovalink_core::circuit_breaker::CircuitBreaker>,
@@ -4179,7 +4065,7 @@ async fn run_auto_backup(
 
     // Audit log
     log_backup_audit(
-        pool,
+        store,
         tenant_id,
         Uuid::nil(),
         "backup_auto",
@@ -4290,6 +4176,7 @@ async fn enforce_retention(
 
 /// Check if global auto-backup is due and run it
 async fn check_and_run_global_auto_backup(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     storage: &Arc<dyn clovalink_storage::Storage>,
     circuit_breaker: &Arc<clovalink_core::circuit_breaker::CircuitBreaker>,
@@ -4312,7 +4199,7 @@ async fn check_and_run_global_auto_backup(
     }
 
     // Check if global backup is not disabled
-    check_global_backup_enabled(pool).await?;
+    check_global_backup_enabled(store).await?;
 
     // Get cron expression
     let cron_row: Option<(Value,)> =
@@ -4364,7 +4251,7 @@ async fn check_and_run_global_auto_backup(
 
     tracing::info!("Running global auto-backup");
 
-    let result = run_auto_backup_global(pool, storage, circuit_breaker).await;
+    let result = run_auto_backup_global(store, pool, storage, circuit_breaker).await;
 
     match result {
         Ok((size, duration_ms)) => {
@@ -4396,6 +4283,7 @@ async fn check_and_run_global_auto_backup(
 
 /// Build global backup payload — returns (encrypted_bytes, filename, sections_list)
 async fn build_global_backup_payload(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     user_id: Uuid,
     sections: &[String],
@@ -4428,7 +4316,7 @@ async fn build_global_backup_payload(
 
     for section in &selected {
         let value = match section.as_str() {
-            "global_settings" => strip_sensitive_keys(collect_global_settings(pool).await?),
+            "global_settings" => strip_sensitive_keys(collect_global_settings(store).await?),
             "global_email_templates" => collect_global_email_templates(pool).await?,
             _ => continue,
         };
@@ -4483,7 +4371,7 @@ pub async fn save_global_backup_to_storage(
         .unwrap_or_default();
 
     let (encrypted_bytes, filename, selected_sections) =
-        build_global_backup_payload(state.store.sqlx_pool(), auth.user_id, &sections, &passphrase)
+        build_global_backup_payload(&state.store, state.store.sqlx_pool(), auth.user_id, &sections, &passphrase)
             .await
             .map_err(|e| {
                 state.backup_circuit_breaker.record_failure();
@@ -4677,6 +4565,7 @@ pub async fn set_global_backup_schedule(
 
 /// Run an automatic global backup
 async fn run_auto_backup_global(
+    store: &clovalink_entity::DataStore,
     pool: &sqlx::PgPool,
     storage: &Arc<dyn clovalink_storage::Storage>,
     circuit_breaker: &Arc<clovalink_core::circuit_breaker::CircuitBreaker>,
@@ -4690,7 +4579,7 @@ async fn run_auto_backup_global(
     ];
 
     let (encrypted_bytes, filename, selected) =
-        build_global_backup_payload(pool, Uuid::nil(), &sections, &passphrase).await?;
+        build_global_backup_payload(store, pool, Uuid::nil(), &sections, &passphrase).await?;
 
     let storage_path = format!("_backups/{}", filename);
     let size_bytes = encrypted_bytes.len() as i64;
@@ -4724,7 +4613,7 @@ async fn run_auto_backup_global(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     log_backup_audit(
-        pool,
+        store,
         Uuid::nil(),
         Uuid::nil(),
         "backup_global_auto",
