@@ -135,9 +135,9 @@ impl DataStore {
         UserRepository::new(&self.db)
     }
 
-    /// Access the underlying PostgreSQL connection pool managed by SeaORM.
-    pub fn sqlx_pool(&self) -> &sqlx::PgPool {
-        self.db.get_postgres_connection_pool()
+    /// Access the underlying SeaORM database connection.
+    pub fn db(&self) -> &sea_orm::DatabaseConnection {
+        &self.db
     }
 }
 

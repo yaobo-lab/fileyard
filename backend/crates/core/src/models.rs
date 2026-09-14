@@ -1,8 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
-use sqlx::types::{
-    chrono::{DateTime, Utc},
-    Uuid,
-};
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 /// Deserialize an optional UUID that might be an empty string
 /// Empty strings are treated as None
@@ -24,7 +22,7 @@ where
 
 // ==================== Tenant/Company ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tenant {
     pub id: Uuid,
     pub name: String,
@@ -146,7 +144,7 @@ pub struct UpdateTenantInput {
 
 // ==================== Department ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Department {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -170,7 +168,7 @@ pub struct UpdateDepartmentInput {
 
 // ==================== User ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -283,7 +281,7 @@ pub struct SuspendUserInput {
 
 // ==================== File Request ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRequest {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -314,7 +312,7 @@ pub struct CreateFileRequestInput {
     pub visibility: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRequestUpload {
     pub id: Uuid,
     pub file_request_id: Uuid,
@@ -330,7 +328,7 @@ pub struct FileRequestUpload {
 
 // ==================== File Metadata ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -366,7 +364,7 @@ pub struct FileMetadata {
 
 // ==================== User Preferences ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPreferences {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -378,7 +376,7 @@ pub struct UserPreferences {
 
 // ==================== Audit Log ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditLog {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -393,7 +391,7 @@ pub struct AuditLog {
 
 // ==================== Roles ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Role {
     pub id: Uuid,
     pub tenant_id: Option<Uuid>, // NULL = global role
@@ -422,7 +420,7 @@ pub struct UpdateRoleInput {
 
 // ==================== Role Permissions ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RolePermission {
     pub id: Uuid,
     pub role_id: Uuid,
@@ -444,7 +442,7 @@ pub struct PermissionUpdate {
 
 // ==================== Audit Settings ====================
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditSettings {
     pub id: Uuid,
     pub tenant_id: Uuid,

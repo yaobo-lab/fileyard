@@ -1,3 +1,5 @@
+#![allow(clippy::should_implement_trait)]
+
 //! ClovaLink Extensions API
 //!
 //! This crate provides the extensions system for ClovaLink, supporting:

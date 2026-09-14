@@ -25,7 +25,6 @@ futures = "0.3"
 
 # Web framework
 axum = { version = "0.8", features = ["multipart", "macros"] }
-axum-extra = { version = "0.10", features = ["typed-header"] }
 tower = { version = "0.5", features = ["timeout", "limit", "load-shed"] }
 tower-http = { version = "0.6", features = [
     "trace",
@@ -40,13 +39,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Database
-sqlx = { version = "0.8", features = [
-    "runtime-tokio-rustls",
-    "postgres",
-    "uuid",
-    "chrono",
-    "json",
-] }
 sea-orm = { version = "1.1.19", default-features = false, features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
@@ -69,13 +61,11 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Tracing & Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
 toolkit-rs = { version = "1.0.31", features = [
     "logger",
     "panic_handle",
     "config",
 ] }
-
 
 # Error handling
 thiserror = "2"
@@ -106,7 +96,6 @@ base64 = "0.22"
 # X.509 / PKCS (SAML 2.0)
 x509-cert = "0.2"
 der = { version = "0.7", features = ["pem"] }
-pkcs8 = { version = "0.10", features = ["pem"] }
 
 # Encryption
 chacha20poly1305 = "0.10"
@@ -140,18 +129,12 @@ bytes = "1"
 zip = "2.2"
 flate2 = "1"
 semver = "1.0"
-pin-project-lite = "0.2"
-dotenvy = "0.15"
 
 # Rate limiting
 governor = "0.6"
-nonzero_ext = "0.3"
 
 # Cron
 cron = "0.13"
-
-# JSON Schema
-jsonschema = "0.26"
 
 # Text extraction
 pdf-extract = "0.7"

@@ -226,7 +226,7 @@ pub fn read_config_with_required<'de, T: serde::Deserialize<'de>>(
         return Err(anyhow!(format!("not found: {cfg_file}")));
     }
     let builder = Config::builder().add_source(File::from(path).required(required));
-    let mut env = config::Environment::with_prefix(&format!("gateway_"));
+    let mut env = config::Environment::with_prefix("gateway_");
     if !env_list_keys.is_empty() {
         env = env.try_parsing(true).list_separator(" ");
         for key in env_list_keys {

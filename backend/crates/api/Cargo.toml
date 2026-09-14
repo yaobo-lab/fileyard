@@ -14,12 +14,10 @@ tracing = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
 clovalink-entity = { workspace = true }
 clovalink-migration = { workspace = true }
-jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
 nanoid = { workspace = true }
 clovalink_core = { workspace = true }
@@ -33,7 +31,6 @@ chrono = { workspace = true }
 urlencoding = { workspace = true }
 totp-rs = { workspace = true }
 redis = { workspace = true }
-axum-extra = { workspace = true }
 futures = { workspace = true }
 zip = { workspace = true }
 sha1 = { workspace = true }
@@ -43,7 +40,6 @@ ulid = { workspace = true }
 blake3 = { workspace = true }
 url = { workspace = true }
 governor = { workspace = true }
-nonzero_ext = { workspace = true }
 bytes = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
@@ -58,7 +54,6 @@ thiserror = { workspace = true }
 rsa = { workspace = true }
 x509-cert = { workspace = true }
 der = { workspace = true }
-pkcs8 = { workspace = true }
 base64 = { workspace = true }
 flate2 = { workspace = true }
 

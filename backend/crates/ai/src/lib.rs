@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if, clippy::too_many_arguments)]
+
 //! ClovaLink AI Module
 //!
 //! Provides AI capabilities (summarization, Q&A, embeddings) with:

@@ -13,7 +13,7 @@ pub fn content_as_str(d: &[u8]) -> Option<String> {
         Ok(s) => Some(s.to_string()),
         Err(_) => {
             log::error!("invalid utf8 index");
-            return None;
+            None
         }
     }
 }

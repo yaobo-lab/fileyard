@@ -80,8 +80,8 @@ fn pseudo_random_fraction() -> f64 {
 /// - `action`：要执行的异步闭包。每次尝试时都会调用一次。
 /// - `should_retry`：根据错误判断继续重试。`true` 表示继续重试，`false` 停止
 /// - `retry_after_hint`：根据错误判断，重试等待时间，
-/// 返回 Some(ms) 则优先使用该等待时间，
-/// 返回 None 计算退避时间；但最终仍会受 `max_delay_ms` 限制
+///   返回 Some(ms) 则优先使用该等待时间，
+///   返回 None 计算退避时间；但最终仍会受 `max_delay_ms` 限制
 pub async fn retry_async<F, Fut, T, E, P, H>(
     config: &RetryConfig,
     mut action: F,
