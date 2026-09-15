@@ -21,6 +21,8 @@ pub struct Conf {
     pub cors: CorsConf,
     pub auth: AuthConf,
     pub discord: DiscordConf,
+    #[serde(default)]
+    pub wecom: WeComConf,
     pub rate_limit: RateLimitConf,
     pub frontend_url: String,
 }
@@ -144,6 +146,20 @@ pub struct AuthConf {
 pub struct DiscordConf {
     pub client_id: String,
     pub client_secret: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WeComConf {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub corp_id: String,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub corp_secret: String,
+    #[serde(default)]
     pub redirect_uri: String,
 }
 

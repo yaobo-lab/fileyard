@@ -1,6 +1,6 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use uuid::Uuid;
 
@@ -240,19 +240,37 @@ impl<'a> ComplianceRepository<'a> {
         total_size: Option<i64>,
         ip_address: Option<String>,
     ) -> DataResult<file_exports::Model> {
-        let now = chrono::Utc::now().into();
-        let active = file_exports::ActiveModel {
-            id: Set(Uuid::new_v4()),
-            tenant_id: Set(tenant_id),
-            user_id: Set(user_id),
-            file_id: Set(file_id),
-            export_type: Set(export_type.to_string()),
-            file_count: Set(Some(file_count)),
-            total_size_bytes: Set(total_size),
-            exported_at: Set(now),
-            ip_address: Set(ip_address),
-            metadata: Set(None),
-        };
-        Ok(active.insert(self.db).await?)
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now();
+        let stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            r#"INSERT INTO file_exports (id, tenant_id, user_id, file_id, export_type, file_count, total_size_bytes, exported_at, ip_address, metadata)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10)"#,
+            vec![
+                id.into(),
+                tenant_id.into(),
+                user_id.into(),
+                file_id.into(),
+                export_type.to_string().into(),
+                file_count.into(),
+                total_size.into(),
+                now.into(),
+                ip_address.clone().into(),
+                None::<sea_orm::JsonValue>.into(),
+            ],
+        );
+        self.db.execute(stmt).await?;
+        Ok(file_exports::Model {
+            id,
+            tenant_id,
+            user_id,
+            file_id,
+            export_type: export_type.to_string(),
+            file_count: Some(file_count),
+            total_size_bytes: total_size,
+            exported_at: now.into(),
+            ip_address,
+            metadata: None,
+        })
     }
 }

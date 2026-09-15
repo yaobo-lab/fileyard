@@ -34,6 +34,7 @@ pub mod tenants;
 pub mod text_extract;
 pub mod users;
 pub mod virus_scan;
+pub mod wecom;
 
 // 别名兼容原 auth_handlers 模块命名
 pub use auth as auth_handlers;

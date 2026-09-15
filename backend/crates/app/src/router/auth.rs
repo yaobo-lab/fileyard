@@ -1,5 +1,5 @@
 use crate::{
-    api::{auth, oidc, saml},
+    api::{auth, oidc, saml, wecom},
     middleware, AppState,
 };
 use axum::{
@@ -59,6 +59,11 @@ pub(super) fn build_auth_routes(app_state: &Arc<AppState>) -> Router {
             get(saml::start_saml_auth),
         )
         .route("/api/auth/saml/acs", post(saml::saml_acs))
+        // 企业微信 SSO 公开端点
+        .route("/api/auth/wecom/config", get(wecom::get_wecom_config))
+        .route("/api/auth/wecom/authorize", get(wecom::start_wecom_auth))
+        .route("/api/auth/wecom/callback", get(wecom::wecom_callback))
+        .route("/api/auth/wecom/demo-login", post(wecom::demo_login_endpoint))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit::rate_limit_public,

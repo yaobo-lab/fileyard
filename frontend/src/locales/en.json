@@ -1958,6 +1958,17 @@
     "feishu": "Feishu",
     "dingtalk": "DingTalk",
     "featureInDevelopment": "Feature under development",
-    "featureInDevelopmentDesc": "This third-party login method is currently under development. Stay tuned!"
+    "featureInDevelopmentDesc": "This third-party login method is currently under development. Stay tuned!",
+    "wecomLoginTitle": "WeCom QR Code Login",
+    "wecomScanHint": "Scan QR code with WeChat Work / WeCom app to log in",
+    "wecomOpenApp": "Open WeCom App",
+    "wecomOrRedirect": "Go to WeCom Authorization Page",
+    "wecomNotConfigured": "WeCom Not Configured",
+    "wecomNotConfiguredDesc": "The administrator has not yet configured WeCom corp_id and agent_id in config.toml.",
+    "wecomConfigGuide": "Please set corp_id, agent_id, and corp_secret under [wecom] in backend/etc/config.toml to enable live QR login.",
+    "wecomDemoLogin": "Dev Experience: Quick Mock WeCom Login",
+    "wecomRefreshQr": "Refresh QR Code",
+    "wecomLoadingQr": "Loading WeCom QR component...",
+    "wecomLoginSuccess": "WeCom login successful!"
   }
 }

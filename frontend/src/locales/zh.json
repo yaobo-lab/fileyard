@@ -1958,6 +1958,17 @@
     "feishu": "飞书",
     "dingtalk": "钉钉",
     "featureInDevelopment": "功能开发中",
-    "featureInDevelopmentDesc": "该第三方登录方式正在对接中，敬请期待！"
+    "featureInDevelopmentDesc": "该第三方登录方式正在对接中，敬请期待！",
+    "wecomLoginTitle": "企业微信扫码登录",
+    "wecomScanHint": "请使用企业微信 App 扫描二维码登录",
+    "wecomOpenApp": "打开企业微信 App",
+    "wecomOrRedirect": "前往企业微信授权页",
+    "wecomNotConfigured": "企业微信应用凭证未配置",
+    "wecomNotConfiguredDesc": "系统管理员尚未在 config.toml 中配置企业微信自建应用的 corp_id 和 agent_id。",
+    "wecomConfigGuide": "请在 backend/etc/config.toml 的 [wecom] 中配置 corp_id、agent_id 和 corp_secret 即可启用生产扫码登录。",
+    "wecomDemoLogin": "开发体验：快速模拟企业微信登录",
+    "wecomRefreshQr": "刷新二维码",
+    "wecomLoadingQr": "正在加载企业微信扫码组件...",
+    "wecomLoginSuccess": "企业微信登录成功！"
   }
 }

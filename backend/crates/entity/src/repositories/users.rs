@@ -11,6 +11,7 @@ use sea_orm::{
 use serde_json::Value;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Default)]
 pub struct UserListFilter {
     pub tenant_id: Option<Uuid>,
     pub department_id: Option<Uuid>,

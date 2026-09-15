@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
+import { WeComLoginModal } from '@/components/WeComLoginModal';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -154,8 +155,14 @@ export function Login() {
     window.location.href = `${API_URL}/api/auth/${protocol}/authorize/${provider.id}`;
   };
 
+  const [isWeComModalOpen, setIsWeComModalOpen] = useState(false);
+
   // 第三方登录点击处理（飞书、钉钉、企业微信）
   const handleThirdPartyLogin = (platform: 'wecom' | 'feishu' | 'dingtalk') => {
+    if (platform === 'wecom') {
+      setIsWeComModalOpen(true);
+      return;
+    }
     modalAlert({
       title: t('featureInDevelopment'),
       description: t('featureInDevelopmentDesc'),
@@ -496,6 +503,12 @@ export function Login() {
           {/* 注：原 CardFooter (包含隐私政策、服务条款链接及版权年份) 已按要求完全移除 */}
         </Card>
       </div>
+
+      {/* 企业微信扫码登录模态框 */}
+      <WeComLoginModal
+        isOpen={isWeComModalOpen}
+        onClose={() => setIsWeComModalOpen(false)}
+      />
     </div>
   );
 }

@@ -79,6 +79,14 @@ client_id = ""
 client_secret = ""
 redirect_uri = ""
 
+[wecom]
+# 企业微信扫码登录配置
+enabled = true
+corp_id = ""                                                   # 企业微信 CorpId，如 ww1234567890abcdef
+agent_id = ""                                                  # 自建应用 AgentId，如 1000002
+corp_secret = ""                                               # 自建应用 Secret
+redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
+
 [rate_limit]
 trust_all_proxies = false
 trusted_proxy_ips = []
