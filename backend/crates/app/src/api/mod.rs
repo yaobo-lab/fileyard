@@ -12,6 +12,7 @@ pub mod discord;
 pub mod email_templates;
 pub mod extensions;
 pub mod file_requests;
+pub mod gitlab;
 pub mod global_settings;
 pub mod groups;
 pub mod handlers;

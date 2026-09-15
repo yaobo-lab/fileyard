@@ -1,7 +1,7 @@
 use crate::{
     api::{
         ai, api_usage, approvals, audit, auth, comments, compliance, cron, dashboard,
-        departments, discord, email_templates, file_requests, global_settings, groups,
+        departments, discord, email_templates, file_requests, gitlab, global_settings, groups,
         handlers, health, notifications, oidc, roles, saml, search, security, settings,
         settings_backup, sharing, sso_mappings, tenants, users, virus_scan,
     },
@@ -734,6 +734,53 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
         .route(
             "/api/sso/mappings/{mapping_id}",
             put(sso_mappings::update_mapping).delete(sso_mappings::delete_mapping),
+        )
+        // GitLab API & CI/CD Endpoints
+        .route("/api/gitlab/status", get(gitlab::get_status))
+        .route("/api/gitlab/projects/{project_id}", get(gitlab::get_project))
+        .route(
+            "/api/gitlab/projects/{project_id}/branches",
+            get(gitlab::list_branches),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/tags",
+            get(gitlab::list_tags),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/pipelines",
+            get(gitlab::list_pipelines).post(gitlab::create_pipeline),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/pipelines/{pipeline_id}",
+            get(gitlab::get_pipeline),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/pipelines/{pipeline_id}/cancel",
+            post(gitlab::cancel_pipeline),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/pipelines/{pipeline_id}/retry",
+            post(gitlab::retry_pipeline),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/pipelines/{pipeline_id}/jobs",
+            get(gitlab::list_pipeline_jobs),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/jobs/{job_id}",
+            get(gitlab::get_job),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/jobs/{job_id}/log",
+            get(gitlab::get_job_log),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/ci-file",
+            get(gitlab::get_ci_file).post(gitlab::sync_ci_file),
+        )
+        .route(
+            "/api/gitlab/projects/{project_id}/ci-lint",
+            post(gitlab::lint_ci_file),
         )
         // SECURITY: 挂载鉴权中间件检查用户登录与停用状态
         .layer(axum::middleware::from_fn_with_state(

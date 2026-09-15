@@ -88,6 +88,14 @@ agent_id = "1000015"                                           # 自建应用 Ag
 corp_secret = "uRywD4tMDiKOZCOgFJ6yb2jZDd7D743M-pgapQ0fmPQ"    # 自建应用 Secret
 redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
 
+[gitlab]
+# GitLab API 客户端与 CI/CD 配置
+enabled = true
+url = "https://gitlab.com"             # GitLab 实例地址（公网或私有化部署地址，如 http://gitlab.example.com）
+token = ""                             # Personal Access Token 或 Project Access Token（需要 api / read_api 权限）
+default_project_id = ""                # 默认项目 ID 或路径（例如 12345 或 "group/project"）
+timeout_secs = 30                      # 请求超时时间（秒）
+
 [rate_limit]
 trust_all_proxies = false
 trusted_proxy_ips = []

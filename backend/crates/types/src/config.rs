@@ -23,6 +23,8 @@ pub struct Conf {
     pub discord: DiscordConf,
     #[serde(default)]
     pub wecom: WeComConf,
+    #[serde(default)]
+    pub gitlab: GitlabConf,
     pub rate_limit: RateLimitConf,
     pub frontend_url: String,
 }
@@ -161,6 +163,40 @@ pub struct WeComConf {
     pub corp_secret: String,
     #[serde(default)]
     pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitlabConf {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_gitlab_url")]
+    pub url: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub default_project_id: Option<String>,
+    #[serde(default = "default_gitlab_timeout")]
+    pub timeout_secs: u64,
+}
+
+impl Default for GitlabConf {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: default_gitlab_url(),
+            token: String::new(),
+            default_project_id: None,
+            timeout_secs: default_gitlab_timeout(),
+        }
+    }
+}
+
+fn default_gitlab_url() -> String {
+    "https://gitlab.com".to_string()
+}
+
+fn default_gitlab_timeout() -> u64 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
