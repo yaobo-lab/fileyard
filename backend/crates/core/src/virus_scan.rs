@@ -1,4 +1,4 @@
-//! ClamAV Virus Scanning Module
+﻿//! ClamAV Virus Scanning Module
 //!
 //! Provides async virus scanning using ClamAV daemon (clamd).
 //! Scanning is non-blocking - uploads complete immediately while scans run in background.
@@ -21,7 +21,7 @@ use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-fn tenant_from_entity(m: clovalink_entity::entities::tenants::Model) -> Tenant {
+fn tenant_from_entity(m: app_entity::entities::tenants::Model) -> Tenant {
     Tenant {
         id: m.id,
         name: m.name,
@@ -73,7 +73,7 @@ pub enum VirusScanError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Database error: {0}")]
-    DataError(#[from] clovalink_entity::DataError),
+    DataError(#[from] app_entity::DataError),
     #[error("ClamAV connection error: {0}")]
     ConnectionError(String),
     #[error("ClamAV connection timeout")]
@@ -216,7 +216,7 @@ impl Default for TenantScanSettings {
 
 /// Get tenant scan settings, creating defaults if none exist
 pub async fn get_tenant_settings(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
 ) -> Result<TenantScanSettings, VirusScanError> {
     let m = store.virus_scan().settings(tenant_id).await?;
@@ -238,7 +238,7 @@ pub async fn get_tenant_settings(
 
 /// Update tenant scan settings
 pub async fn update_tenant_settings(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     enabled: Option<bool>,
     file_types: Option<Vec<String>>,
@@ -253,7 +253,7 @@ pub async fn update_tenant_settings(
         .virus_scan()
         .update_settings(
             tenant_id,
-            clovalink_entity::repositories::VirusScanSettingsPatch {
+            app_entity::repositories::VirusScanSettingsPatch {
                 enabled,
                 file_types,
                 max_file_size_mb,
@@ -469,7 +469,7 @@ pub struct ScanJob {
 /// If `max_queue_size` is provided and > 0, will reject with QueueFull error
 /// if the pending queue exceeds that limit.
 pub async fn enqueue_scan(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     priority: i32,
@@ -482,7 +482,7 @@ pub async fn enqueue_scan(
 /// If `max_queue_size` > 0, will reject with QueueFull error if the pending
 /// queue exceeds that limit. Set to 0 to disable backpressure.
 pub async fn enqueue_scan_with_backpressure(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     priority: i32,
@@ -522,7 +522,7 @@ pub async fn enqueue_scan_with_backpressure(
 
 /// Fetch the next pending scan job
 pub async fn fetch_next_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
 ) -> Result<Option<ScanJob>, VirusScanError> {
     Ok(store.virus_scan().fetch_next().await?.map(|m| ScanJob {
         id: m.id,
@@ -541,7 +541,7 @@ pub async fn fetch_next_job(
 
 /// Mark a scan job as completed
 pub async fn complete_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
 ) -> Result<(), VirusScanError> {
     store
@@ -553,7 +553,7 @@ pub async fn complete_job(
 
 /// Mark a scan job as skipped (file too large, wrong type, etc.)
 pub async fn skip_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
     reason: &str,
 ) -> Result<(), VirusScanError> {
@@ -576,7 +576,7 @@ fn calculate_backoff_delay(retry_count: i32) -> i64 {
 
 /// Mark a scan job as failed with exponential backoff retry
 pub async fn fail_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
     error: &str,
 ) -> Result<(), VirusScanError> {
@@ -604,7 +604,7 @@ pub async fn fail_job(
 
 /// Requeue a job for later processing (circuit breaker open, no retry count increment)
 pub async fn requeue_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
     reason: &str,
 ) -> Result<(), VirusScanError> {
@@ -629,7 +629,7 @@ pub async fn requeue_job(
 
 /// Record a scan result
 pub async fn record_scan_result(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     file_id: Uuid,
     tenant_id: Uuid,
     job_id: Option<Uuid>,
@@ -643,7 +643,7 @@ pub async fn record_scan_result(
 ) -> Result<Uuid, VirusScanError> {
     Ok(store
         .virus_scan()
-        .record_result(clovalink_entity::repositories::NewVirusScanResult {
+        .record_result(app_entity::repositories::NewVirusScanResult {
             file_id,
             tenant_id,
             job_id,
@@ -660,7 +660,7 @@ pub async fn record_scan_result(
 
 /// Update file scan status
 pub async fn update_file_scan_status(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     file_id: Uuid,
     status: &str,
 ) -> Result<(), VirusScanError> {
@@ -673,7 +673,7 @@ pub async fn update_file_scan_status(
 
 /// Check user's malware count and suspend if threshold reached
 pub async fn check_and_suspend_uploader(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     user_id: Uuid,
     tenant_id: Uuid,
     threshold: i32,
@@ -757,7 +757,7 @@ pub trait FileStorageReader: Send + Sync {
 
 /// Virus scan worker that processes jobs in the background
 pub struct VirusScanWorker {
-    store: clovalink_entity::DataStore,
+    store: app_entity::DataStore,
     config: VirusScanConfig,
     client: ClamAvClient,
     storage: Arc<dyn FileStorageReader>,
@@ -768,7 +768,7 @@ pub struct VirusScanWorker {
 impl VirusScanWorker {
     /// Create a new virus scan worker
     pub fn new(
-        store: clovalink_entity::DataStore,
+        store: app_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
         worker_id: u32,
@@ -788,7 +788,7 @@ impl VirusScanWorker {
     /// Create a new virus scan worker with default circuit breaker
     /// (5 failures to open, 30s recovery, 3 successes to close)
     pub fn with_default_circuit_breaker(
-        store: clovalink_entity::DataStore,
+        store: app_entity::DataStore,
         config: VirusScanConfig,
         storage: Arc<dyn FileStorageReader>,
         worker_id: u32,
@@ -1220,7 +1220,7 @@ pub struct ScanMetrics {
 
 /// Get virus scan metrics for admin dashboard
 pub async fn get_metrics(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     config: &VirusScanConfig,
     circuit_breaker: Option<&CircuitBreaker>,
 ) -> Result<ScanMetrics, VirusScanError> {
@@ -1279,7 +1279,7 @@ pub struct ScanHistoryResponse {
 
 /// Get scan history for a tenant with pagination
 pub async fn get_scan_history(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     limit: i64,
     offset: i64,
@@ -1329,7 +1329,7 @@ pub struct QuarantineListResponse {
 
 /// Get quarantined files for a tenant with uploader info and pagination
 pub async fn get_quarantined_files(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     limit: i64,
     offset: i64,

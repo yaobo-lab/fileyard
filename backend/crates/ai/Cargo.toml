@@ -1,5 +1,5 @@
 [package]
-name = "clovalink_ai"
+name = "app_ai"
 version = "0.1.6"
 edition = "2021"
 
@@ -14,4 +14,4 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-clovalink-entity = { workspace = true }
+app-entity = { workspace = true }

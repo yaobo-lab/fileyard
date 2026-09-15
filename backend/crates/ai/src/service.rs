@@ -1,4 +1,4 @@
-//! AI Service Layer
+﻿//! AI Service Layer
 //!
 //! Orchestrates AI operations with all required guards:
 //! - Tenant enablement check
@@ -13,7 +13,7 @@ use crate::error::AiError;
 use crate::models::*;
 use crate::provider::{AiProvider, ProviderRegistry};
 use crate::redact::RedactionService;
-use clovalink_entity::{
+use app_entity::{
     entities::tenant_ai_settings,
     repositories::{AiSettingsPatch, NewAiUsage},
     DataStore,

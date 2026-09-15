@@ -15,3 +15,4 @@ config.workspace = true
 reqwest.workspace = true
 colored.workspace = true
 moka-cache.workspace = true
+uuid.workspace = true

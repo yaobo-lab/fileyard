@@ -6,6 +6,8 @@
 )]
 
 pub mod config;
+pub mod auth;
+pub use auth::AuthUser;
 
 pub mod utils;
 

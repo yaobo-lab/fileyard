@@ -1,0 +1,72 @@
+[package]
+name = "app"
+version = "0.1.6"
+edition = "2021"
+default-run = "app"
+
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+app-entity = { workspace = true }
+app-migration = { workspace = true }
+argon2 = { workspace = true }
+nanoid = { workspace = true }
+app_core = { workspace = true }
+jsonwebtoken = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+tokio-util = { workspace = true }
+app_extensions = { workspace = true }
+app_ai = { workspace = true }
+types = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+urlencoding = { workspace = true }
+totp-rs = { workspace = true }
+redis = { workspace = true }
+futures = { workspace = true }
+zip = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+ulid = { workspace = true }
+blake3 = { workspace = true }
+url = { workspace = true }
+governor = { workspace = true }
+bytes = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+openidconnect = "4"
+semver = { workspace = true }
+async-trait = { workspace = true }
+
+thiserror = { workspace = true }
+
+# SAML 2.0 (pure Rust, no C dependencies)
+rsa = { workspace = true }
+x509-cert = { workspace = true }
+der = { workspace = true }
+base64 = { workspace = true }
+flate2 = { workspace = true }
+
+# Backup encryption (ChaCha20-Poly1305 - matches storage crate)
+chacha20poly1305 = { workspace = true }
+
+# Scheduled backup cron parsing
+cron = { workspace = true }
+
+# Text extraction for AI features
+pdf-extract = { workspace = true }
+calamine = { workspace = true }
+quick-xml = { workspace = true }
+toolkit-rs = "1.0.31"

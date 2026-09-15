@@ -1,9 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $targets = @(
-    "crates/api",
+    "crates/app",
     "crates/core",
-    "crates/auth",
     "crates/ai",
     "crates/extensions"
 )

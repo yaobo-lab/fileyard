@@ -1,4 +1,4 @@
-//! Webhook dispatch and signature verification
+﻿//! Webhook dispatch and signature verification
 
 use crate::models::Extension;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -180,7 +180,7 @@ pub struct AutomationEventPayload {
 
 /// Dispatch a webhook to an extension
 pub async fn dispatch_webhook<T: Serialize>(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     extension: &Extension,
     event_type: &str,
     payload: &T,
@@ -241,7 +241,7 @@ pub async fn dispatch_webhook<T: Serialize>(
     // Log the webhook call
     let _ = store
         .extension_runtime()
-        .log_webhook(clovalink_entity::repositories::NewWebhookLog {
+        .log_webhook(app_entity::repositories::NewWebhookLog {
             extension_id: extension.id,
             tenant_id: extension.tenant_id,
             event_type: event_type.to_owned(),

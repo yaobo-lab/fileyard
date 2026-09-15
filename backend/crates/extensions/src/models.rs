@@ -1,4 +1,4 @@
-//! Extension data models
+﻿//! Extension data models
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -78,8 +78,8 @@ pub struct Extension {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<clovalink_entity::entities::extensions::Model> for Extension {
-    fn from(value: clovalink_entity::entities::extensions::Model) -> Self {
+impl From<app_entity::entities::extensions::Model> for Extension {
+    fn from(value: app_entity::entities::extensions::Model) -> Self {
         Self {
             id: value.id,
             tenant_id: value.tenant_id,
@@ -161,8 +161,8 @@ pub struct AutomationJob {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<clovalink_entity::entities::automation_jobs::Model> for AutomationJob {
-    fn from(value: clovalink_entity::entities::automation_jobs::Model) -> Self {
+impl From<app_entity::entities::automation_jobs::Model> for AutomationJob {
+    fn from(value: app_entity::entities::automation_jobs::Model) -> Self {
         Self {
             id: value.id,
             extension_id: value.extension_id,

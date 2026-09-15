@@ -1,4 +1,4 @@
-//! Security Service - Detects and creates security alerts for unusual activity
+﻿//! Security Service - Detects and creates security alerts for unusual activity
 //!
 //! This module provides functions to:
 //! - Track login attempts and detect brute force attacks
@@ -99,7 +99,7 @@ impl AlertType {
 /// Create a new security alert
 /// Sends email notifications to admins for Critical and High severity alerts
 pub async fn create_alert(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Option<Uuid>,
     user_id: Option<Uuid>,
     alert_type: AlertType,
@@ -107,12 +107,12 @@ pub async fn create_alert(
     description: &str,
     metadata: serde_json::Value,
     ip_address: Option<&str>,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     let severity = alert_type.default_severity();
 
     let result = store
         .security()
-        .create_alert(clovalink_entity::repositories::NewSecurityAlert {
+        .create_alert(app_entity::repositories::NewSecurityAlert {
             tenant_id,
             user_id,
             alert_type: alert_type.as_str(),
@@ -218,11 +218,11 @@ pub async fn create_alert(
 /// Record a failed login attempt and check for spike
 /// Returns true if a spike was detected and alert was created
 pub async fn record_failed_login(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     email: &str,
     ip_address: Option<&str>,
     reason: &str,
-) -> Result<bool, clovalink_entity::DataError> {
+) -> Result<bool, app_entity::DataError> {
     // Record the failed attempt
     store
         .security()
@@ -283,13 +283,13 @@ pub async fn record_failed_login(
 /// Check if this is a new IP for the user and record the login
 /// Returns true if this is a new IP and alert was created
 pub async fn check_and_record_login_ip(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     user_id: Uuid,
     tenant_id: Uuid,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
     user_email: &str,
-) -> Result<bool, clovalink_entity::DataError> {
+) -> Result<bool, app_entity::DataError> {
     let ip = match ip_address {
         Some(ip) if !ip.is_empty() => ip,
         _ => return Ok(false), // No IP to track
@@ -333,7 +333,7 @@ pub async fn check_and_record_login_ip(
 
 /// Create alert for permission escalation (role change to Admin or higher)
 pub async fn alert_permission_escalation(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     changed_by_id: Uuid,
@@ -341,7 +341,7 @@ pub async fn alert_permission_escalation(
     old_role: &str,
     new_role: &str,
     ip_address: Option<&str>,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     create_alert(
         store,
         Some(tenant_id),
@@ -365,13 +365,13 @@ pub async fn alert_permission_escalation(
 
 /// Create alert for suspended user attempting access
 pub async fn alert_suspended_access_attempt(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     attempted_action: &str,
     ip_address: Option<&str>,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     // Check if we already alerted for this user recently (within 1 hour)
     let one_hour_ago = Utc::now() - Duration::hours(1);
     let existing = store
@@ -408,12 +408,12 @@ pub async fn alert_suspended_access_attempt(
 /// Check for bulk download pattern and create alert if detected
 /// Returns true if alert was created
 pub async fn check_bulk_download(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     ip_address: Option<&str>,
-) -> Result<bool, clovalink_entity::DataError> {
+) -> Result<bool, app_entity::DataError> {
     // Count downloads in last 10 minutes
     let ten_minutes_ago = Utc::now() - Duration::minutes(10);
     let count = store
@@ -458,7 +458,7 @@ pub async fn check_bulk_download(
 
 /// Create alert for blocked file extension upload attempt
 pub async fn alert_blocked_extension(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Option<Uuid>,
     user_email: Option<&str>,
@@ -466,7 +466,7 @@ pub async fn alert_blocked_extension(
     extension: &str,
     ip_address: Option<&str>,
     is_public_upload: bool,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     let title = if is_public_upload {
         format!("Blocked extension upload via file request: .{}", extension)
     } else {
@@ -499,12 +499,12 @@ pub async fn alert_blocked_extension(
 /// Check for excessive sharing pattern and create alert if detected
 /// Returns true if alert was created
 pub async fn check_excessive_sharing(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     user_email: &str,
     ip_address: Option<&str>,
-) -> Result<bool, clovalink_entity::DataError> {
+) -> Result<bool, app_entity::DataError> {
     // Count shares created in last hour
     let one_hour_ago = Utc::now() - Duration::hours(1);
     let count = store
@@ -546,13 +546,13 @@ pub async fn check_excessive_sharing(
 
 /// Create alert for account lockout
 pub async fn alert_account_lockout(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Option<Uuid>,
     user_id: Option<Uuid>,
     email: &str,
     failed_attempts: i32,
     ip_address: Option<&str>,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     create_alert(
         store,
         tenant_id,
@@ -574,15 +574,15 @@ pub async fn alert_account_lockout(
 
 /// Clean up old failed login attempts (older than 24 hours)
 pub async fn cleanup_old_failed_attempts(
-    store: &clovalink_entity::DataStore,
-) -> Result<u64, clovalink_entity::DataError> {
+    store: &app_entity::DataStore,
+) -> Result<u64, app_entity::DataError> {
     let one_day_ago = Utc::now() - Duration::hours(24);
     store.security().cleanup_failed_logins(one_day_ago).await
 }
 
 /// Create alert for malware detection in uploaded file
 pub async fn alert_malware_detected(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Option<Uuid>,
     file_id: Uuid,
@@ -590,7 +590,7 @@ pub async fn alert_malware_detected(
     threat_name: &str,
     action_taken: &str,
     user_email: Option<&str>,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     create_alert(
         store,
         Some(tenant_id),
@@ -615,14 +615,14 @@ pub async fn alert_malware_detected(
 
 /// Create alert for user auto-suspended due to malware uploads
 pub async fn alert_user_suspended_malware(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
     user_id: Uuid,
     offense_count: i32,
     file_id: Uuid,
     file_name: &str,
     threat_name: &str,
-) -> Result<Uuid, clovalink_entity::DataError> {
+) -> Result<Uuid, app_entity::DataError> {
     // Get user email for the alert
     let email = store
         .security()

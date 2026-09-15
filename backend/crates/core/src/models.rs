@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize};
+﻿use serde::{Deserialize, Deserializer, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -62,8 +62,8 @@ pub struct Tenant {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<clovalink_entity::entities::tenants::Model> for Tenant {
-    fn from(v: clovalink_entity::entities::tenants::Model) -> Self {
+impl From<app_entity::entities::tenants::Model> for Tenant {
+    fn from(v: app_entity::entities::tenants::Model) -> Self {
         Self {
             id: v.id,
             name: v.name,
@@ -200,8 +200,8 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-impl From<clovalink_entity::entities::users::Model> for User {
-    fn from(v: clovalink_entity::entities::users::Model) -> Self {
+impl From<app_entity::entities::users::Model> for User {
+    fn from(v: app_entity::entities::users::Model) -> Self {
         Self {
             id: v.id,
             tenant_id: v.tenant_id,

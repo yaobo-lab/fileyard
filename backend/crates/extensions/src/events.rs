@@ -1,4 +1,4 @@
-//! Extension event dispatching for file upload triggers
+﻿//! Extension event dispatching for file upload triggers
 
 use chrono::Utc;
 use uuid::Uuid;
@@ -21,7 +21,7 @@ pub struct FileEvent {
 
 /// Dispatch a file upload event to all relevant file processor extensions
 pub async fn dispatch_file_event(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     redis_url: &str,
     event: FileEvent,
     webhook_timeout_ms: u64,
@@ -129,9 +129,9 @@ pub async fn dispatch_file_event(
 
 /// Get all active file processor extensions installed for a tenant
 async fn get_file_processor_extensions(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     tenant_id: Uuid,
-) -> Result<Vec<Extension>, clovalink_entity::DataError> {
+) -> Result<Vec<Extension>, app_entity::DataError> {
     Ok(store
         .extension_runtime()
         .active_file_processors(tenant_id)
@@ -183,7 +183,7 @@ async fn check_rate_limit(
 
 /// Dispatch event for file deletion
 pub async fn dispatch_file_deleted_event(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     _redis_url: &str,
     company_id: Uuid,
     user_id: Uuid,

@@ -1,6 +1,6 @@
-//! Extension permission enforcement
+﻿//! Extension permission enforcement
 
-use clovalink_entity::DataStore;
+use app_entity::DataStore;
 use thiserror::Error;
 use uuid::Uuid;
 

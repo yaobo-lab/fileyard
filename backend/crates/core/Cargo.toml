@@ -1,5 +1,5 @@
 [package]
-name = "clovalink_core"
+name = "app_core"
 version = "0.1.6"
 edition = "2021"
 
@@ -15,7 +15,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 types = { workspace = true }
-clovalink-entity = { workspace = true }
+app-entity = { workspace = true }
 
 # S3 Replication
 aws-config = { workspace = true }

@@ -4,3 +4,13 @@
 
 
  
+请参考 docs\web 目录的rust 模块分层，模块独立
+ 
+web api： docs\web\api
+ 
+路由：docs\web\router
+
+中间件： docs\web\middleware
+
+
+对crates crates\api  进行重构

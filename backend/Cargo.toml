@@ -1,9 +1,7 @@
 [workspace]
 members = [
-    "crates/api",
+    "crates/app",
     "crates/core",
-    "crates/auth",
-    "crates/storage",
     "crates/extensions",
     "crates/types",
     "crates/ai",
@@ -52,8 +50,8 @@ sea-orm-migration = { version = "1.1.19", default-features = false, features = [
     "sqlx-postgres",
     "cli",
 ] }
-clovalink-entity = { path = "crates/entity" }
-clovalink-migration = { path = "crates/migration" }
+app-entity = { path = "crates/entity" }
+app-migration = { path = "crates/migration" }
 
 # UUID & Time
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -142,9 +140,7 @@ calamine = "0.26"
 quick-xml = "0.37"
 
 # Workspace crates
-clovalink_core = { path = "crates/core" }
-clovalink_auth = { path = "crates/auth" }
-clovalink_storage = { path = "crates/storage" }
-clovalink_extensions = { path = "crates/extensions" }
-clovalink_ai = { path = "crates/ai" }
+app_core = { path = "crates/core" }
+app_extensions = { path = "crates/extensions" }
+app_ai = { path = "crates/ai" }
 types = { path = "crates/types" }

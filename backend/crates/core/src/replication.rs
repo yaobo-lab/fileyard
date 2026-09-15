@@ -1,4 +1,4 @@
-//! S3 Replication Module
+﻿//! S3 Replication Module
 //!
 //! Provides async replication of uploaded files to a secondary S3-compatible bucket.
 //! This is an enterprise durability feature that runs entirely in the background
@@ -27,7 +27,7 @@ pub enum ReplicationError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Database error: {0}")]
-    DatabaseError(#[from] clovalink_entity::DataError),
+    DatabaseError(#[from] app_entity::DataError),
     #[error("S3 error: {0}")]
     S3Error(String),
     #[error("Source file not found: {0}")]
@@ -151,7 +151,7 @@ impl std::fmt::Display for JobOperation {
 }
 
 /// A replication job record
-pub type ReplicationJob = clovalink_entity::entities::replication_jobs::Model;
+pub type ReplicationJob = app_entity::entities::replication_jobs::Model;
 
 /// S3 client for replication to secondary bucket
 pub struct ReplicationClient {
@@ -255,7 +255,7 @@ impl ReplicationClient {
 /// Enqueue a replication job for an uploaded file.
 /// This is fire-and-forget - errors are logged but never propagate to callers.
 pub async fn enqueue_upload(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
     size_bytes: Option<i64>,
@@ -273,7 +273,7 @@ pub async fn enqueue_upload(
 /// Enqueue a delete replication job (for mirror mode).
 /// This is fire-and-forget - errors are logged but never propagate to callers.
 pub async fn enqueue_delete(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
 ) -> Result<Uuid, ReplicationError> {
@@ -282,7 +282,7 @@ pub async fn enqueue_delete(
 
 /// Internal function to enqueue any replication job
 async fn enqueue_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     storage_path: &str,
     tenant_id: Uuid,
     operation: JobOperation,
@@ -307,14 +307,14 @@ async fn enqueue_job(
 
 /// Fetch the next pending job that's ready for processing
 pub async fn fetch_next_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
 ) -> Result<Option<ReplicationJob>, ReplicationError> {
     Ok(store.replication().fetch_next().await?)
 }
 
 /// Mark a job as completed
 pub async fn complete_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
 ) -> Result<(), ReplicationError> {
     store.replication().complete(job_id).await?;
@@ -323,7 +323,7 @@ pub async fn complete_job(
 
 /// Mark a job as failed, scheduling retry if attempts remain
 pub async fn fail_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
     error: &str,
     retry_seconds: u64,
@@ -340,7 +340,7 @@ pub async fn fail_job(
 
 /// Replication worker that processes jobs in the background
 pub struct ReplicationWorker {
-    store: clovalink_entity::DataStore,
+    store: app_entity::DataStore,
     config: ReplicationConfig,
     replication_client: Option<Arc<ReplicationClient>>,
     primary_storage: Arc<dyn PrimaryStorageReader>,
@@ -359,7 +359,7 @@ pub trait PrimaryStorageReader: Send + Sync {
 impl ReplicationWorker {
     /// Create a new replication worker
     pub async fn new(
-        store: clovalink_entity::DataStore,
+        store: app_entity::DataStore,
         config: ReplicationConfig,
         primary_storage: Arc<dyn PrimaryStorageReader>,
         worker_id: u32,
@@ -560,7 +560,7 @@ pub struct ReplicationStatus {
 
 /// Get replication status for admin dashboard
 pub async fn get_status(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     config: &ReplicationConfig,
 ) -> Result<ReplicationStatus, ReplicationError> {
     let stats = store.replication().stats().await?;
@@ -583,7 +583,7 @@ pub async fn get_status(
 
 /// Get pending/failed jobs for admin review
 pub async fn get_pending_jobs(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     status_filter: Option<&str>,
     limit: i64,
     offset: i64,
@@ -595,7 +595,7 @@ pub async fn get_pending_jobs(
 
 /// Retry all failed jobs (reset them to pending)
 pub async fn retry_failed_jobs(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
 ) -> Result<i64, ReplicationError> {
     Ok(store.replication().retry_failed().await?)
 }

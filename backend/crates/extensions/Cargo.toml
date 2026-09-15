@@ -1,5 +1,5 @@
 [package]
-name = "clovalink_extensions"
+name = "app_extensions"
 version = "0.1.6"
 edition = "2021"
 
@@ -38,8 +38,8 @@ cron = { workspace = true }
 tracing = { workspace = true }
 
 # Shared crates
-clovalink_auth = { workspace = true }
-clovalink-entity = { workspace = true }
+app-entity = { workspace = true }
+types = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

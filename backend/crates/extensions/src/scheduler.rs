@@ -1,4 +1,4 @@
-//! Automation job scheduler using Redis for distributed job queue
+﻿//! Automation job scheduler using Redis for distributed job queue
 
 use chrono::{DateTime, Utc};
 use cron::Schedule;
@@ -50,7 +50,7 @@ pub fn validate_cron(cron_expr: &str) -> Result<(), SchedulerError> {
 
 /// Scheduler state
 pub struct Scheduler {
-    store: clovalink_entity::DataStore,
+    store: app_entity::DataStore,
     redis: redis::aio::ConnectionManager,
     running: Arc<RwLock<bool>>,
     webhook_timeout_ms: u64,
@@ -58,7 +58,7 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub async fn new(
-        store: clovalink_entity::DataStore,
+        store: app_entity::DataStore,
         redis_url: &str,
         webhook_timeout_ms: u64,
     ) -> Result<Self, SchedulerError> {
@@ -280,7 +280,7 @@ impl Scheduler {
 
 /// Create a new automation job
 pub async fn create_automation_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
     name: &str,
@@ -311,7 +311,7 @@ pub async fn create_automation_job(
 
 /// Get automation jobs for an extension
 pub async fn get_automation_jobs(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     extension_id: Uuid,
     tenant_id: Uuid,
 ) -> Result<Vec<AutomationJob>, SchedulerError> {
@@ -329,7 +329,7 @@ pub async fn get_automation_jobs(
 
 /// Enable or disable an automation job
 pub async fn set_job_enabled(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
     enabled: bool,
 ) -> Result<(), SchedulerError> {
@@ -344,7 +344,7 @@ pub async fn set_job_enabled(
 
 /// Delete an automation job
 pub async fn delete_automation_job(
-    store: &clovalink_entity::DataStore,
+    store: &app_entity::DataStore,
     job_id: Uuid,
 ) -> Result<(), SchedulerError> {
     store

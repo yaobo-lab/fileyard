@@ -1,4 +1,4 @@
-//! Extension API route handlers
+﻿//! Extension API route handlers
 
 use axum::{
     extract::{Path, State},
@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use clovalink_auth::AuthUser;
+use types::AuthUser;
 
 use crate::manifest::{fetch_manifest, parse_manifest};
 use crate::models::{
@@ -24,7 +24,7 @@ use crate::webhook::{generate_ed25519_keypair, generate_hmac_secret};
 /// Shared state for extension routes
 #[derive(Clone)]
 pub struct ExtensionState {
-    pub store: clovalink_entity::DataStore,
+    pub store: app_entity::DataStore,
     pub redis_url: String,
     pub webhook_timeout_ms: u64,
 }
@@ -72,7 +72,7 @@ pub async fn register_extension(
     let extension = state
         .store
         .extension_runtime()
-        .register(clovalink_entity::repositories::NewExtension {
+        .register(app_entity::repositories::NewExtension {
             tenant_id: auth.tenant_id,
             name: manifest.name.clone(),
             slug: manifest.slug.clone(),
