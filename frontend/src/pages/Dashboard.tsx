@@ -249,7 +249,7 @@ export function Dashboard() {
                 icon={FileText}
             />
         ),
-        'activity': <ActivityFeed limit={getWidgetSettings('activity').limit || 10} />,
+        'activity': <ActivityFeed limit={getWidgetSettings('activity').limit || getWidgetSettings('activity').max_items || 7} />,
         'activity-chart': <ActivityChartWidget days={getWidgetSettings('activity-chart').days || 7} />,
         'file-types': <FileTypesChartWidget />,
         'requests': <RequestSummary />,

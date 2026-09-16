@@ -1,4 +1,4 @@
-﻿//! AI API Handlers
+//! AI API Handlers
 //!
 //! Provides endpoints for AI features: summarization, Q&A, semantic search, and settings management.
 //! All operations respect tenant settings, role permissions, and compliance requirements.
@@ -512,6 +512,15 @@ pub async fn get_providers() -> Json<ProvidersResponse> {
                 name: "OpenAI".to_string(),
                 hipaa_approved: false,
                 models: vec!["gpt-4o-mini".to_string(), "gpt-4o".to_string()],
+            },
+            ProviderInfo {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                hipaa_approved: false,
+                models: vec![
+                    "deepseek-chat".to_string(),
+                    "deepseek-reasoner".to_string(),
+                ],
             },
             ProviderInfo {
                 id: "anthropic".to_string(),

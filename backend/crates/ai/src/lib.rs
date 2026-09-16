@@ -8,6 +8,7 @@
 //! - Usage tracking and rate limiting
 //! - Compliance enforcement (HIPAA/SOX)
 
+pub mod deepseek;
 pub mod error;
 pub mod models;
 pub mod openai;
@@ -15,6 +16,7 @@ pub mod provider;
 pub mod redact;
 pub mod service;
 
+pub use deepseek::DeepSeekProvider;
 pub use error::AiError;
 pub use models::*;
 pub use openai::OpenAiProvider;

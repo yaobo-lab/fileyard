@@ -53,6 +53,9 @@ impl ProviderRegistry {
             "openai" => Some(Box::new(crate::openai::OpenAiProvider::new(
                 api_key.to_string(),
             ))),
+            "deepseek" => Some(Box::new(crate::deepseek::DeepSeekProvider::new(
+                api_key.to_string(),
+            ))),
             // Future providers can be added here:
             // "anthropic" => Some(Box::new(crate::anthropic::AnthropicProvider::new(api_key))),
             // "azure" => Some(Box::new(crate::azure::AzureProvider::new(api_key))),
@@ -62,7 +65,7 @@ impl ProviderRegistry {
 
     /// List available provider names
     pub fn available_providers() -> Vec<&'static str> {
-        vec!["openai"]
+        vec!["openai", "deepseek"]
     }
 
     /// Check if a provider is HIPAA approved
@@ -70,6 +73,7 @@ impl ProviderRegistry {
         match name.to_lowercase().as_str() {
             // OpenAI has a BAA available for enterprise
             "openai" => true,
+            "deepseek" => false,
             // Add other approved providers here
             _ => false,
         }

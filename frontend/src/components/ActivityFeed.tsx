@@ -29,7 +29,7 @@ interface ActivityFeedProps {
     limit?: number;
 }
 
-export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
+export function ActivityFeed({ limit = 7 }: ActivityFeedProps) {
     const t = useTranslations('Dashboard');
     const [activities, setActivities] = useState<Activity[]>([]);
     const [isLoading, setIsLoading] = useState(true);

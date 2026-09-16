@@ -24,7 +24,7 @@ const CORE_WIDGETS: WidgetDefinition[] = [
     { id: 'stats-2', name: 'Users', description: 'Active users count', icon: Users, configurable: false },
     { id: 'stats-3', name: 'Storage', description: 'Storage usage summary', icon: HardDrive, configurable: false },
     { id: 'stats-4', name: 'Files', description: 'Total files count', icon: FileText, configurable: false },
-    { id: 'activity', name: 'Activity Feed', description: 'Recent activity log', icon: Activity, configurable: true, defaultConfig: { limit: 10 } },
+    { id: 'activity', name: 'Activity Feed', description: 'Recent activity log', icon: Activity, configurable: true, defaultConfig: { limit: 7, max_items: 7 } },
     { id: 'requests', name: 'File Requests', description: 'Active file request links', icon: LinkIcon, configurable: true, defaultConfig: { show_expired: false } },
     { id: 'storage', name: 'Storage Distribution', description: 'Storage by tenant/company', icon: HardDrive, configurable: false },
     { id: 'departments', name: 'Departments', description: 'Department overview', icon: FolderOpen, configurable: true, defaultConfig: { max_shown: 6 } },
@@ -274,11 +274,12 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                         <label className="block">
                                                             <span className="text-sm text-gray-600 dark:text-gray-400">{t('activityItemsCount')}</span>
                                                             <select
-                                                                value={settings.max_items || 5}
+                                                                value={settings.max_items || 7}
                                                                 onChange={(e) => updateWidgetSetting(widget.id, 'max_items', parseInt(e.target.value))}
                                                                 className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
                                                             >
                                                                 <option value={5}>{t('numItems', { count: 5 })}</option>
+                                                                <option value={7}>{t('numItems', { count: 7 })}</option>
                                                                 <option value={10}>{t('numItems', { count: 10 })}</option>
                                                                 <option value={15}>{t('numItems', { count: 15 })}</option>
                                                             </select>
