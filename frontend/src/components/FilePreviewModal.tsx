@@ -18,6 +18,7 @@ import { DocxViewer } from './viewers/DocxViewer';
 import { XlsxViewer } from './viewers/XlsxViewer';
 import { PptxViewer } from './viewers/PptxViewer';
 import { DrawioViewer } from './viewers/DrawioViewer';
+import { MarkdownViewer } from './viewers/MarkdownViewer';
 import { FileGlyphVisual } from './FileGlyphs';
 
 interface FilePreviewModalProps {
@@ -35,6 +36,7 @@ interface FilePreviewModalProps {
 
 export type SupportedKind =
   | 'text'
+  | 'markdown'
   | 'pdf'
   | 'docx'
   | 'xlsx'
@@ -47,6 +49,10 @@ export type SupportedKind =
 
 export function detectFileKind(fileName: string, type?: string): SupportedKind {
   const lower = fileName.toLowerCase();
+
+  if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx')) {
+    return 'markdown';
+  }
 
   if (lower.endsWith('.docx') || lower.endsWith('.doc')) return 'docx';
   if (lower.endsWith('.pptx') || lower.endsWith('.ppt')) return 'pptx';
@@ -65,7 +71,7 @@ export function detectFileKind(fileName: string, type?: string): SupportedKind {
 
   // Comprehensive code and text formats
   const TEXT_EXTS = new Set([
-    'txt', 'text', 'md', 'mdx', 'markdown', 'json', 'jsonc', 'json5', 'csv', 'tsv',
+    'txt', 'text', 'json', 'jsonc', 'json5', 'csv', 'tsv',
     'xml', 'html', 'htm', 'xhtml', 'css', 'scss', 'sass', 'less', 'js', 'jsx', 'mjs',
     'cjs', 'ts', 'tsx', 'mts', 'cts', 'py', 'rs', 'go', 'java', 'kt', 'kts', 'c',
     'h', 'cc', 'cpp', 'hpp', 'cxx', 'cs', 'php', 'rb', 'sh', 'bash', 'zsh', 'fish',
@@ -80,6 +86,7 @@ export function detectFileKind(fileName: string, type?: string): SupportedKind {
 }
 
 const MODAL_SIZES: Record<SupportedKind, string> = {
+  markdown: 'h-[88vh] w-[min(96vw,76rem)]',
   text: 'h-[85vh] w-[min(96vw,80rem)]',
   pdf: 'h-[88vh] w-[min(96vw,68rem)]',
   docx: 'h-[88vh] w-[min(96vw,68rem)]',
@@ -338,7 +345,9 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
               </button>
             </div>
           ) : blobUrl ? (
-            kind === 'docx' ? (
+            kind === 'markdown' ? (
+              <MarkdownViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+            ) : kind === 'docx' ? (
               <DocxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
             ) : kind === 'pptx' ? (
               <PptxViewer url={blobUrl} fileName={file.name} isDark={isDark} />

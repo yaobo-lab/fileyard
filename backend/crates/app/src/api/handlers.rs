@@ -1,4 +1,4 @@
-﻿use crate::compliance::{
+use crate::compliance::{
     get_tenant_compliance_mode, log_file_export, should_force_audit_log, ComplianceRestrictions,
 };
 use crate::extensions::dispatch_file_upload;
@@ -4961,6 +4961,205 @@ pub async fn migrate_content_hashes(
             "Run migration again to process more files"
         } else {
             "All files have been migrated"
+        }
+    })))
+}
+
+/// POST /api/files/{company_id}/{file_id}/convert-markdown
+pub async fn convert_file_to_markdown(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthUser>,
+    Path((company_id, file_id)): Path<(String, String)>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, Json(json!({ "error": "bad_request", "message": msg })));
+    let not_found = |msg: String| (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found", "message": msg })));
+    let forbidden = |msg: String| (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden", "message": msg })));
+    let internal_error = |msg: String| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal_error", "message": msg })));
+
+    let tenant_id = Uuid::parse_str(&company_id).map_err(|_| bad_request("Invalid company ID".to_string()))?;
+    let file_uuid = Uuid::parse_str(&file_id).map_err(|_| bad_request("Invalid file ID".to_string()))?;
+
+    // Verify tenant access
+    if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
+        return Err(forbidden("Access denied to this tenant".to_string()));
+    }
+
+    // Permission check
+    if !can_access_file(
+        &state.store,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "read",
+    )
+    .await
+    .map_err(|_| internal_error("Failed to check file permissions".to_string()))?
+    {
+        return Err(forbidden("No read permission for this file".to_string()));
+    }
+
+    // Retrieve file metadata
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|e| internal_error(format!("Database query error: {}", e)))?
+        .ok_or_else(|| not_found("File not found".to_string()))?;
+
+    if file.is_directory {
+        return Err(bad_request("Directories cannot be converted to Markdown".to_string()));
+    }
+
+    let original_name = file.name;
+    let storage_path = file.storage_path;
+    let parent_path = file.parent_path.unwrap_or_default();
+    let department_id = file.department_id;
+    let visibility = file.visibility;
+
+    // Download file content from storage
+    let file_bytes = state.storage.download(&storage_path).await.map_err(|e| {
+        tracing::error!("Failed to download file {} for markdown conversion: {}", file_uuid, e);
+        not_found(format!("Failed to download file from storage: {}", e))
+    })?;
+
+    // Write to a temporary file preserving original filename
+    let temp_dir = std::env::temp_dir();
+    let temp_file_name = format!("fileyard_md_{}_{}", Uuid::new_v4(), &original_name);
+    let temp_path = temp_dir.join(&temp_file_name);
+
+    tokio::fs::write(&temp_path, &file_bytes).await.map_err(|e| {
+        tracing::error!("Failed to write temp file {:?}: {}", temp_path, e);
+        internal_error(format!("Failed to write temp file: {}", e))
+    })?;
+
+    // Convert to markdown using anydoc in spawn_blocking
+    let temp_path_clone = temp_path.clone();
+    let convert_res = tokio::task::spawn_blocking(move || {
+        anydoc::to_markdown(&temp_path_clone)
+    })
+    .await
+    .map_err(|e| {
+        internal_error(format!("Conversion task failed: {}", e))
+    })?;
+
+    // Remove the temp file
+    let _ = tokio::fs::remove_file(&temp_path).await;
+
+    let markdown_text = convert_res.map_err(|e| {
+        tracing::warn!("anydoc conversion failed for file '{}': {}", original_name, e);
+        bad_request(format!("文档转 Markdown 失败: {}", e))
+    })?;
+
+    // Generate output filename: stem + ".md"
+    let file_stem = std::path::Path::new(&original_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&original_name);
+    let target_md_name = format!("{}.md", file_stem);
+
+    let existing_file = state
+        .store
+        .files()
+        .find_existing_file_for_upload(
+            tenant_id,
+            &target_md_name,
+            &parent_path,
+            department_id,
+            &visibility,
+        )
+        .await
+        .map_err(|e| internal_error(format!("Failed to check existing file: {}", e)))?;
+
+    let final_file_name = if existing_file.is_some() {
+        state
+            .store
+            .files()
+            .generate_unique_filename(
+                tenant_id,
+                &target_md_name,
+                &parent_path,
+                department_id,
+                &visibility,
+            )
+            .await
+            .map_err(|e| internal_error(format!("Failed to generate unique filename: {}", e)))?
+    } else {
+        target_md_name
+    };
+
+    let md_bytes = markdown_text.into_bytes();
+    let md_size = md_bytes.len() as i64;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&md_bytes);
+    let content_hash = hasher.finalize().to_hex().to_string();
+
+    let dept_scope = department_id
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "private".to_string());
+    let hash_prefix = &content_hash[..2];
+    let content_key = format!(
+        "{}/{}/{}/{}",
+        tenant_id, dept_scope, hash_prefix, content_hash
+    );
+
+    let existing_content = state
+        .store
+        .files()
+        .find_content_hash_storage_path(
+            tenant_id,
+            department_id,
+            &content_hash,
+        )
+        .await
+        .map_err(|e| internal_error(format!("Failed to query content hash: {}", e)))?;
+
+    let storage_key = if let Some(ref existing_path) = existing_content {
+        existing_path.clone()
+    } else {
+        state.storage.upload(&content_key, md_bytes).await.map_err(|e| {
+            tracing::error!("Failed to upload markdown to storage: {}", e);
+            internal_error(format!("Failed to save markdown to storage: {}", e))
+        })?;
+        content_key
+    };
+
+    let file_ulid = ulid::Ulid::new().to_string();
+    let create_params = CreateFileParams {
+        tenant_id,
+        name: &final_file_name,
+        storage_path: &storage_key,
+        size_bytes: md_size,
+        content_type: "text/markdown; charset=utf-8",
+        owner_id: auth.user_id,
+        department_id,
+        parent_path: if parent_path.is_empty() { None } else { Some(&parent_path) },
+        version: 1,
+        version_parent_id: None,
+        visibility: &visibility,
+        content_hash: &content_hash,
+        ulid: &file_ulid,
+    };
+
+    let created_file = state
+        .store
+        .files()
+        .create_file(create_params)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save converted file record: {:?}", e);
+            internal_error(format!("Failed to save file metadata: {}", e))
+        })?;
+
+    Ok(Json(json!({
+        "success": true,
+        "message": format!("文件已成功转换为 Markdown: {}", final_file_name),
+        "file": {
+            "id": created_file.id,
+            "name": created_file.name,
+            "size_bytes": created_file.size_bytes,
+            "parent_path": created_file.parent_path
         }
     })))
 }

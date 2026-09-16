@@ -583,6 +583,10 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
             "/api/files/{company_id}/{file_id}/share",
             post(handlers::create_file_share),
         )
+        .route(
+            "/api/files/{company_id}/{file_id}/convert-markdown",
+            post(handlers::convert_file_to_markdown),
+        )
         // File Comments
         .route(
             "/api/files/{company_id}/{file_id}/comments",

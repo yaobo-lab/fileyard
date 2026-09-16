@@ -10,6 +10,7 @@ import {
   Trash2,
   Star,
   Share2,
+  FileText,
 } from 'lucide-react';
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
@@ -32,8 +33,32 @@ interface FileContextMenuProps {
   onDelete: (file: any) => void;
   onStar?: (file: any) => void;
   onShare?: (file: any) => void;
+  onConvertToMarkdown?: (file: any) => void;
   canDelete?: boolean;
   canShare?: boolean;
+}
+
+const SUPPORTED_MARKDOWN_EXTENSIONS = new Set([
+  // Word documents
+  'docx', 'doc', 'docm',
+  // PowerPoint presentations
+  'pptx', 'ppt', 'pptm', 'pps', 'ppsx', 'ppsm',
+  // Excel spreadsheets
+  'xlsx', 'xls', 'xlsm', 'xlsb',
+  // OpenDocument formats
+  'odt', 'ods', 'odp',
+  // PDF
+  'pdf',
+  // Rich Text, E-books, CSV, Plain text
+  'rtf', 'epub', 'csv', 'tsv', 'txt'
+]);
+
+export function canConvertToMarkdown(file: any): boolean {
+  if (!file) return false;
+  if (file.type === 'folder' || file.kind === 'folder' || file.type === 'group') return false;
+  const fileName = file.name || '';
+  const ext = fileName.toLowerCase().split('.').pop() || '';
+  return SUPPORTED_MARKDOWN_EXTENSIONS.has(ext);
 }
 
 export function FileContextMenu({
@@ -47,6 +72,7 @@ export function FileContextMenu({
   onDelete,
   onStar,
   onShare,
+  onConvertToMarkdown,
   canDelete = true,
   canShare = false,
 }: FileContextMenuProps) {
@@ -91,7 +117,7 @@ export function FileContextMenu({
 
   // Synchronously calculate boundary-safe coordinates on render without jump or float
   const menuWidth = 160;
-  const menuHeight = 240;
+  const menuHeight = 280;
   const padding = 8;
   const left = target.x + menuWidth > window.innerWidth - padding
     ? Math.max(padding, window.innerWidth - menuWidth - padding)
@@ -185,6 +211,22 @@ export function FileContextMenu({
         <Move className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
         <span>{t('move')}</span>
       </button>
+
+      {/* 转 Markdown */}
+      {canConvertToMarkdown(file) && onConvertToMarkdown && (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors text-left font-normal"
+          onClick={() => {
+            onClose();
+            onConvertToMarkdown(file);
+          }}
+        >
+          <FileText className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
+          <span>{t('convertToMarkdown')}</span>
+        </button>
+      )}
 
       {/* 收藏 / 星标 */}
       {onStar && (

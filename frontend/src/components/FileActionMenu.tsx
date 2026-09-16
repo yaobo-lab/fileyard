@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import {
     Eye, Download, Trash2, Star, Edit2, Share2,
     Lock, Unlock, History, Move, Info, Building2, Sparkles, MessageSquare, FileSearch, Copy,
-    Layers, FolderMinus, ChevronLeft, Plus, Clock, XCircle, RefreshCw
+    Layers, FolderMinus, ChevronLeft, Plus, Clock, XCircle, RefreshCw, FileText
 } from 'lucide-react';
 import clsx from 'clsx';
+import { canConvertToMarkdown } from './FileContextMenu';
 
 export interface FileItem {
     id: string;
@@ -67,6 +68,7 @@ interface FileActionMenuProps {
     onCopy: (file: FileItem) => void;
     onDelete: (file: FileItem) => void;
     onProperties: (file: FileItem) => void;
+    onConvertToMarkdown?: (file: FileItem) => void;
     onToggleCompanyFolder?: (file: FileItem) => void;
     onAiSummarize?: (file: FileItem) => void;
     onAiQuestion?: (file: FileItem) => void;
@@ -109,6 +111,7 @@ export function FileActionMenu({
     onCopy,
     onDelete,
     onProperties,
+    onConvertToMarkdown,
     onToggleCompanyFolder,
     onAiSummarize,
     onAiQuestion,
@@ -501,6 +504,13 @@ export function FileActionMenu({
                 {file.type !== 'folder' && file.type !== 'group' && canAccessLockedFile && isApproved && (
                     <button className={menuItemClass} onClick={() => onCopy(file)}>
                         <Copy className="w-4 h-4 mr-2 text-gray-400" /> Copy
+                    </button>
+                )}
+
+                {/* Convert to Markdown - Only for supported documents */}
+                {canConvertToMarkdown(file) && onConvertToMarkdown && (
+                    <button className={menuItemClass} onClick={() => onConvertToMarkdown(file)}>
+                        <FileText className="w-4 h-4 mr-2 text-gray-400" /> Convert to Markdown
                     </button>
                 )}
 

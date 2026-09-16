@@ -26,7 +26,7 @@ import { FileGroupStack } from '../components/FileGroupStack';
 import { FileGroupViewer } from '../components/FileGroupViewer';
 import { Avatar } from '../components/Avatar';
 import { FileGlyphVisual, FileSystemIconSpriteSheet, FileSystemFolderGlyph } from '../components/FileGlyphs';
-import { FileContextMenu, ContextMenuTarget } from '../components/FileContextMenu';
+import { FileContextMenu, ContextMenuTarget, canConvertToMarkdown } from '../components/FileContextMenu';
 import { useTenant } from '../context/TenantContext';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
@@ -101,6 +101,7 @@ export function FileBrowser() {
     const t = useTranslations('Explorer');
     const tCommon = useTranslations('Common');
     const tProps = useTranslations('Properties');
+    const tContextMenu = useTranslations('ContextMenu');
     const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { user } = useAuth();
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
@@ -112,6 +113,8 @@ export function FileBrowser() {
     const [files, setFiles] = useState<FileItem[]>([]);
     const [starredFiles, setStarredFiles] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isConvertingMarkdown, setIsConvertingMarkdown] = useState(false);
+    const [convertingFileName, setConvertingFileName] = useState<string | null>(null);
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const [activeGroupMenu, setActiveGroupMenu] = useState<string | null>(null);
     const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
@@ -428,7 +431,6 @@ export function FileBrowser() {
     const handleItemContextMenu = (e: React.MouseEvent, file: FileItem) => {
         e.preventDefault();
         e.stopPropagation();
-        setSelectedFiles(new Set([file.id]));
         setContextMenuTarget({
             x: e.clientX,
             y: e.clientY,
@@ -1368,6 +1370,55 @@ export function FileBrowser() {
             });
         }
         setActiveMenu(null);
+    };
+
+    const handleConvertToMarkdown = async (file: FileItem) => {
+        if (!companyId || !file?.id) return;
+        if (!canConvertToMarkdown(file)) {
+            modalAlert({
+                title: tContextMenu('convertToMarkdownFailed'),
+                description: '该文件类型不支持转换为 Markdown',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsConvertingMarkdown(true);
+        setConvertingFileName(file.name);
+        setActiveMenu(null);
+        setContextMenuTarget(null);
+
+        try {
+            const response = await authFetch(`/api/files/${companyId}/${file.id}/convert-markdown`, {
+                method: 'POST',
+            });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                const errorMsg = data.message || data.error || tContextMenu('convertToMarkdownFailed');
+                await modalAlert({
+                    title: tContextMenu('convertToMarkdownFailed'),
+                    description: errorMsg,
+                    variant: 'destructive',
+                });
+            } else {
+                await modalAlert({
+                    title: tContextMenu('convertToMarkdownSuccess'),
+                    description: data.message || `${file.name} 转换成功！`,
+                    variant: 'success',
+                });
+                fetchFiles();
+            }
+        } catch (error: any) {
+            console.error('Convert to markdown error:', error);
+            await modalAlert({
+                title: tContextMenu('convertToMarkdownFailed'),
+                description: error?.message || '网络或系统异常，转换失败',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsConvertingMarkdown(false);
+            setConvertingFileName(null);
+        }
     };
 
     const handleLockToggle = (file: FileItem) => {
@@ -3565,6 +3616,7 @@ export function FileBrowser() {
                                                         onCopy={handleCopy}
                                                         onDelete={handleDelete}
                                                         onProperties={handleViewProperties}
+                                                        onConvertToMarkdown={handleConvertToMarkdown}
                                                         onToggleCompanyFolder={handleToggleCompanyFolder}
                                                         onAiSummarize={handleAiSummarize}
                                                         onAiQuestion={handleAiQuestion}
@@ -3729,9 +3781,18 @@ export function FileBrowser() {
                 }}
                 onStar={(file) => toggleStar(file)}
                 onShare={(file) => handleShare(file)}
+                onConvertToMarkdown={(file) => handleConvertToMarkdown(file)}
                 canDelete={contextMenuTarget?.file ? canDeleteFile(contextMenuTarget.file) : true}
                 canShare={contextMenuTarget?.file ? canShareFile(contextMenuTarget.file) : false}
             />
+
+            {/* Converting to Markdown Toast Indicator */}
+            {isConvertingMarkdown && (
+                <div className="fixed bottom-6 right-6 z-[99999] flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-800/60 shadow-xl rounded-xl text-xs text-gray-800 dark:text-gray-100 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <span>{tContextMenu('convertingToMarkdown')} {convertingFileName && `(${convertingFileName})`}</span>
+                </div>
+            )}
         </div>
     );
 }

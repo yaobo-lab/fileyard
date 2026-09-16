@@ -70,4 +70,5 @@ cron = { workspace = true }
 pdf-extract = { workspace = true }
 calamine = { workspace = true }
 quick-xml = { workspace = true }
+anydoc = { workspace = true }
 toolkit-rs = "1.0.31"
