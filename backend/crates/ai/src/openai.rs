@@ -96,29 +96,57 @@ impl AiProvider for OpenAiProvider {
         true
     }
 
-    async fn summarize(&self, text: &str, max_tokens: u32) -> Result<AiResponse, AiError> {
+    async fn summarize(
+        &self,
+        text: &str,
+        max_tokens: u32,
+        language: Option<&str>,
+    ) -> Result<AiResponse, AiError> {
+        let (system_prompt, user_prompt) = match language {
+            Some("zh") => (
+                "你是一个擅长提炼和总结文档的专业智能助手。请针对提供的文档内容生成清晰、专业、结构化的中文摘要，重点提炼核心观点与关键结论。请务必使用中文输出，采用 Markdown 格式组织。".to_string(),
+                format!("请为以下文档内容生成详细摘要：\n\n{}", text),
+            ),
+            Some("en") => (
+                "You are a helpful assistant that summarizes documents concisely. Provide a clear, professional summary highlighting key points. Please respond in English using Markdown formatting.".to_string(),
+                format!("Please summarize the following text in English:\n\n{}", text),
+            ),
+            _ => (
+                "You are a helpful assistant that summarizes documents concisely. Provide a clear, professional summary highlighting key points. IMPORTANT: You must write the summary in the same language as the document being summarized (e.g., if the document is in Chinese, summarize in Chinese; if in English, summarize in English).".to_string(),
+                format!("Please summarize the following text in its original language:\n\n{}", text),
+            ),
+        };
+
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: "You are a helpful assistant that summarizes documents concisely. \
-                         Provide a clear, professional summary highlighting key points."
-                    .to_string(),
+                content: system_prompt,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: format!("Please summarize the following text:\n\n{}", text),
+                content: user_prompt,
             },
         ];
 
         self.chat_completion(messages, max_tokens.min(1000)).await
     }
 
-    async fn answer(&self, question: &str, context: &str) -> Result<AiResponse, AiError> {
+    async fn answer(
+        &self,
+        question: &str,
+        context: &str,
+        language: Option<&str>,
+    ) -> Result<AiResponse, AiError> {
+        let system_prompt = match language {
+            Some("zh") => "你是一个智能问答助手。请根据提供的文档上下文准确回答用户的问题。请严格基于给定的信息作答，若上下文中没有相关信息，请明确说明。请务必使用中文回答。".to_string(),
+            Some("en") => "You are a helpful assistant that answers questions based on the provided context. Only answer based on the information given. If the answer is not in the context, say so. Please respond in English.".to_string(),
+            _ => "You are a helpful assistant that answers questions based on the provided context. Only answer based on the information given. If the answer is not in the context, say so. Always respond in the same language as the user's question or context.".to_string(),
+        };
+
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: "You are a helpful assistant that answers questions based on the provided context. \
-                         Only answer based on the information given. If the answer is not in the context, say so.".to_string(),
+                content: system_prompt,
             },
             ChatMessage {
                 role: "user".to_string(),

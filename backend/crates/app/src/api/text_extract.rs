@@ -29,23 +29,26 @@ impl std::error::Error for ExtractError {}
 
 /// Extract text content from a file based on its MIME type
 pub fn extract_text(bytes: &[u8], mime_type: &str) -> Result<String, ExtractError> {
-    match mime_type {
-        // Plain text formats - direct UTF-8 conversion
-        "text/plain"
-        | "text/markdown"
-        | "text/csv"
-        | "text/html"
-        | "text/xml"
-        | "application/json"
+    let base_mime = mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    // Any text format can be decoded directly as UTF-8
+    if base_mime.starts_with("text/") {
+        return Ok(String::from_utf8_lossy(bytes).to_string());
+    }
+
+    match base_mime.as_str() {
+        // Additional text / data formats
+        "application/json"
         | "application/xml"
-        | "text/x-python"
-        | "text/x-java"
-        | "text/javascript"
         | "application/javascript"
-        | "text/css"
-        | "text/x-rust"
-        | "text/x-c"
-        | "text/x-c++" => Ok(String::from_utf8_lossy(bytes).to_string()),
+        | "application/x-javascript"
+        | "application/x-yaml"
+        | "application/yaml" => Ok(String::from_utf8_lossy(bytes).to_string()),
 
         // PDF
         "application/pdf" => extract_pdf(bytes),
@@ -280,23 +283,25 @@ fn extract_text_from_office_xml(xml: &str) -> String {
 
 /// Check if a MIME type is supported for text extraction
 pub fn is_extractable(mime_type: &str) -> bool {
+    let base_mime = mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    if base_mime.starts_with("text/") {
+        return true;
+    }
+
     matches!(
-        mime_type,
-        "text/plain"
-            | "text/markdown"
-            | "text/csv"
-            | "text/html"
-            | "text/xml"
-            | "application/json"
+        base_mime.as_str(),
+        "application/json"
             | "application/xml"
-            | "text/x-python"
-            | "text/x-java"
-            | "text/javascript"
             | "application/javascript"
-            | "text/css"
-            | "text/x-rust"
-            | "text/x-c"
-            | "text/x-c++"
+            | "application/x-javascript"
+            | "application/x-yaml"
+            | "application/yaml"
             | "application/pdf"
             | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

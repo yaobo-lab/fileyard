@@ -4,6 +4,7 @@ import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
+import { useTranslations } from '../context/I18nContext';
 
 interface FolderNode {
     id: string;
@@ -46,6 +47,8 @@ export function MoveFileModal({
 }: MoveFileModalProps) {
     const authFetch = useAuthFetch();
     const { currentCompany } = useTenant();
+    const t = useTranslations('Modals');
+    const tCommon = useTranslations('Common');
     const [folders, setFolders] = useState<FolderNode[]>([]);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -182,18 +185,18 @@ export function MoveFileModal({
             } else if (result.duplicate) {
                 setIsDuplicate(true);
                 setNewFileName(result.suggested_name || fileName);
-                setError(result.error || `A file with this name already exists in the target location`);
+                setError(result.error || t('duplicateError'));
             } else {
-                setError(result.error || 'Failed to move file');
+                setError(result.error || t('failedToMove'));
             }
         } catch (err) {
-            setError('Failed to move file');
+            setError(t('failedToMove'));
         }
     };
     
     const handleMoveWithRename = async () => {
         if (!newFileName.trim()) {
-            setError('Please enter a new file name');
+            setError(t('pleaseEnterNewName'));
             return;
         }
         await handleMove(true);
@@ -238,7 +241,7 @@ export function MoveFileModal({
                         {node.name}
                     </span>
                     {isCurrentLocation && (
-                        <span className="text-xs text-gray-400">(current)</span>
+                        <span className="text-xs text-gray-400">{t('currentLocation')}</span>
                     )}
                 </div>
                 {node.isExpanded && node.children.map(child => renderFolderNode(child, depth + 1))}
@@ -258,10 +261,10 @@ export function MoveFileModal({
                     <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                         <div>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                Move to...
+                                {t('moveTitle')}
                             </h3>
                             <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[350px]">
-                                {fileCount > 1 ? `${fileCount} items selected` : fileName}
+                                {fileCount > 1 ? t('moveItemsSelected', { count: fileCount }) : fileName}
                             </p>
                         </div>
                         <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
@@ -272,7 +275,7 @@ export function MoveFileModal({
                     {/* Visibility Selector */}
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Move to
+                            {t('moveToLabel')}
                         </label>
                         <div className="flex gap-2">
                             <button
@@ -289,7 +292,7 @@ export function MoveFileModal({
                                 )}
                             >
                                 <Users className="w-4 h-4" />
-                                <span className="font-medium">Department Files</span>
+                                <span className="font-medium">{t('departmentFiles')}</span>
                             </button>
                             <button
                                 onClick={() => {
@@ -305,7 +308,7 @@ export function MoveFileModal({
                                 )}
                             >
                                 <EyeOff className="w-4 h-4" />
-                                <span className="font-medium">My Private Files</span>
+                                <span className="font-medium">{t('myPrivateFiles')}</span>
                             </button>
                         </div>
                     </div>
@@ -315,7 +318,7 @@ export function MoveFileModal({
                         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 <Building2 className="w-4 h-4 inline mr-1" />
-                                Department
+                                {t('department')}
                             </label>
                             <select
                                 value={selectedDepartment || ''}
@@ -326,7 +329,7 @@ export function MoveFileModal({
                                 }}
                                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                             >
-                                <option value="">All Departments</option>
+                                <option value="">{t('allDepartments')}</option>
                                 {departments.map(dept => (
                                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                                 ))}
@@ -358,7 +361,7 @@ export function MoveFileModal({
                                             ? "text-primary-700 dark:text-primary-300" 
                                             : "text-gray-700 dark:text-gray-200"
                                     )}>
-                                        Home (Root)
+                                        {t('homeRoot')}
                                     </span>
                                 </div>
 
@@ -367,7 +370,7 @@ export function MoveFileModal({
 
                                 {folders.length === 0 && (
                                     <p className="text-center text-gray-500 dark:text-gray-400 py-4 text-sm">
-                                        No folders found
+                                        {t('noFoldersFound')}
                                     </p>
                                 )}
                             </div>
@@ -389,14 +392,14 @@ export function MoveFileModal({
                             {isDuplicate && (
                                 <div className="mt-3 space-y-2">
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                        Rename file to:
+                                        {t('renameFileTo')}
                                     </label>
                                     <input
                                         type="text"
                                         value={newFileName}
                                         onChange={(e) => setNewFileName(e.target.value)}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                        placeholder="Enter new file name"
+                                        placeholder={t('enterNewFileName')}
                                     />
                                 </div>
                             )}
@@ -409,7 +412,7 @@ export function MoveFileModal({
                             onClick={onClose}
                             className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
                         >
-                            Cancel
+                            {tCommon('cancel')}
                         </button>
                         {isDuplicate ? (
                             <button
@@ -420,7 +423,7 @@ export function MoveFileModal({
                                     (isMoving || !newFileName.trim()) ? "opacity-50 cursor-not-allowed" : "hover:bg-primary-700"
                                 )}
                             >
-                                {isMoving ? 'Moving...' : 'Move with New Name'}
+                                {isMoving ? t('moving') : t('moveWithNewName')}
                             </button>
                         ) : (
                             <button
@@ -431,7 +434,7 @@ export function MoveFileModal({
                                     isMoving ? "opacity-50 cursor-not-allowed" : "hover:bg-primary-700"
                                 )}
                             >
-                                {isMoving ? 'Moving...' : 'Move Here'}
+                                {isMoving ? t('moving') : t('moveHere')}
                             </button>
                         )}
                     </div>

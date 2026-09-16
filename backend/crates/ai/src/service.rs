@@ -1,4 +1,4 @@
-﻿//! AI Service Layer
+//! AI Service Layer
 //!
 //! Orchestrates AI operations with all required guards:
 //! - Tenant enablement check
@@ -121,7 +121,7 @@ impl AiService {
             .ok_or(AiError::NoApiKey)?;
 
         // 4. Check user role is allowed
-        if !settings.allowed_roles.iter().any(|r| r == user_role) {
+        if !settings.allowed_roles.iter().any(|r| r.eq_ignore_ascii_case(user_role)) {
             return Err(AiError::Forbidden);
         }
 
@@ -233,6 +233,7 @@ impl AiService {
         file_id: Uuid,
         content: &str,
         max_tokens: Option<u32>,
+        language: Option<&str>,
     ) -> Result<AiActionResponse, AiError> {
         let (settings, provider) = self
             .preflight_check(tenant_id, user_id, user_role, "summarize")
@@ -246,7 +247,7 @@ impl AiService {
         let chunk_to_summarize = chunks.first().cloned().unwrap_or_default();
 
         match provider
-            .summarize(&chunk_to_summarize, max_tokens.unwrap_or(500))
+            .summarize(&chunk_to_summarize, max_tokens.unwrap_or(500), language)
             .await
         {
             Ok(response) => {
@@ -302,6 +303,7 @@ impl AiService {
         file_id: Uuid,
         content: &str,
         question: &str,
+        language: Option<&str>,
     ) -> Result<AiActionResponse, AiError> {
         let (settings, provider) = self
             .preflight_check(tenant_id, user_id, user_role, "answer")
@@ -315,7 +317,7 @@ impl AiService {
         let chunks = RedactionService::chunk_text(&redacted_content, 3000);
         let context = chunks.first().cloned().unwrap_or_default();
 
-        match provider.answer(&redacted_question, &context).await {
+        match provider.answer(&redacted_question, &context, language).await {
             Ok(response) => {
                 self.update_usage_counters(tenant_id, response.tokens_used as i32)
                     .await?;

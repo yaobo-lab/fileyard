@@ -361,12 +361,17 @@ export function FileBrowser() {
     
     // Fetch AI status for the tenant
     useEffect(() => {
-        if (companyId) {
-            authFetch('/api/ai/status')
-                .then(res => res.ok ? res.json() : { enabled: false, has_access: false })
-                .then(data => setAiStatus({ enabled: data.enabled, hasAccess: data.has_access }))
-                .catch(() => setAiStatus({ enabled: false, hasAccess: false }));
-        }
+        const url = companyId ? `/api/ai/status?tenant_id=${companyId}` : '/api/ai/status';
+        authFetch(url)
+            .then(res => res.ok ? res.json() : { enabled: false, has_access: false })
+            .then(data => {
+                console.log('[AI Status]', data, 'companyId:', companyId);
+                setAiStatus({ enabled: Boolean(data.enabled), hasAccess: Boolean(data.has_access) });
+            })
+            .catch(err => {
+                console.error('[AI Status Error]', err);
+                setAiStatus({ enabled: false, hasAccess: false });
+            });
     }, [companyId]);
 
     // Fetch files on mount, path change, view mode change, department filter change, or group change
@@ -3782,6 +3787,10 @@ export function FileBrowser() {
                 onStar={(file) => toggleStar(file)}
                 onShare={(file) => handleShare(file)}
                 onConvertToMarkdown={(file) => handleConvertToMarkdown(file)}
+                onAiSummarize={(file) => handleAiSummarize(file)}
+                onAiQuestion={(file) => handleAiQuestion(file)}
+                aiEnabled={aiStatus.enabled}
+                canUseAi={aiStatus.hasAccess}
                 canDelete={contextMenuTarget?.file ? canDeleteFile(contextMenuTarget.file) : true}
                 canShare={contextMenuTarget?.file ? canShareFile(contextMenuTarget.file) : false}
             />

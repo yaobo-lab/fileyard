@@ -25,12 +25,16 @@ import {
     Ban,
     Play,
     Edit2,
-    Download
+    Download,
+    UserPlus,
+    UserMinus,
 } from 'lucide-react';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useSettings, getComplianceEnforcementSummary, ComplianceMode } from '../context/SettingsContext';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
+import { AddMemberModal } from '../components/AddMemberModal';
+import { InviteMemberModal } from '../components/InviteMemberModal';
 import { ComplianceBadge } from '../components/ComplianceBadge';
 import { LockedToggle } from '../components/LockedField';
 import { TenantEmailTemplates } from '../components/TenantEmailTemplates';
@@ -214,6 +218,8 @@ export function CompanyDetails() {
     const [users, setUsers] = useState<any[]>([]);
     const [selectedUser, setSelectedUser] = useState<any>(null);
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+    const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+    const [isInviteMemberModalOpen, setIsInviteMemberModalOpen] = useState(false);
 
     // Danger zone states
     const [showSuspendConfirm, setShowSuspendConfirm] = useState(false);
@@ -798,6 +804,44 @@ export function CompanyDetails() {
     const handleEditUser = (user: any) => {
         setSelectedUser(user);
         setIsInviteModalOpen(true);
+    };
+
+    const handleRemoveMember = async (targetUser: any) => {
+        if (!company) return;
+        const isAssociated = targetUser.tenant_id !== company.id;
+        const confirmed = await modalConfirm({
+            title: t('removeMember') || '移出企业',
+            description: isAssociated
+                ? (t('removeMemberConfirm') || `确定要将 ${targetUser.name} 从 ${company.name} 移出吗？（其主账号不受影响）`)
+                : `确定要停用 ${targetUser.name} 的账号吗？`,
+            variant: 'destructive',
+        });
+        if (!confirmed) return;
+
+        try {
+            if (isAssociated) {
+                const newAllowed = (targetUser.allowed_tenant_ids || []).filter((id: string) => id !== company.id);
+                const res = await authFetch(`/api/users/${targetUser.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ allowed_tenant_ids: newAllowed }),
+                });
+                if (res.ok) {
+                    fetchUsers(company.id);
+                    fetchCompanyDetails();
+                }
+            } else {
+                const res = await authFetch(`/api/users/${targetUser.id}`, {
+                    method: 'DELETE',
+                });
+                if (res.ok) {
+                    fetchUsers(company.id);
+                    fetchCompanyDetails();
+                }
+            }
+        } catch (err) {
+            console.error('Failed to remove member', err);
+        }
     };
 
     const formatBytes = (bytes?: number) => {
@@ -1956,18 +2000,27 @@ export function CompanyDetails() {
 
                 {activeTab === 'users' && (
                     <div className="space-y-6">
-                        <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('usersTitle')}</h3>
-                            <button
-                                onClick={() => {
-                                    setSelectedUser(null);
-                                    setIsInviteModalOpen(true);
-                                }}
-                                className="flex items-center px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
-                            >
-                                <Plus className="w-4 h-4 mr-2" />
-                                {t('inviteUser')}
-                            </button>
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('usersTitle')}</h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('usersDesc')}</p>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    onClick={() => setIsInviteMemberModalOpen(true)}
+                                    className="flex items-center px-3.5 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium transition-colors shadow-sm cursor-pointer"
+                                >
+                                    <Mail className="w-4 h-4 mr-1.5 text-gray-500" />
+                                    <span>{t('inviteMember') || '邀请成员'}</span>
+                                </button>
+                                <button
+                                    onClick={() => setIsAddMemberModalOpen(true)}
+                                    className="flex items-center px-3.5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium transition-colors shadow-sm cursor-pointer"
+                                >
+                                    <UserPlus className="w-4 h-4 mr-1.5" />
+                                    <span>{t('addMember') || '添加成员'}</span>
+                                </button>
+                            </div>
                         </div>
 
                         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -1996,7 +2049,14 @@ export function CompanyDetails() {
                                                             {user.name.charAt(0).toUpperCase()}
                                                         </div>
                                                         <div className="ml-3">
-                                                            <div className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</div>
+                                                            <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                                                                <span>{user.name}</span>
+                                                                {user.tenant_id !== company.id && (
+                                                                    <span className="px-1.5 py-0.5 text-[10px] font-normal rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                                                                        跨企业
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <div className="text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
                                                         </div>
                                                     </div>
@@ -2017,12 +2077,22 @@ export function CompanyDetails() {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                    <button
-                                                        onClick={() => handleEditUser(user)}
-                                                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                                                    >
-                                                        <Settings className="w-4 h-4" />
-                                                    </button>
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <button
+                                                            onClick={() => handleEditUser(user)}
+                                                            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded transition-colors"
+                                                            title={t('editDetails') || '编辑'}
+                                                        >
+                                                            <Settings className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleRemoveMember(user)}
+                                                            className="p-1 text-red-500 hover:text-red-700 dark:hover:text-red-400 rounded transition-colors"
+                                                            title={user.tenant_id !== company.id ? (t('removeMember') || '移出企业') : (tCommon('delete') || '停用')}
+                                                        >
+                                                            {user.tenant_id !== company.id ? <UserMinus className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))
@@ -2255,6 +2325,7 @@ export function CompanyDetails() {
                 {activeTab === 'ai' && company && (
                     <TenantAiSettings
                         tenantId={company.id}
+                        tenantName={company.name}
                         authFetch={authFetch}
                     />
                 )}
@@ -2790,6 +2861,27 @@ export function CompanyDetails() {
                     password: '', // Password not editable here
                     allowed_tenant_ids: selectedUser.allowed_tenant_ids || [],
                 } : undefined}
+            />
+
+            <AddMemberModal
+                isOpen={isAddMemberModalOpen}
+                onClose={() => setIsAddMemberModalOpen(false)}
+                companyId={company.id}
+                companyName={company.name}
+                existingUserIds={users.map(u => u.id)}
+                departments={departments}
+                onSuccess={() => {
+                    fetchUsers(company.id);
+                    fetchCompanyDetails();
+                }}
+            />
+
+            <InviteMemberModal
+                isOpen={isInviteMemberModalOpen}
+                onClose={() => setIsInviteMemberModalOpen(false)}
+                companyId={company.id}
+                companyName={company.name}
+                departments={departments}
             />
         </div>
     );

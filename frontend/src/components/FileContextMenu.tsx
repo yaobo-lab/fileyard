@@ -11,6 +11,8 @@ import {
   Star,
   Share2,
   FileText,
+  Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
@@ -34,6 +36,10 @@ interface FileContextMenuProps {
   onStar?: (file: any) => void;
   onShare?: (file: any) => void;
   onConvertToMarkdown?: (file: any) => void;
+  onAiSummarize?: (file: any) => void;
+  onAiQuestion?: (file: any) => void;
+  aiEnabled?: boolean;
+  canUseAi?: boolean;
   canDelete?: boolean;
   canShare?: boolean;
 }
@@ -52,6 +58,26 @@ const SUPPORTED_MARKDOWN_EXTENSIONS = new Set([
   // Rich Text, E-books, CSV, Plain text
   'rtf', 'epub', 'csv', 'tsv', 'txt'
 ]);
+
+const SUPPORTED_AI_EXTENSIONS = new Set([
+  'txt', 'md', 'markdown', 'json', 'xml', 'csv', 'tsv',
+  'html', 'htm', 'js', 'ts', 'jsx', 'tsx', 'py', 'rs', 'go',
+  'java', 'c', 'cpp', 'h', 'hpp', 'css', 'scss', 'yaml', 'yml',
+  'pdf', 'docx', 'xlsx', 'pptx', 'rtf', 'log', 'sql', 'sh'
+]);
+
+export function canUseAiOnFile(file: any): boolean {
+  if (!file) return false;
+  if (file.type === 'folder' || file.kind === 'folder' || file.type === 'group') return false;
+  const fileName = file.name || '';
+  const ext = fileName.toLowerCase().split('.').pop() || '';
+  if (SUPPORTED_AI_EXTENSIONS.has(ext)) return true;
+  if (file.content_type) {
+    if (file.content_type.startsWith('text/')) return true;
+    if (['application/json', 'application/xml', 'application/pdf'].includes(file.content_type)) return true;
+  }
+  return false;
+}
 
 export function canConvertToMarkdown(file: any): boolean {
   if (!file) return false;
@@ -73,6 +99,10 @@ export function FileContextMenu({
   onStar,
   onShare,
   onConvertToMarkdown,
+  onAiSummarize,
+  onAiQuestion,
+  aiEnabled = false,
+  canUseAi = false,
   canDelete = true,
   canShare = false,
 }: FileContextMenuProps) {
@@ -225,6 +255,38 @@ export function FileContextMenu({
         >
           <FileText className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 shrink-0" />
           <span>{t('convertToMarkdown')}</span>
+        </button>
+      )}
+
+      {/* AI 智能摘要 */}
+      {Boolean(aiEnabled && canUseAi) && canUseAiOnFile(file) && onAiSummarize && (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors text-left font-normal"
+          onClick={() => {
+            onClose();
+            onAiSummarize(file);
+          }}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+          <span>{t('aiSummarize')}</span>
+        </button>
+      )}
+
+      {/* AI 智能问答 */}
+      {Boolean(aiEnabled && canUseAi) && canUseAiOnFile(file) && onAiQuestion && (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors text-left font-normal"
+          onClick={() => {
+            onClose();
+            onAiQuestion(file);
+          }}
+        >
+          <MessageSquare className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+          <span>{t('aiQuestion')}</span>
         </button>
       )}
 

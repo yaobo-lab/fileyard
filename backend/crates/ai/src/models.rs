@@ -137,6 +137,7 @@ pub struct AiUsageLogWithUser {
 pub struct SummarizeRequest {
     pub file_id: Uuid,
     pub max_length: Option<u32>, // Optional max tokens for summary
+    pub language: Option<String>, // Optional target language (e.g., "zh", "en")
 }
 
 /// Answer request
@@ -144,6 +145,7 @@ pub struct SummarizeRequest {
 pub struct AnswerRequest {
     pub file_id: Uuid,
     pub question: String,
+    pub language: Option<String>, // Optional target language (e.g., "zh", "en")
 }
 
 /// Semantic search request

@@ -2,7 +2,8 @@ import { X, Folder, FileText, Image, Film, Music, Lock, Eye, EyeOff, Calendar, U
 import { format } from 'date-fns';
 import { FileCommentsPanel } from './FileCommentsPanel';
 import { FileGlyphVisual } from './FileGlyphs';
-import { useTranslations } from '../context/I18nContext';
+import { useTranslations, useI18n } from '../context/I18nContext';
+import { zhCN, enUS } from 'date-fns/locale';
 
 interface FileItem {
     id: string;
@@ -42,12 +43,13 @@ const getFileIcon = (file: FileItem, companyId?: string) => {
 export function FilePropertiesModal({ isOpen, onClose, file, departmentName, companyId }: FilePropertiesModalProps) {
     const t = useTranslations('Properties');
     const tCommon = useTranslations('Common');
+    const { locale } = useI18n();
     if (!isOpen || !file) return null;
 
     const formatDate = (dateStr?: string) => {
         if (!dateStr) return t('unknown');
         try {
-            return format(new Date(dateStr), 'PPpp');
+            return format(new Date(dateStr), 'PPpp', { locale: locale === 'zh' ? zhCN : enUS });
         } catch {
             return dateStr;
         }
@@ -105,45 +107,54 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
 
                         {/* Properties List */}
                         <div className="space-y-0">
-                            {/* Owner */}
-                            <div className="flex items-start py-3 border-b border-gray-100 dark:border-gray-700">
-                                <User className="w-4 h-4 text-gray-400 mt-0.5 mr-3 flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t('owner')}</p>
-                                    <div className="flex items-center">
+                            {/* Owner, Size, Visibility in One Row */}
+                            <div className="grid grid-cols-3 gap-3 py-3 border-b border-gray-100 dark:border-gray-700">
+                                {/* Owner */}
+                                <div className="min-w-0">
+                                    <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                        <User className="w-3.5 h-3.5 mr-1 text-gray-400 shrink-0" />
+                                        <span>{t('owner')}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 min-w-0">
                                         {file.owner_avatar ? (
                                             <img 
                                                 src={file.owner_avatar} 
                                                 alt={file.owner}
-                                                className="w-6 h-6 rounded-full object-cover mr-2"
+                                                className="w-5 h-5 rounded-full object-cover shrink-0"
                                             />
                                         ) : (
-                                            <div className="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-xs font-medium text-primary-700 dark:text-primary-300 mr-2">
+                                            <div className="w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-[10px] font-medium text-primary-700 dark:text-primary-300 shrink-0">
                                                 {file.owner?.charAt(0)?.toUpperCase() || '?'}
                                             </div>
                                         )}
-                                        <span className="text-sm text-gray-900 dark:text-white">{file.owner || t('unknown')}</span>
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate" title={file.owner}>
+                                            {file.owner || t('unknown')}
+                                        </span>
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Size */}
-                            <PropertyRow 
-                                icon={HardDrive} 
-                                label={t('size')} 
-                                value={file.size || (file.type === 'folder' ? t('calculating') : t('unknown'))} 
-                            />
+                                {/* Size */}
+                                <div className="min-w-0">
+                                    <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                        <HardDrive className="w-3.5 h-3.5 mr-1 text-gray-400 shrink-0" />
+                                        <span>{t('size')}</span>
+                                    </div>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={file.size}>
+                                        {file.size || (file.type === 'folder' ? t('calculating') : t('unknown'))}
+                                    </p>
+                                </div>
 
-                            {/* Visibility */}
-                            <div className="flex items-start py-3 border-b border-gray-100 dark:border-gray-700">
-                                {file.visibility === 'private' ? (
-                                    <EyeOff className="w-4 h-4 text-purple-500 mt-0.5 mr-3 flex-shrink-0" />
-                                ) : (
-                                    <Eye className="w-4 h-4 text-gray-400 mt-0.5 mr-3 flex-shrink-0" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t('visibility')}</p>
-                                    <p className="text-sm text-gray-900 dark:text-white">
+                                {/* Visibility */}
+                                <div className="min-w-0">
+                                    <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                        {file.visibility === 'private' ? (
+                                            <EyeOff className="w-3.5 h-3.5 mr-1 text-purple-500 shrink-0" />
+                                        ) : (
+                                            <Eye className="w-3.5 h-3.5 mr-1 text-gray-400 shrink-0" />
+                                        )}
+                                        <span>{t('visibility')}</span>
+                                    </div>
+                                    <div>
                                         {file.visibility === 'private' ? (
                                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300">
                                                 {t('private')}
@@ -153,7 +164,7 @@ export function FilePropertiesModal({ isOpen, onClose, file, departmentName, com
                                                 {t('department')}
                                             </span>
                                         )}
-                                    </p>
+                                    </div>
                                 </div>
                             </div>
 

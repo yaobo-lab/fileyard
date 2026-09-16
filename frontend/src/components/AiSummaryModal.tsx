@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { X, Sparkles, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations, useI18n } from '../context/I18nContext';
 
 interface AiSummaryModalProps {
     isOpen: boolean;
@@ -13,9 +14,12 @@ interface AiSummaryModalProps {
 
 export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
     const authFetch = useAuthFetch();
+    const t = useTranslations('AiModal');
+    const { locale } = useI18n();
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     useEffect(() => {
         if (isOpen && file) {
@@ -25,6 +29,7 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
             setSummary(null);
             setError(null);
             setLoading(true);
+            setCopied(false);
         };
     }, [isOpen, file?.id]);
 
@@ -40,6 +45,7 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                 body: JSON.stringify({
                     file_id: file.id,
                     max_length: 500,
+                    language: locale === 'zh' ? 'zh' : 'en',
                 }),
             });
 
@@ -48,12 +54,27 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
             if (res.ok && data.success) {
                 setSummary(data.content);
             } else {
-                setError(data.error || 'Failed to generate summary');
+                if (data.code === 'FILE_CONTENT_EMPTY' || (data.error && data.error.toLowerCase().includes('empty'))) {
+                    setError(t('emptyFileError'));
+                } else {
+                    setError(data.error || t('failedToGenerateSummary'));
+                }
             }
         } catch (err) {
-            setError('Unable to connect to AI service. Please try again later.');
+            setError(t('connectError'));
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleCopy = async () => {
+        if (!summary) return;
+        try {
+            await navigator.clipboard.writeText(summary);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy summary:', err);
         }
     };
 
@@ -65,6 +86,7 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                 {/* Backdrop */}
                 <div
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+                    onClick={onClose}
                 />
 
                 {/* Modal */}
@@ -77,19 +99,40 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                             </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                    AI Summary
+                                    {t('summaryTitle')}
                                 </h2>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[300px]">
                                     {file.name}
                                 </p>
                             </div>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <X className="w-5 h-5 text-gray-500" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {summary && (
+                                <button
+                                    onClick={handleCopy}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                    title={t('copySummary')}
+                                >
+                                    {copied ? (
+                                        <>
+                                            <Check className="w-3.5 h-3.5 text-green-500" />
+                                            <span className="text-green-600 dark:text-green-400">{t('copied')}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span>{t('copySummary')}</span>
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                            <button
+                                onClick={onClose}
+                                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            >
+                                <X className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Content */}
@@ -97,11 +140,11 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="w-10 h-10 text-purple-500 animate-spin mb-4" />
-                                <p className="text-gray-600 dark:text-gray-400">
-                                    Generating summary...
+                                <p className="text-gray-600 dark:text-gray-400 font-medium">
+                                    {t('generatingSummary')}
                                 </p>
                                 <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                                    This may take a few seconds
+                                    {t('generatingHint')}
                                 </p>
                             </div>
                         ) : error ? (
@@ -110,7 +153,7 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                                     <AlertCircle className="w-8 h-8 text-red-500" />
                                 </div>
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                                    Unable to Generate Summary
+                                    {t('unableToGenerateSummary')}
                                 </h3>
                                 <p className="text-center text-gray-600 dark:text-gray-400 max-w-md">
                                     {error}
@@ -119,7 +162,7 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
                                     onClick={generateSummary}
                                     className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                                 >
-                                    Try Again
+                                    {t('tryAgain')}
                                 </button>
                             </div>
                         ) : (
@@ -135,4 +178,3 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
         </div>
     );
 }
-

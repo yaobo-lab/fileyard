@@ -43,6 +43,9 @@ pub enum AiError {
     #[error("File content could not be extracted")]
     ContentExtractionFailed,
 
+    #[error("File content is empty")]
+    FileContentEmpty,
+
     #[error("Database error: {0}")]
     DatabaseError(String),
 
@@ -63,6 +66,7 @@ impl AiError {
                 | AiError::HipaaNotApproved
                 | AiError::SoxReadOnly
                 | AiError::MaintenanceMode(_)
+                | AiError::FileContentEmpty
         )
     }
 
@@ -74,6 +78,7 @@ impl AiError {
             AiError::MonthlyLimitExceeded | AiError::DailyLimitExceeded => 429,
             AiError::MaintenanceMode(_) => 503, // Service Unavailable
             AiError::FileNotFound => 404,
+            AiError::FileContentEmpty => 400,
             _ => 500,
         }
     }

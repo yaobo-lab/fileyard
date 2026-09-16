@@ -1,4 +1,4 @@
-﻿use crate::middleware::rate_limit::{check_rate_limit_atomic, RateLimitConfig};
+use crate::middleware::rate_limit::{check_rate_limit_atomic, RateLimitConfig};
 use crate::password::get_argon2;
 use crate::AppState;
 use argon2::{
@@ -163,7 +163,7 @@ pub async fn list_users(
     // Convert to JSON manually
     let result: Vec<Value> = users.iter().map(|row| {
         json!({
-            "id":row.id,"email":row.email,"name":row.name,"role":row.role,"status":row.status,"avatar_url":row.avatar_url,
+            "id":row.id,"tenant_id":row.tenant_id,"email":row.email,"name":row.name,"role":row.role,"status":row.status,"avatar_url":row.avatar_url,
             "last_active_at":row.last_active_at,"department_id":row.department_id,"dashboard_layout":row.dashboard_layout,
             "widget_config":row.widget_config,"allowed_tenant_ids":row.allowed_tenant_ids,"allowed_department_ids":row.allowed_department_ids,
             "suspended_at":row.suspended_at,"suspended_until":row.suspended_until,"suspension_reason":row.suspension_reason,"created_at":row.created_at,
@@ -179,13 +179,15 @@ pub async fn create_user(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
     Json(input): Json<CreateUserInput>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // Check permissions
     // Check permissions - Managers can invite users too now
-    require_manager(&auth)?;
+    require_manager(&auth)
+        .map_err(|s| (s, Json(json!({"error": "Permission denied", "message": "Permission denied"}))))?;
 
     // Validate role assignment
-    validate_role_assignment(&auth.role, &input.role)?;
+    validate_role_assignment(&auth.role, &input.role)
+        .map_err(|s| (s, Json(json!({"error": "Forbidden", "message": "Cannot assign this role"}))))?;
 
     // Get tenant to check compliance mode
     let tenant_id = if auth.role == "SuperAdmin" {
@@ -199,8 +201,8 @@ pub async fn create_user(
         .users()
         .tenant(tenant_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))))?
+        .ok_or((StatusCode::NOT_FOUND, Json(json!({"error": "Tenant not found"}))))?
         .into();
 
     // Hash password if provided (not required for SSO-only users)
@@ -211,13 +213,11 @@ pub async fn create_user(
         } else {
             let password = input.password.as_deref().ok_or_else(|| {
                 tracing::error!("Password required for local/hybrid auth");
-                StatusCode::BAD_REQUEST
+                (StatusCode::BAD_REQUEST, Json(json!({"error": "Password required", "message": "Password is required"})))
             })?;
 
             // Validate password against tenant's password policy
-            validate_password_against_policy(&state.store, tenant_id, password)
-                .await
-                .map_err(|(status, _json)| status)?;
+            validate_password_against_policy(&state.store, tenant_id, password).await?;
 
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = get_argon2();
@@ -226,7 +226,7 @@ pub async fn create_user(
                     .hash_password(password.as_bytes(), &salt)
                     .map_err(|e| {
                         tracing::error!("Failed to hash password: {:?}", e);
-                        StatusCode::INTERNAL_SERVER_ERROR
+                        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"})))
                     })?
                     .to_string(),
             )
@@ -256,9 +256,9 @@ pub async fn create_user(
         .map_err(|e| {
             tracing::error!("Failed to create user: {:?}", e);
             if e.to_string().contains("unique") {
-                StatusCode::CONFLICT
+                (StatusCode::CONFLICT, Json(json!({"error": "Conflict", "message": "A user with this email already exists"})))
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Internal Error", "message": e.to_string()})))
             }
         })?;
 
@@ -316,10 +316,11 @@ pub async fn update_user(
         .user(id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .filter(|u| u.tenant_id == auth.tenant_id);
+        .filter(|u| auth.role == "SuperAdmin" || u.tenant_id == auth.tenant_id);
 
     let old_user = old_user.ok_or(StatusCode::NOT_FOUND)?;
     let old_role = old_user.role;
+    let old_tenant_id = old_user.tenant_id;
     let user_email = old_user.email;
     let role_changing = input.role.as_ref().map(|r| r != &old_role).unwrap_or(false);
 
@@ -377,7 +378,7 @@ pub async fn update_user(
         .users()
         .update(
             id,
-            auth.tenant_id,
+            old_tenant_id,
             app_entity::repositories::UserUpdatePatch {
                 name: input.name,
                 role: input.role,
@@ -412,7 +413,7 @@ pub async fn update_user(
             if is_escalation {
                 let _ = security_service::alert_permission_escalation(
                     &state.store,
-                    auth.tenant_id,
+                    old_tenant_id,
                     id,
                     auth.user_id,
                     &user_email,
@@ -424,7 +425,7 @@ pub async fn update_user(
             }
 
             // Get tenant for email
-            if let Ok(Some(entity_tenant)) = state.store.users().tenant(auth.tenant_id).await {
+            if let Ok(Some(entity_tenant)) = state.store.users().tenant(old_tenant_id).await {
                 let tenant: Tenant = entity_tenant.into();
                 let _ = notification_service::notify_role_changed(
                     &state.store,
@@ -678,6 +679,7 @@ pub async fn validate_password_against_policy(
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "Password does not meet requirements",
+                "message": errors.join("; "),
                 "requirements": errors
             })),
         )),

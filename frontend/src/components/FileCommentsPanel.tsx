@@ -3,8 +3,9 @@ import { MessageSquare, Send, Trash2, Pencil, X, CornerDownRight, Loader2, Chevr
 import clsx from 'clsx';
 import { useAuthFetch, useAuth } from '../context/AuthContext';
 import { useModalDialog } from '../context/ModalDialogContext';
-import { useTranslations } from '../context/I18nContext';
+import { useTranslations, useI18n } from '../context/I18nContext';
 import { format } from 'date-fns';
+import { zhCN, enUS } from 'date-fns/locale';
 
 interface Comment {
     id: string;
@@ -32,7 +33,9 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
     const authFetch = useAuthFetch();
     const { user } = useAuth();
     const { confirm: modalConfirm } = useModalDialog();
+    const t = useTranslations('Comments');
     const tCommon = useTranslations('Common');
+    const { locale } = useI18n();
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -55,14 +58,14 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                 setComments(data.comments || []);
                 setCommentCount(data.total || 0);
             } else {
-                setError('Failed to load comments');
+                setError(t('failedToLoad'));
             }
         } catch {
-            setError('Failed to load comments');
+            setError(t('failedToLoad'));
         } finally {
             setLoading(false);
         }
-    }, [authFetch, companyId, fileId]);
+    }, [authFetch, companyId, fileId, t]);
 
     useEffect(() => {
         if (expanded) {
@@ -104,10 +107,10 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                 setNewComment('');
                 setCommentCount((prev) => prev + 1);
             } else {
-                setError('Failed to post comment');
+                setError(t('failedToPost'));
             }
         } catch {
-            setError('Failed to post comment');
+            setError(t('failedToPost'));
         } finally {
             setSubmitting(false);
         }
@@ -135,10 +138,10 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                 setReplyingTo(null);
                 setCommentCount((prev) => prev + 1);
             } else {
-                setError('Failed to post reply');
+                setError(t('failedToReply'));
             }
         } catch {
-            setError('Failed to post reply');
+            setError(t('failedToReply'));
         } finally {
             setSubmitting(false);
         }
@@ -174,10 +177,10 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                 setEditingId(null);
                 setEditContent('');
             } else {
-                setError('Failed to update comment');
+                setError(t('failedToUpdate'));
             }
         } catch {
-            setError('Failed to update comment');
+            setError(t('failedToUpdate'));
         } finally {
             setSubmitting(false);
         }
@@ -186,7 +189,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
     const handleDeleteComment = async (commentId: string, parentId?: string) => {
         const confirmed = await modalConfirm({
             title: tCommon('deleteConfirmTitle'),
-            description: 'Are you sure you want to delete this comment?',
+            description: t('deleteConfirmDesc'),
             variant: 'destructive',
             confirmText: tCommon('delete'),
             cancelText: tCommon('cancel')
@@ -209,10 +212,10 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                 });
                 setCommentCount((prev) => Math.max(0, prev - 1));
             } else {
-                setError('Failed to delete comment');
+                setError(t('failedToDelete'));
             }
         } catch {
-            setError('Failed to delete comment');
+            setError(t('failedToDelete'));
         }
     };
 
@@ -236,9 +239,13 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                         <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-medium text-gray-900 dark:text-white">{comment.user_name}</span>
                             <span className="text-xs text-gray-500 dark:text-gray-400">
-                                {format(new Date(comment.created_at), 'MMM d, h:mm a')}
+                                {format(
+                                    new Date(comment.created_at),
+                                    locale === 'zh' ? 'yyyy-MM-dd HH:mm' : 'MMM d, h:mm a',
+                                    { locale: locale === 'zh' ? zhCN : enUS }
+                                )}
                             </span>
-                            {comment.is_edited && <span className="text-xs text-gray-400 dark:text-gray-500">(edited)</span>}
+                            {comment.is_edited && <span className="text-xs text-gray-400 dark:text-gray-500">{t('edited')}</span>}
                         </div>
 
                         {/* Content or Edit Form */}
@@ -256,7 +263,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                     disabled={submitting}
                                     className="px-3 py-1.5 text-xs bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
                                 >
-                                    Save
+                                    {t('save')}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -265,7 +272,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                     }}
                                     className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                                 >
-                                    Cancel
+                                    {tCommon('cancel')}
                                 </button>
                             </div>
                         ) : (
@@ -283,7 +290,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                         }}
                                         className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
                                     >
-                                        <CornerDownRight className="w-3 h-3" /> Reply
+                                        <CornerDownRight className="w-3 h-3" /> {t('reply')}
                                     </button>
                                 )}
                                 {comment.can_edit && (
@@ -294,7 +301,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                         }}
                                         className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
                                     >
-                                        <Pencil className="w-3 h-3" /> Edit
+                                        <Pencil className="w-3 h-3" /> {t('edit')}
                                     </button>
                                 )}
                                 {comment.can_delete && (
@@ -302,7 +309,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                         onClick={() => handleDeleteComment(comment.id, parentId)}
                                         className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
                                     >
-                                        <Trash2 className="w-3 h-3" /> Delete
+                                        <Trash2 className="w-3 h-3" /> {t('delete')}
                                     </button>
                                 )}
                             </div>
@@ -315,7 +322,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                                     type="text"
                                     value={replyContent}
                                     onChange={(e) => setReplyContent(e.target.value)}
-                                    placeholder="Write a reply..."
+                                    placeholder={t('writeReplyPlaceholder')}
                                     className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                     autoFocus
                                 />
@@ -358,7 +365,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
             >
                 <div className="flex items-center gap-2">
                     <MessageSquare className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Comments</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('title')}</span>
                     {commentCount > 0 && (
                         <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
                             {commentCount}
@@ -401,7 +408,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                     {/* Empty State */}
                     {!loading && comments.length === 0 && (
                         <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
-                            No comments yet. Be the first to comment!
+                            {t('noComments')}
                         </div>
                     )}
 
@@ -411,7 +418,7 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                             type="text"
                             value={newComment}
                             onChange={(e) => setNewComment(e.target.value)}
-                            placeholder="Write a comment..."
+                            placeholder={t('writeCommentPlaceholder')}
                             className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                         />
                         <button

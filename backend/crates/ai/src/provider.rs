@@ -31,10 +31,20 @@ pub trait AiProvider: Send + Sync {
     fn is_hipaa_approved(&self) -> bool;
 
     /// Summarize the given text
-    async fn summarize(&self, text: &str, max_tokens: u32) -> Result<AiResponse, AiError>;
+    async fn summarize(
+        &self,
+        text: &str,
+        max_tokens: u32,
+        language: Option<&str>,
+    ) -> Result<AiResponse, AiError>;
 
     /// Answer a question given context
-    async fn answer(&self, question: &str, context: &str) -> Result<AiResponse, AiError>;
+    async fn answer(
+        &self,
+        question: &str,
+        context: &str,
+        language: Option<&str>,
+    ) -> Result<AiResponse, AiError>;
 
     /// Generate embeddings for semantic search
     async fn embed(&self, text: &str) -> Result<EmbeddingResponse, AiError>;

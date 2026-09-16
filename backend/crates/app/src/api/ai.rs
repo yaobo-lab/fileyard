@@ -59,6 +59,7 @@ fn ai_error_response(err: AiError) -> (StatusCode, Json<AiErrorResponse>) {
         AiError::InvalidResponse => "INVALID_RESPONSE",
         AiError::FileNotFound => "FILE_NOT_FOUND",
         AiError::ContentExtractionFailed => "CONTENT_EXTRACTION_FAILED",
+        AiError::FileContentEmpty => "FILE_CONTENT_EMPTY",
         AiError::DatabaseError(_) => "DATABASE_ERROR",
         AiError::InternalError => "INTERNAL_ERROR",
     };
@@ -79,16 +80,24 @@ fn ai_error_response(err: AiError) -> (StatusCode, Json<AiErrorResponse>) {
 pub async fn get_ai_status(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthUser>,
+    Query(query): Query<TenantQuery>,
 ) -> Result<Json<AiStatusResponse>, (StatusCode, Json<AiErrorResponse>)> {
     let service = AiService::new(state.store.clone());
 
+    // Determine target tenant: only SuperAdmin can query other tenants
+    let target_tenant_id = if auth.role == "SuperAdmin" {
+        query.tenant_id.unwrap_or(auth.tenant_id)
+    } else {
+        auth.tenant_id
+    };
+
     let settings = service
-        .get_settings(auth.tenant_id)
+        .get_settings(target_tenant_id)
         .await
         .map_err(ai_error_response)?;
 
     // Check if user's role has access
-    let has_access = settings.allowed_roles.iter().any(|r| r == &auth.role);
+    let has_access = settings.allowed_roles.iter().any(|r| r.eq_ignore_ascii_case(&auth.role));
 
     Ok(Json(AiStatusResponse {
         enabled: settings.enabled,
@@ -285,7 +294,8 @@ pub async fn summarize_file(
 
     // Calculate content hash to detect changes
     use sha2::{Digest, Sha256};
-    let content_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+    let lang_key = request.language.as_deref().unwrap_or("auto");
+    let content_hash = format!("{:x}:{}", Sha256::digest(content.as_bytes()), lang_key);
 
     // Check for cached summary BEFORE maintenance mode check
     // This allows returning cached summaries even during maintenance
@@ -350,6 +360,7 @@ pub async fn summarize_file(
             request.file_id,
             &content,
             request.max_length,
+            request.language.as_deref(),
         )
         .await
         .map_err(ai_error_response)?;
@@ -427,6 +438,7 @@ pub async fn answer_question(
             request.file_id,
             &content,
             &request.question,
+            request.language.as_deref(),
         )
         .await
         .map_err(ai_error_response)?;
@@ -476,7 +488,7 @@ pub async fn semantic_search(
     if !settings.enabled {
         return Err(ai_error_response(AiError::Disabled));
     }
-    if !settings.allowed_roles.iter().any(|r| r == &auth.role) {
+    if !settings.allowed_roles.iter().any(|r| r.eq_ignore_ascii_case(&auth.role)) {
         return Err(ai_error_response(AiError::Forbidden));
     }
 
@@ -621,11 +633,36 @@ async fn get_file_content(
         .ok_or(AiError::FileNotFound)?;
 
     // Check if format is supported for text extraction
-    let mime = file
+    let mut mime = file
         .content_type
         .as_deref()
-        .unwrap_or("application/octet-stream");
-    if !crate::text_extract::is_extractable(mime) {
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    let base_mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if base_mime == "application/octet-stream" || base_mime.is_empty() || !crate::text_extract::is_extractable(&mime) {
+        let ext = file.name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        let inferred = match ext.as_str() {
+            "md" | "markdown" => Some("text/markdown"),
+            "txt" | "log" | "ini" | "conf" => Some("text/plain"),
+            "json" => Some("application/json"),
+            "xml" => Some("application/xml"),
+            "csv" => Some("text/csv"),
+            "tsv" => Some("text/tab-separated-values"),
+            "pdf" => Some("application/pdf"),
+            "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            "py" | "rs" | "js" | "ts" | "jsx" | "tsx" | "html" | "css" | "sql" | "sh" | "yaml" | "yml" => Some("text/plain"),
+            _ => None,
+        };
+        if let Some(inf) = inferred {
+            mime = inf.to_string();
+        }
+    }
+
+    if !crate::text_extract::is_extractable(&mime) {
+        tracing::warn!("Unsupported file format for AI text extraction: file={}, mime={}", file.name, mime);
         return Err(AiError::ContentExtractionFailed);
     }
 
@@ -639,11 +676,21 @@ async fn get_file_content(
             AiError::ContentExtractionFailed
         })?;
 
+    if file.size_bytes == 0 || bytes.is_empty() {
+        tracing::warn!("File {} ({}) is empty (0 bytes), cannot process with AI", file.name, file_id);
+        return Err(AiError::FileContentEmpty);
+    }
+
     // Extract text based on file type (PDF, Office docs, plain text, etc.)
-    let content = crate::text_extract::extract_text(&bytes, mime).map_err(|e| {
-        tracing::warn!("Text extraction failed for {}: {}", mime, e);
+    let content = crate::text_extract::extract_text(&bytes, &mime).map_err(|e| {
+        tracing::warn!("Text extraction failed for {} ({}): {}", file.name, mime, e);
         AiError::ContentExtractionFailed
     })?;
+
+    if content.trim().is_empty() {
+        tracing::warn!("Extracted text content is empty for {} ({})", file.name, file_id);
+        return Err(AiError::FileContentEmpty);
+    }
 
     // Limit content size (max 100KB for AI processing)
     const MAX_CONTENT_SIZE: usize = 100 * 1024;

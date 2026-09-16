@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, MessageSquare, Loader2, AlertCircle, Send, Sparkles } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
+import { useTranslations, useI18n } from '../context/I18nContext';
 import clsx from 'clsx';
 
 interface AiQuestionModalProps {
@@ -19,6 +20,8 @@ interface Message {
 
 export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps) {
     const authFetch = useAuthFetch();
+    const t = useTranslations('AiModal');
+    const { locale } = useI18n();
     const [messages, setMessages] = useState<Message[]>([]);
     const [question, setQuestion] = useState('');
     const [loading, setLoading] = useState(false);
@@ -60,6 +63,7 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                 body: JSON.stringify({
                     file_id: file.id,
                     question: userQuestion,
+                    language: locale === 'zh' ? 'zh' : 'en',
                 }),
             });
 
@@ -71,10 +75,14 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                     { role: 'assistant', content: data.content },
                 ]);
             } else {
-                setError(data.error || 'Failed to get answer');
+                if (data.code === 'FILE_CONTENT_EMPTY' || (data.error && data.error.toLowerCase().includes('empty'))) {
+                    setError(t('emptyFileError'));
+                } else {
+                    setError(data.error || t('failedToGetAnswer'));
+                }
             }
         } catch (err) {
-            setError('Unable to connect to AI service. Please try again later.');
+            setError(t('connectError'));
         } finally {
             setLoading(false);
         }
@@ -82,12 +90,19 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
 
     if (!isOpen) return null;
 
+    const suggestions = [
+        t('suggestionWhatAbout'),
+        t('suggestionKeyPoints'),
+        t('suggestionMainTopics'),
+    ];
+
     return (
         <div className="fixed inset-0 z-[60] overflow-y-auto">
             <div className="flex min-h-screen items-center justify-center p-4">
                 {/* Backdrop */}
                 <div
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+                    onClick={onClose}
                 />
 
                 {/* Modal */}
@@ -100,10 +115,10 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                             </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                    Ask AI
+                                    {t('askTitle')}
                                 </h2>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[300px]">
-                                    About: {file.name}
+                                    {t('aboutFile', { name: file.name })}
                                 </p>
                             </div>
                         </div>
@@ -123,13 +138,13 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                                     <Sparkles className="w-8 h-8 text-purple-500" />
                                 </div>
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                                    Ask anything about this file
+                                    {t('emptyPromptTitle')}
                                 </h3>
-                                <p className="text-gray-500 dark:text-gray-400 max-w-sm">
-                                    Get instant answers about the content, structure, or meaning of this document.
+                                <p className="text-gray-500 dark:text-gray-400 max-w-sm text-sm">
+                                    {t('emptyPromptDesc')}
                                 </p>
                                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                                    {['What is this document about?', 'Summarize the key points', 'What are the main topics?'].map((suggestion) => (
+                                    {suggestions.map((suggestion) => (
                                         <button
                                             key={suggestion}
                                             onClick={() => setQuestion(suggestion)}
@@ -186,9 +201,9 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
                                 type="text"
                                 value={question}
                                 onChange={(e) => setQuestion(e.target.value)}
-                                placeholder="Ask a question about this file..."
+                                placeholder={t('inputPlaceholder')}
                                 disabled={loading}
-                                className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:opacity-50"
+                                className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:opacity-50 text-sm"
                             />
                             <button
                                 type="submit"
@@ -213,4 +228,3 @@ export function AiQuestionModal({ isOpen, onClose, file }: AiQuestionModalProps)
         </div>
     );
 }
-
