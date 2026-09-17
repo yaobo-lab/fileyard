@@ -22,6 +22,7 @@ import { useAuthFetch, useAuth } from '../../context/AuthContext';
 import { SsoAttributeMappings } from '../../components/SsoAttributeMappings';
 import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
+import { copyToClipboard as utilsCopyToClipboard } from '../../lib/utils';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -580,10 +581,12 @@ export function SsoSettings() {
         }
     };
 
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setSuccess('Copied to clipboard.');
-        setTimeout(() => setSuccess(''), 2000);
+    const copyToClipboard = async (text: string) => {
+        const ok = await utilsCopyToClipboard(text);
+        if (ok) {
+            setSuccess('Copied to clipboard.');
+            setTimeout(() => setSuccess(''), 2000);
+        }
     };
 
     // ==================== Render ====================

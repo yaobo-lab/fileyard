@@ -21,18 +21,27 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     }
   }
 
-  // 2. Fallback: invisible textarea + execCommand('copy')
+  // 2. Fallback: textarea + execCommand('copy')
   try {
     const textArea = document.createElement("textarea");
     textArea.value = text;
+    // Avoid scrolling to bottom or disturbing layout
     textArea.style.position = "fixed";
-    textArea.style.top = "-9999px";
-    textArea.style.left = "-9999px";
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.width = "1px";
+    textArea.style.height = "1px";
+    textArea.style.padding = "0";
+    textArea.style.border = "none";
+    textArea.style.outline = "none";
+    textArea.style.boxShadow = "none";
+    textArea.style.background = "transparent";
     textArea.style.opacity = "0";
-    textArea.setAttribute("readonly", "");
+    textArea.style.pointerEvents = "none";
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
+    textArea.setSelectionRange(0, textArea.value.length);
     const successful = document.execCommand("copy");
     document.body.removeChild(textArea);
     return successful;

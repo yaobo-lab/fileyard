@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Mail, Link2, Copy, Check, Send, Sparkles, Building2, Clock, Users, Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { useTranslations } from '../context/I18nContext';
+import { copyToClipboard } from '../lib/utils';
 
 interface InviteMemberModalProps {
     isOpen: boolean;
@@ -40,10 +41,12 @@ export function InviteMemberModal({
 
     const inviteLink = `${window.location.origin}/register?invite=${companyId}&expires=${expiryDays}`;
 
-    const handleCopyLink = () => {
-        navigator.clipboard.writeText(inviteLink);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2500);
+    const handleCopyLink = async () => {
+        const ok = await copyToClipboard(inviteLink);
+        if (ok) {
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2500);
+        }
     };
 
     const handleSendInvite = (e: React.FormEvent) => {

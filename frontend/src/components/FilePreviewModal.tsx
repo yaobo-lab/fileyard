@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   Download,
@@ -27,11 +27,14 @@ interface FilePreviewModalProps {
   file: {
     id?: string;
     companyId?: string;
+    parentPath?: string;
     name: string;
     url: string;
     type?: string;
     size?: number | string;
+    initialMode?: 'rendered' | 'source' | 'split';
   } | null;
+  onSaved?: (newMetadata?: any) => void;
 }
 
 export type SupportedKind =
@@ -99,13 +102,23 @@ const MODAL_SIZES: Record<SupportedKind, string> = {
   other: 'max-w-md',
 };
 
-export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProps) {
+export function FilePreviewModal({ isOpen, onClose, file, onSaved }: FilePreviewModalProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isStarred, setIsStarred] = useState(false);
+  const [isMarkdownDirty, setIsMarkdownDirty] = useState(false);
   const codeViewerRef = useRef<CodeViewerHandle>(null);
+
+  const handleRequestClose = useCallback(() => {
+    if (isMarkdownDirty) {
+      if (!window.confirm('当前文档有尚未保存的内容，确定要退出吗？未保存的修改将会丢失。')) {
+        return;
+      }
+    }
+    onClose();
+  }, [isMarkdownDirty, onClose]);
 
   // Drag position state
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -215,11 +228,11 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleRequestClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, handleRequestClose]);
 
   if (!isOpen || !file) return null;
 
@@ -314,7 +327,7 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
             {/* Close Button (matching screenshot) */}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleRequestClose}
               className="p-1 rounded text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               title="关闭 (Esc)"
             >
@@ -346,7 +359,17 @@ export function FilePreviewModal({ isOpen, onClose, file }: FilePreviewModalProp
             </div>
           ) : blobUrl ? (
             kind === 'markdown' ? (
-              <MarkdownViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+              <MarkdownViewer
+                url={blobUrl}
+                fileName={file.name}
+                fileId={file.id}
+                companyId={file.companyId}
+                parentPath={file.parentPath}
+                isDark={isDark}
+                initialMode={file.initialMode}
+                onSaved={onSaved}
+                onDirtyChange={setIsMarkdownDirty}
+              />
             ) : kind === 'docx' ? (
               <DocxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
             ) : kind === 'pptx' ? (

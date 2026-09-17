@@ -538,6 +538,10 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
             "/api/preview/{company_id}/{file_id}",
             get(handlers::preview_office_file),
         )
+        .route(
+            "/api/files/{company_id}/{file_id}/content",
+            put(handlers::update_file_content),
+        )
         .route("/api/folders/{company_id}", post(handlers::create_folder))
         .route(
             "/api/files/{company_id}/rename",

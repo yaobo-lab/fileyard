@@ -12,6 +12,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
+import { copyToClipboard } from '@/lib/utils';
 
 interface DocxViewerProps {
   url: string;
@@ -230,10 +231,12 @@ export function DocxViewer({ url, fileName, isDark: initialIsDark = false }: Doc
     }
   };
 
-  const handleCopyFileName = () => {
-    navigator.clipboard.writeText(fileName);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyFileName = async () => {
+    const ok = await copyToClipboard(fileName);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
     setIsMoreMenuOpen(false);
   };
 

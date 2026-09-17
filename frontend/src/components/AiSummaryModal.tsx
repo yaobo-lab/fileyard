@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
 import { useTranslations, useI18n } from '../context/I18nContext';
+import { copyToClipboard } from '../lib/utils';
 
 interface AiSummaryModalProps {
     isOpen: boolean;
@@ -70,9 +71,11 @@ export function AiSummaryModal({ isOpen, onClose, file }: AiSummaryModalProps) {
     const handleCopy = async () => {
         if (!summary) return;
         try {
-            await navigator.clipboard.writeText(summary);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            const ok = await copyToClipboard(summary);
+            if (ok) {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }
         } catch (err) {
             console.error('Failed to copy summary:', err);
         }

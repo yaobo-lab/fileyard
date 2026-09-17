@@ -13,6 +13,7 @@ import {
   FileText,
   Sparkles,
   MessageSquare,
+  Edit3,
 } from 'lucide-react';
 import { FileSystemFolderGlyph } from './FileGlyphs';
 import clsx from 'clsx';
@@ -28,6 +29,7 @@ interface FileContextMenuProps {
   target: ContextMenuTarget | null;
   onClose: () => void;
   onOpen: (file: any) => void;
+  onEdit?: (file: any) => void;
   onProperties: (file: any) => void;
   onDownload: (file: any) => void;
   onRename: (file: any) => void;
@@ -43,6 +45,15 @@ interface FileContextMenuProps {
   canDelete?: boolean;
   canShare?: boolean;
 }
+
+export function isMarkdownFile(file: any): boolean {
+  if (!file) return false;
+  if (file.type === 'folder' || file.kind === 'folder' || file.type === 'group') return false;
+  const fileName = file.name || '';
+  const ext = fileName.toLowerCase().split('.').pop() || '';
+  return ['md', 'markdown', 'mdx'].includes(ext);
+}
+
 
 const SUPPORTED_MARKDOWN_EXTENSIONS = new Set([
   // Word documents
@@ -91,6 +102,7 @@ export function FileContextMenu({
   target,
   onClose,
   onOpen,
+  onEdit,
   onProperties,
   onDownload,
   onRename,
@@ -183,6 +195,22 @@ export function FileContextMenu({
         )}
         <span>{t('open')}</span>
       </button>
+
+      {/* 在线编辑 (Markdown) */}
+      {isMarkdownFile(file) && onEdit && (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors text-left font-medium"
+          onClick={() => {
+            onClose();
+            onEdit(file);
+          }}
+        >
+          <Edit3 className="w-3.5 h-3.5 shrink-0" />
+          <span>{t('onlineEdit') || '在线编辑'}</span>
+        </button>
+      )}
 
       <div className="my-1 border-t border-gray-100 dark:border-gray-700/60" />
 

@@ -827,6 +827,31 @@ impl<'a> FileRepository<'a> {
         Ok(())
     }
 
+    pub async fn update_file_content(
+        &self,
+        tenant_id: Uuid,
+        file_id: Uuid,
+        storage_path: &str,
+        size_bytes: i64,
+        content_hash: &str,
+    ) -> DataResult<files_metadata::Model> {
+        let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
+        let file = files_metadata::Entity::find_by_id(file_id)
+            .filter(files_metadata::Column::TenantId.eq(tenant_id))
+            .filter(files_metadata::Column::IsDeleted.eq(false))
+            .one(self.db)
+            .await?
+            .ok_or_else(|| sea_orm::DbErr::RecordNotFound(format!("File {} not found", file_id)))?;
+
+        let mut active = file.into_active_model();
+        active.storage_path = Set(storage_path.to_string());
+        active.size_bytes = Set(size_bytes);
+        active.content_hash = Set(Some(content_hash.to_string()));
+        active.updated_at = Set(now);
+        Ok(active.update(self.db).await?)
+    }
+
+
     pub async fn create_folder(&self, p: CreateFolderParams<'_>) -> DataResult<files_metadata::Model> {
         let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
         let active = files_metadata::ActiveModel {

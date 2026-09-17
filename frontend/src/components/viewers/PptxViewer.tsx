@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { copyToClipboard } from '@/lib/utils';
 
 interface PptxViewerProps {
   url: string;
@@ -231,10 +232,12 @@ export function PptxViewer({ url, fileName, isDark = false }: PptxViewerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePrev, handleNext, isEditingPage]);
 
-  const handleCopyFileName = () => {
-    navigator.clipboard.writeText(fileName);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyFileName = async () => {
+    const ok = await copyToClipboard(fileName);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
     setIsMoreMenuOpen(false);
   };
 

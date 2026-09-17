@@ -119,7 +119,7 @@ export function FileBrowser() {
     const [activeGroupMenu, setActiveGroupMenu] = useState<string | null>(null);
     const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
     const [showMoreStarred, setShowMoreStarred] = useState(false);
-    const [previewFile, setPreviewFile] = useState<{ name: string, url: string, type: any } | null>(null);
+    const [previewFile, setPreviewFile] = useState<any | null>(null);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [uploadFilesList, setUploadFilesList] = useState<UploadFile[]>([]);
@@ -987,6 +987,8 @@ export function FileBrowser() {
         else if (contentType.startsWith('audio/')) fileType = 'audio';
         
         setPreviewFile({
+            id: file.id,
+            companyId: companyId,
             name: file.name,
             url: `/api/download/${companyId}/${file.id}`,
             type: fileType,
@@ -1306,7 +1308,7 @@ export function FileBrowser() {
         return isLocker || isOwner || hasRequiredRole;
     };
 
-    const handlePreview = (file: FileItem) => {
+    const handlePreview = (file: FileItem, mode?: 'rendered' | 'source' | 'split') => {
         // SECURITY: Check if user can access locked file before preview
         if (!canAccessLockedFile(file)) {
             // Show a toast or alert that file is locked
@@ -1314,9 +1316,13 @@ export function FileBrowser() {
             return;
         }
         setPreviewFile({
+            id: file.id,
+            companyId: companyId,
+            parentPath: currentPath.length > 1 ? currentPath.slice(1).join('/') : undefined,
             name: file.name,
             url: `/api/download/${companyId}/${file.id}`,
-            type: file.type
+            type: file.type,
+            initialMode: mode || 'rendered',
         });
     };
 
@@ -2958,6 +2964,9 @@ export function FileBrowser() {
                     isOpen={!!previewFile}
                     onClose={handlePreviewClose}
                     file={previewFile}
+                    onSaved={() => {
+                        fetchFiles();
+                    }}
                 />
             )}
 
@@ -3760,6 +3769,7 @@ export function FileBrowser() {
                         handlePreview(file);
                     }
                 }}
+                onEdit={(file) => handlePreview(file, 'source')}
                 onProperties={(file) => handleViewProperties(file)}
                 onDownload={(file) => handleDownload(file)}
                 onRename={(file) => {

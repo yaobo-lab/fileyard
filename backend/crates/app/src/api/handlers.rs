@@ -5163,3 +5163,220 @@ pub async fn convert_file_to_markdown(
         }
     })))
 }
+
+#[derive(serde::Deserialize)]
+pub struct UpdateFileContentInput {
+    pub content: String,
+}
+
+/// PUT /api/files/{company_id}/{file_id}/content
+pub async fn update_file_content(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthUser>,
+    Path((company_id, file_id)): Path<(String, String)>,
+    Json(input): Json<UpdateFileContentInput>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let bad_request = |msg: String| (StatusCode::BAD_REQUEST, Json(json!({ "error": "bad_request", "message": msg })));
+    let not_found = |msg: String| (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found", "message": msg })));
+    let forbidden = |msg: String| (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden", "message": msg })));
+    let internal_error = |msg: String| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "internal_error", "message": msg })));
+
+    let tenant_id = Uuid::parse_str(&company_id).map_err(|_| bad_request("Invalid company ID".to_string()))?;
+    let file_uuid = Uuid::parse_str(&file_id).map_err(|_| bad_request("Invalid file ID".to_string()))?;
+
+    // Verify tenant access
+    if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
+        return Err(forbidden("Access denied to this tenant".to_string()));
+    }
+
+    // Retrieve file metadata
+    let file = state
+        .store
+        .files()
+        .find_active_by_id(tenant_id, file_uuid)
+        .await
+        .map_err(|e| internal_error(format!("Database query error: {}", e)))?
+        .ok_or_else(|| not_found("File not found".to_string()))?;
+
+    if file.is_directory {
+        return Err(bad_request("Directories cannot have text content".to_string()));
+    }
+
+    // Check company folder restriction - only admins can edit files in company folder
+    let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
+    if !is_admin {
+        let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_uuid).await;
+        if in_company_folder {
+            return Err(forbidden("Cannot edit files in company folder without admin rights".to_string()));
+        }
+    }
+
+    // Check write permissions
+    if !can_access_file(
+        &state.store,
+        file_uuid,
+        tenant_id,
+        auth.user_id,
+        &auth.role,
+        "write",
+    )
+    .await
+    .map_err(|_| internal_error("Failed to check file permissions".to_string()))?
+    {
+        return Err(forbidden("No write permission for this file".to_string()));
+    }
+
+    // Check immutability
+    if file.is_immutable.unwrap_or(false) {
+        return Err(forbidden("This file is immutable and cannot be modified".to_string()));
+    }
+
+    // Check lock status
+    if file.is_locked {
+        let is_locker = file.locked_by == Some(auth.user_id);
+        let is_owner = file.owner_id == Some(auth.user_id);
+        if !is_admin && !is_locker && !is_owner {
+            return Err(forbidden("This file is locked by another user".to_string()));
+        }
+    }
+
+    // Check tenant storage limits
+    let tenant = state
+        .store
+        .tenants()
+        .by_id(tenant_id)
+        .await
+        .map_err(|e| internal_error(format!("Failed to query tenant: {}", e)))?
+        .ok_or_else(|| not_found("Tenant not found".to_string()))?;
+
+    let md_bytes = input.content.into_bytes();
+    let md_size = md_bytes.len() as i64;
+
+    if let Some(max_size) = tenant.max_upload_size_bytes {
+        if md_size > max_size {
+            return Err(bad_request(format!(
+                "File too large. Maximum size is {}",
+                format_bytes(max_size)
+            )));
+        }
+    }
+
+    let size_delta = md_size - file.size_bytes;
+    if size_delta > 0 {
+        if let Some(storage_quota) = tenant.storage_quota_bytes {
+            let current_storage = state
+                .store
+                .files()
+                .calculate_storage_used(tenant_id)
+                .await
+                .map_err(|e| internal_error(format!("Failed to calculate storage used: {}", e)))?;
+
+            if current_storage + size_delta > storage_quota {
+                return Err(bad_request("Storage quota exceeded".to_string()));
+            }
+        }
+    }
+
+    // Compute hash and content-addressed storage key
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&md_bytes);
+    let content_hash = hasher.finalize().to_hex().to_string();
+
+    let dept_scope = file
+        .department_id
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "private".to_string());
+    let hash_prefix = &content_hash[..2];
+    let content_key = format!(
+        "{}/{}/{}/{}",
+        tenant_id, dept_scope, hash_prefix, content_hash
+    );
+
+    let existing_content = state
+        .store
+        .files()
+        .find_content_hash_storage_path(
+            tenant_id,
+            file.department_id,
+            &content_hash,
+        )
+        .await
+        .map_err(|e| internal_error(format!("Failed to query content hash: {}", e)))?;
+
+    let storage_key = if let Some(ref existing_path) = existing_content {
+        existing_path.clone()
+    } else {
+        state.storage.upload(&content_key, md_bytes).await.map_err(|e| {
+            tracing::error!("Failed to upload markdown to storage: {}", e);
+            internal_error(format!("Failed to save markdown to storage: {}", e))
+        })?;
+        content_key
+    };
+
+    // Compliance / SOX mode check
+    let compliance_mode = get_tenant_compliance_mode(&state.store, tenant_id)
+        .await
+        .unwrap_or_else(|_| "Standard".to_string());
+    let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
+
+    let (saved_file_id, saved_version, saved_updated_at) = if restrictions.file_versioning_required {
+        let new_version = file.version.unwrap_or(1) + 1;
+        let _ = state.store.files().set_immutable(file.id, true).await;
+        let file_ulid = ulid::Ulid::new().to_string();
+        let create_params = CreateFileParams {
+            tenant_id,
+            name: &file.name,
+            storage_path: &storage_key,
+            size_bytes: md_size,
+            content_type: file.content_type.as_deref().unwrap_or("text/markdown; charset=utf-8"),
+            owner_id: auth.user_id,
+            department_id: file.department_id,
+            parent_path: file.parent_path.as_deref(),
+            version: new_version,
+            version_parent_id: Some(file.id),
+            visibility: &file.visibility,
+            content_hash: &content_hash,
+            ulid: &file_ulid,
+        };
+        let created = state
+            .store
+            .files()
+            .create_file(create_params)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to save new file version: {:?}", e);
+                internal_error(format!("Failed to save new file version: {}", e))
+            })?;
+        (created.id, created.version, created.updated_at)
+    } else {
+        let updated = state
+            .store
+            .files()
+            .update_file_content(
+                tenant_id,
+                file.id,
+                &storage_key,
+                md_size,
+                &content_hash,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update file metadata: {:?}", e);
+                internal_error(format!("Failed to update file metadata: {}", e))
+            })?;
+        (updated.id, updated.version, updated.updated_at)
+    };
+
+    Ok(Json(json!({
+        "success": true,
+        "message": "文件已成功保存",
+        "file": {
+            "id": saved_file_id,
+            "name": file.name,
+            "size_bytes": md_size,
+            "version": saved_version,
+            "updated_at": saved_updated_at
+        }
+    })))
+}
+

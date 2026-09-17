@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Filter, Mail, CheckCircle, XCircle, Ban, Settings, Building2, ChevronDown } from 'lucide-react';
+import { Plus, Search, Filter, Mail, CheckCircle, XCircle, Ban, Settings, Building2, ChevronDown, UserPlus } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
 import { FilterModal } from '../components/FilterModal';
 import { InviteUserModal, UserData } from '../components/InviteUserModal';
+import { AddMemberModal } from '../components/AddMemberModal';
+import { InviteMemberModal } from '../components/InviteMemberModal';
 import { UserDetailsModal } from '../components/UserDetailsModal';
 import { ManageUserModal } from '../components/ManageUserModal';
 import { Avatar } from '../components/Avatar';
@@ -32,6 +34,7 @@ interface User {
     department_id?: string | null;
     allowed_department_ids?: string[] | null;
     allowed_tenant_ids?: string[] | null;
+    tenant_id?: string;
     suspended_at?: string | null;
     suspended_until?: string | null;
     suspension_reason?: string | null;
@@ -70,6 +73,8 @@ export function Users() {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+    const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+    const [isInviteMemberModalOpen, setIsInviteMemberModalOpen] = useState(false);
     const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -451,15 +456,21 @@ export function Users() {
                     ) : null}
                     
                     <Button
+                        variant="outline"
                         size="sm"
-                        onClick={() => {
-                            setSelectedUser(null);
-                            setIsInviteModalOpen(true);
-                        }}
-                        className="h-9 gap-1.5"
+                        onClick={() => setIsInviteMemberModalOpen(true)}
+                        className="h-9 gap-1.5 cursor-pointer"
                     >
-                        <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">{t('inviteUser')}</span>
+                        <Mail className="w-4 h-4 text-muted-foreground" />
+                        <span className="hidden sm:inline">{t('inviteUser') || '邀请用户'}</span>
+                    </Button>
+                    <Button
+                        size="sm"
+                        onClick={() => setIsAddMemberModalOpen(true)}
+                        className="h-9 gap-1.5 cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                        <UserPlus className="w-4 h-4" />
+                        <span>{t('addUser') || '添加用户'}</span>
                     </Button>
                 </div>
             </div>
@@ -516,9 +527,16 @@ export function Users() {
                                                     size="lg"
                                                 />
                                                 <div className="ml-3 min-w-0 flex-1">
-                                                    <p className="text-sm font-medium text-foreground truncate">
-                                                        {user.name}
-                                                    </p>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <p className="text-sm font-medium text-foreground truncate">
+                                                            {user.name}
+                                                        </p>
+                                                        {tenant?.id && user.tenant_id && user.tenant_id !== tenant.id && (
+                                                            <span className="px-1.5 py-0.5 text-[10px] font-normal rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                                                {t('crossCompany') || '跨企业'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <p className="text-xs text-muted-foreground truncate">
                                                         {user.email}
                                                     </p>
@@ -601,15 +619,22 @@ export function Users() {
                                                         size="md"
                                                     />
                                                     <div className="ml-3">
-                                                        <button
-                                                            onClick={() => {
-                                                                setViewingUser(user);
-                                                                setIsDetailsModalOpen(true);
-                                                            }}
-                                                            className="text-sm font-semibold text-foreground hover:underline text-left cursor-pointer"
-                                                        >
-                                                            {user.name}
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setViewingUser(user);
+                                                                    setIsDetailsModalOpen(true);
+                                                                }}
+                                                                className="text-sm font-semibold text-foreground hover:underline text-left cursor-pointer"
+                                                            >
+                                                                {user.name}
+                                                            </button>
+                                                            {tenant?.id && user.tenant_id && user.tenant_id !== tenant.id && (
+                                                                <span className="px-1.5 py-0.5 text-[10px] font-normal rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                                                    {t('crossCompany') || '跨企业'}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <div className="text-xs text-muted-foreground flex items-center mt-0.5">
                                                             <Mail className="w-3 h-3 mr-1" />
                                                             {user.email}
@@ -719,6 +744,28 @@ export function Users() {
                     password: '', // Password not editable here
                 } : undefined}
             />
+
+            {tenant && (
+                <>
+                    <AddMemberModal
+                        isOpen={isAddMemberModalOpen}
+                        onClose={() => setIsAddMemberModalOpen(false)}
+                        companyId={tenant.id}
+                        companyName={tenant.name}
+                        existingUserIds={users.map(u => u.id)}
+                        departments={departments}
+                        onSuccess={fetchUsers}
+                    />
+
+                    <InviteMemberModal
+                        isOpen={isInviteMemberModalOpen}
+                        onClose={() => setIsInviteMemberModalOpen(false)}
+                        companyId={tenant.id}
+                        companyName={tenant.name}
+                        departments={departments}
+                    />
+                </>
+            )}
 
             <UserDetailsModal
                 isOpen={isDetailsModalOpen}
