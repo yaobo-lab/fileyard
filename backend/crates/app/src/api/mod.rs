@@ -1,10 +1,13 @@
 pub mod ai;
 pub mod api_usage;
+pub mod app_manage;
 pub mod approvals;
 pub mod audit;
 pub mod auth;
 pub mod comments;
 pub mod compliance;
+pub mod config_manage;
+
 pub mod cron;
 pub mod dashboard;
 pub mod departments;

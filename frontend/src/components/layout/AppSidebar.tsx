@@ -14,6 +14,8 @@ import {
   CheckCircle,
   ExternalLink,
   Puzzle,
+  Boxes,
+  Sliders,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -120,6 +122,18 @@ export function AppSidebar({
       url: '/companies',
       icon: Building2,
       visible: hasPermission('tenants.manage'),
+    },
+    {
+      title: t('apps'),
+      url: '/apps',
+      icon: Boxes,
+      visible: isAdmin || user?.role === 'Manager',
+    },
+    {
+      title: t('configs'),
+      url: '/configs',
+      icon: Sliders,
+      visible: isAdmin,
     },
     {
       title: t('users'),

@@ -64,6 +64,11 @@ sql_migration!(
     "006_global_backup_history",
     "../../../migrations/006_global_backup_history.sql"
 );
+sql_migration!(
+    m007_app_and_config,
+    "007_app_and_config",
+    "../../../migrations/007_app_and_config.sql"
+);
 
 pub struct Migrator;
 
@@ -77,6 +82,8 @@ impl MigratorTrait for Migrator {
             Box::new(m004_document_approvals::Migration),
             Box::new(m005_backup_settings::Migration),
             Box::new(m006_global_backup_history::Migration),
+            Box::new(m007_app_and_config::Migration),
         ]
     }
 }
+

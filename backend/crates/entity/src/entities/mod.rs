@@ -2,7 +2,13 @@
 
 pub mod prelude;
 
+pub mod app;
+pub mod app_class;
+pub mod app_config;
+pub mod app_deploy;
+pub mod app_user;
 pub mod ai_usage_logs;
+
 pub mod api_usage;
 pub mod api_usage_hourly;
 pub mod approval_policies;

@@ -66,7 +66,10 @@
     "fileRequests": "我的分享",
     "extensions": "应用扩展",
     "companies": "企业管理",
+    "apps": "应用管理",
+    "configs": "配置管理",
     "users": "用户管理",
+
     "roles": "角色权限",
     "auditLogs": "审计日志",
     "security": "安全中心",

@@ -1,12 +1,13 @@
 use crate::{
     api::{
-        ai, api_usage, approvals, audit, auth, comments, compliance, cron, dashboard,
-        departments, discord, email_templates, file_requests, gitlab, global_settings, groups,
-        handlers, health, notifications, oidc, roles, saml, search, security, settings,
-        settings_backup, sharing, sso_mappings, tenants, users, virus_scan,
+        ai, api_usage, app_manage, approvals, audit, auth, comments, compliance, config_manage,
+        cron, dashboard, departments, discord, email_templates, file_requests, gitlab,
+        global_settings, groups, handlers, health, notifications, oidc, roles, saml, search,
+        security, settings, settings_backup, sharing, sso_mappings, tenants, users, virus_scan,
     },
     AppState,
 };
+
 use axum::{
     routing::{delete, get, post, put},
     Router,
@@ -790,6 +791,49 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
             "/api/gitlab/projects/{project_id}/ci-lint",
             post(gitlab::lint_ci_file),
         )
+        // ==================== 配置管理端点 (app_config) ====================
+        .route("/api/config/page", get(config_manage::page_configs))
+        .route(
+            "/api/config",
+            get(config_manage::get_config)
+                .post(config_manage::save_config)
+                .delete(config_manage::delete_config),
+        )
+        // ==================== 应用管理端点 (app, class, deploy, user, gitlab ci) ====================
+        .route("/api/app/page", get(app_manage::page_apps))
+        .route("/api/app/apply/page", get(app_manage::page_apply_apps))
+        .route("/api/app/create", post(app_manage::create_app))
+        .route(
+            "/api/app/{appno}",
+            get(app_manage::get_app).delete(app_manage::delete_app),
+        )
+        .route("/api/app/{appno}/save/basic", post(app_manage::save_app_basic))
+        .route("/api/app/{appno}/save/charge", post(app_manage::save_app_charge))
+        .route("/api/app/class/pages", get(app_manage::page_classes))
+        .route("/api/app/class/page", get(app_manage::page_classes))
+        .route(
+            "/api/app/class",
+            get(app_manage::get_class)
+                .post(app_manage::save_class)
+                .delete(app_manage::delete_class),
+        )
+        .route("/api/app/{appno}/user/list", get(app_manage::get_app_users))
+        .route("/api/app/{appno}/user/create", post(app_manage::create_app_user))
+        .route("/api/app/{appno}/user", delete(app_manage::delete_app_user))
+        .route("/api/app/{appno}/deploy/list", get(app_manage::get_app_deploys))
+        .route(
+            "/api/app/{appno}/deploy",
+            get(app_manage::get_deploy).delete(app_manage::delete_deploy),
+        )
+        .route("/api/app/{appno}/deploy/create", post(app_manage::create_deploy))
+        .route("/api/app/{appno}/deploy/save", post(app_manage::save_deploy))
+        .route("/api/app/{appno}/deploy/copy", get(app_manage::copy_deploy))
+        .route("/api/gitlab/{appno}/branches", get(app_manage::get_app_branches))
+        .route("/api/gitlab/{appno}/cifile", get(app_manage::get_app_ci_file))
+        .route("/api/gitlab/{appno}/pipeline/history", get(app_manage::get_app_pipeline_history))
+        .route("/api/gitlab/{appno}/triggerci", get(app_manage::trigger_app_ci))
+        .route("/api/gitlab/{appno}/ci/synch", get(app_manage::sync_app_ci))
+
         // SECURITY: 挂载鉴权中间件检查用户登录与停用状态
         .layer(axum::middleware::from_fn_with_state(
             crate::auth::middleware::AuthDatabaseState {

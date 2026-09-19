@@ -66,7 +66,10 @@
     "fileRequests": "File Requests",
     "extensions": "Extensions",
     "companies": "Companies",
+    "apps": "Applications",
+    "configs": "Configurations",
     "users": "Users",
+
     "roles": "Roles & Permissions",
     "auditLogs": "Audit Logs",
     "security": "Security",

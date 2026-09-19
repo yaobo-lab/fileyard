@@ -32,6 +32,8 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import Quickstart from './pages/Quickstart';
 import Performance from './pages/Performance';
+import { AppsPage } from './pages/Apps';
+import { ConfigsPage } from './pages/Configs';
 
 // Settings pages
 import {
@@ -102,6 +104,8 @@ function App() {
                                                 <Route path="roles" element={<AdminRoute><RolesPage /></AdminRoute>} />
                                                 <Route path="audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
                                                 <Route path="security" element={<AdminRoute><Security /></AdminRoute>} />
+                                                <Route path="apps" element={<RoleProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Manager']}><AppsPage /></RoleProtectedRoute>} />
+                                                <Route path="configs" element={<AdminRoute><ConfigsPage /></AdminRoute>} />
                                                 
                                                 {/* Permission-based routes */}
                                                 <Route path="companies" element={<PermissionProtectedRoute permission="tenants.manage"><Companies /></PermissionProtectedRoute>} />

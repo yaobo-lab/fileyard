@@ -150,11 +150,12 @@ pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (Statu
 }
 
 /// 底层使用 reqwest 携带认证 Token 请求 GitLab REST API（通用高效网关）
-async fn gitlab_api_request(
+pub(crate) async fn gitlab_api_request(
     method: reqwest::Method,
     path: &str,
     body: Option<Value>,
 ) -> Result<reqwest::Response, (StatusCode, Json<Value>)> {
+
     let (_, base_url, token) = get_gitlab_client().await?;
     let config = types::config::get_config();
     let timeout = Duration::from_secs(config.gitlab.timeout_secs.max(5));
