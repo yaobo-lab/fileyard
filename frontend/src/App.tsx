@@ -104,7 +104,6 @@ function App() {
                                                 <Route path="roles" element={<AdminRoute><RolesPage /></AdminRoute>} />
                                                 <Route path="audit-logs" element={<AdminRoute><AuditLogsPage /></AdminRoute>} />
                                                 <Route path="security" element={<AdminRoute><Security /></AdminRoute>} />
-                                                <Route path="apps" element={<RoleProtectedRoute allowedRoles={['SuperAdmin', 'Admin', 'Manager']}><AppsPage /></RoleProtectedRoute>} />
                                                 <Route path="configs" element={<AdminRoute><ConfigsPage /></AdminRoute>} />
                                                 
                                                 {/* Permission-based routes */}
@@ -130,11 +129,13 @@ function App() {
                                                 </Route>
                                                 
                                                 {/* All authenticated users */}
-                                                <Route path="files" element={<FileBrowser />} />
+                                                <Route path="files" element={<FileBrowser initialMode="department" />} />
+                                                <Route path="private-files" element={<FileBrowser initialMode="private" />} />
                                                 <Route path="file-requests" element={<FileRequests />} />
                                                 <Route path="approvals" element={<Approvals />} />
                                                 <Route path="recycle-bin" element={<RecycleBin />} />
                                                 <Route path="shared-with-me" element={<SharedWithMe />} />
+                                                <Route path="apps" element={<AppsPage />} />
                                                 <Route path="extensions" element={<Extensions />} />
                                                 <Route path="extensions/:id" element={<ExtensionDetails />} />
                                                 <Route path="profile" element={<Profile />} />

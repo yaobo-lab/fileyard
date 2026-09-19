@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuthFetch } from '@/context/AuthContext';
+import { useModalDialog } from '@/context/ModalDialogContext';
 import { createAppService } from '@/services/appService';
 import { AppItem, AppClass } from '@/types/app';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ import { AppPipelineModal } from '@/components/apps/AppPipelineModal';
 
 export function AppsPage() {
   const authFetch = useAuthFetch();
+  const { confirm: modalConfirm, alert: modalAlert } = useModalDialog();
   const appService = useMemo(() => createAppService(authFetch), [authFetch]);
 
   const [apps, setApps] = useState<AppItem[]>([]);
@@ -129,12 +131,24 @@ export function AppsPage() {
   };
 
   const handleDeleteApp = async (app: AppItem) => {
-    if (!confirm(`确定要删除应用 "${app.name}" (${app.number}) 吗？`)) return;
+    const ok = await modalConfirm({
+      title: '确认删除固件',
+      description: `确定要删除固件 "${app.name}" (${app.number}) 吗？此操作将软删除该固件。`,
+      variant: 'destructive',
+      confirmText: '确认删除',
+      cancelText: '取消',
+    });
+    if (!ok) return;
+
     try {
       await appService.deleteApp(app.number);
       loadApps();
     } catch (err: any) {
-      alert(err.message || '删除失败');
+      await modalAlert({
+        title: '删除失败',
+        description: err.message || '删除失败，请稍后重试',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -147,10 +161,10 @@ export function AppsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
             <Boxes className="w-6 h-6 text-primary" />
-            应用管理
+            固件管理
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            统一维护微服务与客户端应用，管理环境部署配置及 GitLab 流水线
+            统一维护固件、编译环境、流水线
           </p>
         </div>
 
@@ -165,7 +179,7 @@ export function AppsPage() {
           </Button>
           <Button className="gap-1.5 shadow-sm" onClick={() => setShowCreateModal(true)}>
             <Plus className="w-4 h-4" />
-            新建应用
+            新建固件
           </Button>
         </div>
       </div>
@@ -183,11 +197,11 @@ export function AppsPage() {
               }}
             >
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="应用状态" />
+                <SelectValue placeholder="固件状态" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="-1">全部状态</SelectItem>
-                <SelectItem value="2">正常运行</SelectItem>
+                <SelectItem value="2">正常</SelectItem>
                 <SelectItem value="1">已下线</SelectItem>
               </SelectContent>
             </Select>
@@ -220,7 +234,7 @@ export function AppsPage() {
           <form onSubmit={handleSearchSubmit} className="relative w-64">
             <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索应用名称 / KeyName / 编号"
+              placeholder="搜索固件名称 / 编号"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-9 text-sm"
@@ -243,18 +257,17 @@ export function AppsPage() {
         </Button>
       </div>
 
-      {/* 应用列表表格 */}
+      {/* 固件列表表格 */}
       <div className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
         <Table>
           <TableHeader className="bg-muted/40">
             <TableRow>
               <TableHead className="w-20">状态</TableHead>
               <TableHead className="w-36">编号</TableHead>
-              <TableHead className="w-48">应用名称</TableHead>
-              <TableHead className="w-40">唯一标识 (KeyName)</TableHead>
+              <TableHead className="w-48">固件名称</TableHead>
               <TableHead className="w-28">分类</TableHead>
               <TableHead className="w-28">负责人</TableHead>
-              <TableHead className="w-36">GitLab 仓库</TableHead>
+              <TableHead className="w-36">代码仓库</TableHead>
               <TableHead className="w-36">最后更新时间</TableHead>
               <TableHead className="w-44 text-right">操作</TableHead>
             </TableRow>
@@ -262,15 +275,15 @@ export function AppsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
                   加载中...
                 </TableCell>
               </TableRow>
             ) : apps.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                  暂无匹配的应用数据，请点击右上角新建应用
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                  暂无匹配的固件数据，请点击右上角新建固件
                 </TableCell>
               </TableRow>
             ) : (
@@ -286,14 +299,8 @@ export function AppsPage() {
                     )}
                   </TableCell>
                   <TableCell className="font-mono text-xs font-semibold">{app.number}</TableCell>
-                  <TableCell>
-                    <div className="font-medium text-foreground">{app.name}</div>
-                    {app.desc && (
-                      <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{app.desc}</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {app.key_name || '-'}
+                  <TableCell className="font-medium text-foreground">
+                    {app.name}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="font-normal">
@@ -358,7 +365,7 @@ export function AppsPage() {
                             }}
                           >
                             <Server className="w-3.5 h-3.5" />
-                            部署环境配置
+                            编译环境配置
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="gap-2 text-xs cursor-pointer"
@@ -368,7 +375,7 @@ export function AppsPage() {
                             }}
                           >
                             <Users className="w-3.5 h-3.5" />
-                            项目成员授权
+                            参与人员管理
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="gap-2 text-xs cursor-pointer"
@@ -384,7 +391,7 @@ export function AppsPage() {
                             <DropdownMenuItem asChild className="gap-2 text-xs cursor-pointer">
                               <a href={app.doc_path} target="_blank" rel="noreferrer">
                                 <FileText className="w-3.5 h-3.5" />
-                                查看接口文档
+                                查看文档
                               </a>
                             </DropdownMenuItem>
                           )}
@@ -394,7 +401,7 @@ export function AppsPage() {
                             onClick={() => handleDeleteApp(app)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                            删除应用
+                            删除固件
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -410,7 +417,7 @@ export function AppsPage() {
         {total > pageSize && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/10">
             <div className="text-xs text-muted-foreground">
-              共 <span className="font-medium text-foreground">{total}</span> 条应用，当前第 {page} / {totalPages} 页
+              共 <span className="font-medium text-foreground">{total}</span> 条固件，当前第 {page} / {totalPages} 页
             </div>
             <div className="flex items-center gap-2">
               <Button

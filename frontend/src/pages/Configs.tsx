@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuthFetch } from '@/context/AuthContext';
+import { useModalDialog } from '@/context/ModalDialogContext';
 import { createConfigService } from '@/services/configService';
 import { AppConfig } from '@/types/app';
 import { Button } from '@/components/ui/button';
@@ -25,16 +26,19 @@ import { ConfigEditModal } from '@/components/configs/ConfigEditModal';
 
 export function ConfigsPage() {
   const authFetch = useAuthFetch();
+  const { confirm: modalConfirm, alert: modalAlert } = useModalDialog();
   const configService = useMemo(() => createConfigService(authFetch), [authFetch]);
 
   const [configs, setConfigs] = useState<AppConfig[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // 筛选参数
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [search, setSearch] = useState('');
 
+  // 弹窗状态
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedConfig, setSelectedConfig] = useState<AppConfig | null>(null);
 
@@ -71,12 +75,24 @@ export function ConfigsPage() {
   };
 
   const handleDeleteConfig = async (cfg: AppConfig) => {
-    if (!confirm(`确定要删除配置 "${cfg.name}" (${cfg.key}) 吗？`)) return;
+    const ok = await modalConfirm({
+      title: '确认删除配置',
+      description: `确定要删除配置 "${cfg.name}" (${cfg.key}) 吗？此操作将软删除该配置项。`,
+      variant: 'destructive',
+      confirmText: '确认删除',
+      cancelText: '取消',
+    });
+    if (!ok) return;
+
     try {
       await configService.deleteConfig(cfg.id);
       loadConfigs();
     } catch (err: any) {
-      alert(err.message || '删除失败');
+      await modalAlert({
+        title: '删除失败',
+        description: err.message || '删除失败，请稍后重试',
+        variant: 'destructive',
+      });
     }
   };
 

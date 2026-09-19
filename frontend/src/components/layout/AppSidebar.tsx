@@ -16,6 +16,7 @@ import {
   Puzzle,
   Boxes,
   Sliders,
+  Lock,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -97,6 +98,12 @@ export function AppSidebar({
       visible: hasPermission('files.view'),
     },
     {
+      title: t('myPrivateFiles'),
+      url: '/private-files',
+      icon: Lock,
+      visible: hasPermission('files.view'),
+    },
+    {
       title: t('requests'),
       url: '/file-requests',
       icon: Link2,
@@ -114,6 +121,12 @@ export function AppSidebar({
       icon: Share2,
       visible: hasPermission('files.view'),
     },
+    {
+      title: t('apps'),
+      url: '/apps',
+      icon: Boxes,
+      visible: true,
+    },
   ]
 
   const adminGroup = [
@@ -122,12 +135,6 @@ export function AppSidebar({
       url: '/companies',
       icon: Building2,
       visible: hasPermission('tenants.manage'),
-    },
-    {
-      title: t('apps'),
-      url: '/apps',
-      icon: Boxes,
-      visible: isAdmin || user?.role === 'Manager',
     },
     {
       title: t('configs'),

@@ -1,7 +1,7 @@
 -- 007_app_and_config.sql
--- 应用管理与配置管理数据表
+-- 固件管理与配置管理数据表
 
--- 1. 应用分类表 (app_class)
+-- 1. 固件分类表 (app_class)
 CREATE TABLE IF NOT EXISTS app_class (
     id SERIAL PRIMARY KEY,
     number VARCHAR(32) NOT NULL,
@@ -11,12 +11,11 @@ CREATE TABLE IF NOT EXISTS app_class (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_class_number ON app_class(number);
 
--- 2. 应用表 (app)
+-- 2. 固件表 (app)
 CREATE TABLE IF NOT EXISTS app (
     id SERIAL PRIMARY KEY,
     number VARCHAR(32) NOT NULL,
     name VARCHAR(64) NOT NULL,
-    key_name VARCHAR(64) NOT NULL DEFAULT '',
     "desc" VARCHAR(128) NOT NULL DEFAULT '',
     class_no VARCHAR(32) NOT NULL DEFAULT '',
     class_name VARCHAR(64) NOT NULL DEFAULT '',
@@ -31,10 +30,9 @@ CREATE TABLE IF NOT EXISTS app (
     lastupdate_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_number ON app(number);
-CREATE INDEX IF NOT EXISTS idx_app_key_name ON app(key_name);
 CREATE INDEX IF NOT EXISTS idx_app_class_no ON app(class_no);
 
--- 3. 应用部署环境表 (app_deploy)
+-- 3. 固件部署环境表 (app_deploy)
 CREATE TABLE IF NOT EXISTS app_deploy (
     id SERIAL PRIMARY KEY,
     number VARCHAR(32) NOT NULL,
@@ -52,7 +50,7 @@ CREATE TABLE IF NOT EXISTS app_deploy (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_deploy_number ON app_deploy(number);
 CREATE INDEX IF NOT EXISTS idx_app_deploy_app_no ON app_deploy(app_no);
 
--- 4. 应用与用户关系表 (app_user)
+-- 4. 固件与用户关系表 (app_user)
 CREATE TABLE IF NOT EXISTS app_user (
     id SERIAL PRIMARY KEY,
     uid INT NOT NULL,
@@ -79,5 +77,5 @@ CREATE INDEX IF NOT EXISTS idx_app_config_key ON app_config(key);
 
 -- 默认种子数据：默认分类
 INSERT INTO app_class (number, name, "desc", is_del)
-VALUES ('CLS-DEFAULT', '通用服务', '默认通用应用分类', 0)
+VALUES ('CLS-DEFAULT', '通用服务', '默认通用固件分类', 0)
 ON CONFLICT (number) DO NOTHING;

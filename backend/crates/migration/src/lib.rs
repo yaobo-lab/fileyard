@@ -69,6 +69,11 @@ sql_migration!(
     "007_app_and_config",
     "../../../migrations/007_app_and_config.sql"
 );
+sql_migration!(
+    m008_expand_varchar_lengths,
+    "008_expand_varchar_lengths",
+    "../../../migrations/008_expand_varchar_lengths.sql"
+);
 
 pub struct Migrator;
 
@@ -83,7 +88,9 @@ impl MigratorTrait for Migrator {
             Box::new(m005_backup_settings::Migration),
             Box::new(m006_global_backup_history::Migration),
             Box::new(m007_app_and_config::Migration),
+            Box::new(m008_expand_varchar_lengths::Migration),
         ]
     }
 }
+
 

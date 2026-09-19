@@ -103,7 +103,8 @@ fn normalize_project_id(id: &str) -> String {
 }
 
 /// 解析并构造异步 GitLab 客户端
-pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (StatusCode, Json<Value>)> {
+pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (StatusCode, Json<Value>)>
+{
     let config = types::config::get_config();
     let gitlab_conf = &config.gitlab;
 
@@ -155,7 +156,6 @@ pub(crate) async fn gitlab_api_request(
     path: &str,
     body: Option<Value>,
 ) -> Result<reqwest::Response, (StatusCode, Json<Value>)> {
-
     let (_, base_url, token) = get_gitlab_client().await?;
     let config = types::config::get_config();
     let timeout = Duration::from_secs(config.gitlab.timeout_secs.max(5));
@@ -240,13 +240,22 @@ pub async fn get_status() -> Result<Json<GitlabStatusResponse>, (StatusCode, Jso
             url: gitlab_conf.url.clone(),
             default_project_id: gitlab_conf.default_project_id.clone(),
             current_user: None,
-            error: Some(err_json.0.get("message").and_then(|m| m.as_str()).unwrap_or("Network error").to_string()),
+            error: Some(
+                err_json
+                    .0
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("Network error")
+                    .to_string(),
+            ),
         })),
     }
 }
 
 /// `GET /api/gitlab/projects/{project_id}`: 获取项目元数据与详细信息
-pub async fn get_project(Path(project_id): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+pub async fn get_project(
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
     let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}", pid), None).await?;
     let status = res.status();
@@ -260,9 +269,16 @@ pub async fn get_project(Path(project_id): Path<String>) -> Result<Json<Value>, 
 }
 
 /// `GET /api/gitlab/projects/{project_id}/branches`: 获取项目分支列表
-pub async fn list_branches(Path(project_id): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+pub async fn list_branches(
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/repository/branches?per_page=100", pid), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/repository/branches?per_page=100", pid),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -274,9 +290,16 @@ pub async fn list_branches(Path(project_id): Path<String>) -> Result<Json<Value>
 }
 
 /// `GET /api/gitlab/projects/{project_id}/tags`: 获取项目标签列表
-pub async fn list_tags(Path(project_id): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+pub async fn list_tags(
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/repository/tags?per_page=100", pid), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/repository/tags?per_page=100", pid),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -307,7 +330,12 @@ pub async fn list_pipelines(
     params.push(format!("per_page={}", per_page));
 
     let qs = params.join("&");
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/pipelines?{}", pid, qs), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/pipelines?{}", pid, qs),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -329,7 +357,12 @@ pub async fn create_pipeline(
         "variables": payload.variables.unwrap_or_default()
     });
 
-    let res = gitlab_api_request(reqwest::Method::POST, &format!("/projects/{}/pipeline", pid), Some(body)).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::POST,
+        &format!("/projects/{}/pipeline", pid),
+        Some(body),
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -345,7 +378,12 @@ pub async fn get_pipeline(
     Path((project_id, pipeline_id)): Path<(String, u64)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/pipelines/{}", pid, pipeline_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/pipelines/{}", pid, pipeline_id),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -361,7 +399,12 @@ pub async fn cancel_pipeline(
     Path((project_id, pipeline_id)): Path<(String, u64)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::POST, &format!("/projects/{}/pipelines/{}/cancel", pid, pipeline_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::POST,
+        &format!("/projects/{}/pipelines/{}/cancel", pid, pipeline_id),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -377,7 +420,12 @@ pub async fn retry_pipeline(
     Path((project_id, pipeline_id)): Path<(String, u64)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::POST, &format!("/projects/{}/pipelines/{}/retry", pid, pipeline_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::POST,
+        &format!("/projects/{}/pipelines/{}/retry", pid, pipeline_id),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -393,7 +441,15 @@ pub async fn list_pipeline_jobs(
     Path((project_id, pipeline_id)): Path<(String, u64)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/pipelines/{}/jobs?per_page=100", pid, pipeline_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!(
+            "/projects/{}/pipelines/{}/jobs?per_page=100",
+            pid, pipeline_id
+        ),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -409,7 +465,12 @@ pub async fn get_job(
     Path((project_id, job_id)): Path<(String, u64)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/jobs/{}", pid, job_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/jobs/{}", pid, job_id),
+        None,
+    )
+    .await?;
     let status = res.status();
     let json_val = res.json::<Value>().await.unwrap_or_default();
 
@@ -425,7 +486,12 @@ pub async fn get_job_log(
     Path((project_id, job_id)): Path<(String, u64)>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let pid = normalize_project_id(&project_id);
-    let res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}/jobs/{}/trace", pid, job_id), None).await?;
+    let res = gitlab_api_request(
+        reqwest::Method::GET,
+        &format!("/projects/{}/jobs/{}/trace", pid, job_id),
+        None,
+    )
+    .await?;
     let status = res.status();
 
     if status.is_success() {
@@ -434,7 +500,8 @@ pub async fn get_job_log(
             StatusCode::OK,
             [("Content-Type", "text/plain; charset=utf-8")],
             log_text,
-        ).into_response())
+        )
+            .into_response())
     } else {
         let err_json = res.json::<Value>().await.unwrap_or_default();
         Err((status, Json(err_json)))
@@ -456,10 +523,13 @@ pub async fn get_ci_file(
     let branch = match query.ref_name {
         Some(r) if !r.trim().is_empty() => r,
         _ => {
-            let proj_res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}", pid), None).await?;
+            let proj_res =
+                gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}", pid), None)
+                    .await?;
             if proj_res.status().is_success() {
                 let pjson: Value = proj_res.json().await.unwrap_or_default();
-                pjson.get("default_branch")
+                pjson
+                    .get("default_branch")
                     .and_then(|b| b.as_str())
                     .unwrap_or("main")
                     .to_string()
@@ -498,7 +568,7 @@ pub async fn get_ci_file(
     }
 }
 
-/// `POST /api/gitlab/projects/{project_id}/ci-file`: 同步（创建或更新）CI 配置文件至远端 GitLab 仓库
+/// `POST /api/gitlab/projects/{project_id}/ci-file`: 同步（创建或更新）CI 配置文件至远端 代码仓库
 pub async fn sync_ci_file(
     Path(project_id): Path<String>,
     Json(payload): Json<SyncCiFilePayload>,
@@ -511,10 +581,13 @@ pub async fn sync_ci_file(
     let branch = match payload.branch {
         Some(b) if !b.trim().is_empty() => b,
         _ => {
-            let proj_res = gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}", pid), None).await?;
+            let proj_res =
+                gitlab_api_request(reqwest::Method::GET, &format!("/projects/{}", pid), None)
+                    .await?;
             if proj_res.status().is_success() {
                 let pjson: Value = proj_res.json().await.unwrap_or_default();
-                pjson.get("default_branch")
+                pjson
+                    .get("default_branch")
                     .and_then(|b| b.as_str())
                     .unwrap_or("main")
                     .to_string()
@@ -587,7 +660,8 @@ pub async fn lint_ci_file(
         reqwest::Method::POST,
         &format!("/projects/{}/ci/lint", pid),
         Some(lint_body),
-    ).await?;
+    )
+    .await?;
     let status = res.status();
     let val: Value = res.json().await.unwrap_or_default();
 
@@ -597,4 +671,3 @@ pub async fn lint_ci_file(
         Err((status, Json(val)))
     }
 }
-

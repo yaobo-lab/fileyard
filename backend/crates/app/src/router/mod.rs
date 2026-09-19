@@ -16,15 +16,15 @@ use crate::{
     middleware::{self, ApiUsageState, ApiUsageWriter},
     AppState,
 };
-use axum::Router;
 use app_extensions::routes::ExtensionState;
+use axum::Router;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// 构建并组装完整的 Axum 应用路由器，同时挂载全局中间件
+/// 构建并组装完整的 Axum 固件路由器，同时挂载全局中间件
 ///
 /// # 参数说明
-/// - `app_state`: 核心应用共享状态句柄（包含 DB 连接池、Storage 驱动、Redis 缓存等）
+/// - `app_state`: 核心固件共享状态句柄（包含 DB 连接池、Storage 驱动、Redis 缓存等）
 /// - `config`: 全局配置对象
 /// - `api_usage_writer`: API 调用统计与指标写入器（如果配置开启）
 /// - `extension_state`: Clovalink 扩展插件系统上下文状态

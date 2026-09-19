@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useModalDialog } from '@/context/ModalDialogContext';
 import { AppClass } from '@/types/app';
 import {
   Dialog,
@@ -34,6 +35,7 @@ export function AppClassModal({
   onRefresh,
   appService,
 }: AppClassModalProps) {
+  const { confirm: modalConfirm } = useModalDialog();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -84,7 +86,15 @@ export function AppClassModal({
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除该应用分类吗？')) return;
+    const ok = await modalConfirm({
+      title: '确认删除分类',
+      description: '确定要删除该固件分类吗？此操作无法撤销。',
+      variant: 'destructive',
+      confirmText: '确认删除',
+      cancelText: '取消',
+    });
+    if (!ok) return;
+
     try {
       await appService.deleteClass(id);
       await onRefresh();
@@ -99,7 +109,7 @@ export function AppClassModal({
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold flex items-center gap-2">
             <Layers className="w-5 h-5 text-primary" />
-            应用分类管理
+            固件分类管理
           </DialogTitle>
         </DialogHeader>
 

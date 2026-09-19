@@ -180,7 +180,7 @@ export function AppPipelineModal({
             <DialogTitle className="text-xl font-semibold flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Play className="w-5 h-5 text-primary" />
-                GitLab CI/CD 流水线管理
+                CI/CD 流水线管理
                 {app && <span className="text-sm font-normal text-muted-foreground">({app.name})</span>}
               </div>
               <Button
@@ -199,11 +199,10 @@ export function AppPipelineModal({
           <div className="p-6 overflow-y-auto space-y-6">
             {message && (
               <div
-                className={`p-3 text-sm rounded-md border flex items-center gap-2 ${
-                  message.isError
-                    ? 'text-red-600 bg-red-50 dark:bg-red-950/40 border-red-200'
-                    : 'text-green-600 bg-green-50 dark:bg-green-950/40 border-green-200'
-                }`}
+                className={`p-3 text-sm rounded-md border flex items-center gap-2 ${message.isError
+                  ? 'text-red-600 bg-red-50 dark:bg-red-950/40 border-red-200'
+                  : 'text-green-600 bg-green-50 dark:bg-green-950/40 border-green-200'
+                  }`}
               >
                 {message.isError ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle className="w-4 h-4 shrink-0" />}
                 {message.text}
@@ -213,7 +212,7 @@ export function AppPipelineModal({
             {/* 控制面板 */}
             <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-border bg-muted/20">
               <div className="flex items-center gap-3">
-                <div className="text-sm font-medium">执行环境：</div>
+                <div className="text-sm font-medium">编译环境：</div>
                 <div className="w-48">
                   <Select value={selectedDeployNo} onValueChange={setSelectedDeployNo}>
                     <SelectTrigger className="h-9">
@@ -261,7 +260,7 @@ export function AppPipelineModal({
                   className="gap-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                  同步模板
+                  同步CI模板
                 </Button>
               </div>
             </div>
@@ -295,7 +294,7 @@ export function AppPipelineModal({
                     ) : pipelines.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          {app?.gitlab_id ? '暂无流水线构建记录，请点击上方“运行流水线”启动' : '请先在应用基本信息中配置 GitLab 项目 ID'}
+                          {app?.gitlab_id ? '暂无流水线构建记录，请点击上方“运行流水线”启动' : '请先在固件基本信息中配置 GitLab 项目 ID'}
                         </TableCell>
                       </TableRow>
                     ) : (

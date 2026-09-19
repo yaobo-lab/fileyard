@@ -8,7 +8,6 @@ pub struct Model {
     pub id: i32,
     pub number: String,
     pub name: String,
-    pub key_name: String,
     #[sea_orm(column_name = "desc")]
     pub desc: String,
     pub class_no: String,

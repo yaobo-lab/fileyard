@@ -197,7 +197,7 @@ export function WeComLoginModal({ isOpen, onClose }: WeComLoginModalProps) {
               </span>
             </div>
           ) : config?.configured ? (
-            /* 已配置真实企业微信自建应用：渲染官方内嵌二维码 */
+            /* 已配置真实企业微信自建固件：渲染官方内嵌二维码 */
             <div className="flex flex-col items-center">
               <div
                 id="wecom_qr_container"
@@ -238,7 +238,7 @@ export function WeComLoginModal({ isOpen, onClose }: WeComLoginModalProps) {
               </div>
             </div>
           ) : (
-            /* 未配置企业微信自建应用凭据：展示友好指引卡片 + 一键模拟体验 */
+            /* 未配置企业微信自建固件凭据：展示友好指引卡片 + 一键模拟体验 */
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-200 text-xs space-y-2">
                 <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">

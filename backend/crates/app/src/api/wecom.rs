@@ -4,7 +4,7 @@
 //! - `GET /api/auth/wecom/config`: 获取前端构建内嵌二维码或扫码所需的公开配置
 //! - `GET /api/auth/wecom/authorize`: 发起企微官方 OAuth2 网页/扫码授权跳转
 //! - `GET /api/auth/wecom/callback`: 接收企微授权 code 回调，换取用户身份并生成系统 JWT
-//! - `POST /api/auth/wecom/demo-login`: 开发/演示环境免配企微应用的快速体验端点
+//! - `POST /api/auth/wecom/demo-login`: 开发/演示环境免配企微固件的快速体验端点
 
 use axum::{
     extract::{Query, State},
@@ -311,17 +311,12 @@ pub async fn wecom_callback(
         provider_slug: "wecom".to_string(),
     };
 
-    let resolution = resolve_sso_user(
-        &state.store,
-        &identity,
-        &provision_config,
-        None,
-    )
-    .await
-    .map_err(|(code, msg)| {
-        tracing::error!("WeCom user resolution error: {} - {}", code, msg);
-        code
-    })?;
+    let resolution = resolve_sso_user(&state.store, &identity, &provision_config, None)
+        .await
+        .map_err(|(code, msg)| {
+            tracing::error!("WeCom user resolution error: {} - {}", code, msg);
+            code
+        })?;
 
     let user = match resolution {
         SsoUserResolution::ExistingUser(u) | SsoUserResolution::NewUser(u) => u,
@@ -349,21 +344,18 @@ pub async fn wecom_callback(
     .map_err(|(code, _)| code)?;
 
     match session {
-        SsoSessionResult::Token(token) => {
-            Ok(Redirect::temporary(&format!(
-                "{frontend_url}/auth/sso/complete?token={token}"
-            )))
-        }
-        SsoSessionResult::Pending2fa { user_id, provider_slug } => {
-            Ok(Redirect::temporary(&format!(
-                "{frontend_url}/login?pending_2fa={user_id}&provider={provider_slug}"
-            )))
-        }
-        SsoSessionResult::Suspended => {
-            Ok(Redirect::temporary(&format!(
-                "{frontend_url}/login?error=account_suspended"
-            )))
-        }
+        SsoSessionResult::Token(token) => Ok(Redirect::temporary(&format!(
+            "{frontend_url}/auth/sso/complete?token={token}"
+        ))),
+        SsoSessionResult::Pending2fa {
+            user_id,
+            provider_slug,
+        } => Ok(Redirect::temporary(&format!(
+            "{frontend_url}/login?pending_2fa={user_id}&provider={provider_slug}"
+        ))),
+        SsoSessionResult::Suspended => Ok(Redirect::temporary(&format!(
+            "{frontend_url}/login?error=account_suspended"
+        ))),
     }
 }
 
@@ -426,11 +418,9 @@ async fn handle_demo_login(
     .map_err(|(code, _)| code)?;
 
     match session {
-        SsoSessionResult::Token(token) => {
-            Ok(Redirect::temporary(&format!(
-                "{frontend_url}/auth/sso/complete?token={token}"
-            )))
-        }
+        SsoSessionResult::Token(token) => Ok(Redirect::temporary(&format!(
+            "{frontend_url}/auth/sso/complete?token={token}"
+        ))),
         _ => Ok(Redirect::temporary(&format!(
             "{frontend_url}/auth/sso/complete?error=demo_login_failed"
         ))),

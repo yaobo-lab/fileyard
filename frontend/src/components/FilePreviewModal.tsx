@@ -28,6 +28,7 @@ import { DrawioViewer } from './viewers/DrawioViewer';
 import { MarkdownViewer } from './viewers/MarkdownViewer';
 import { FileGlyphVisual } from './FileGlyphs';
 import { FileCommentsPanel } from './FileCommentsPanel';
+import { useModalDialog } from '@/context/ModalDialogContext';
 
 interface FilePreviewModalProps {
   isOpen: boolean;
@@ -169,7 +170,7 @@ export function FilePreviewModal({
           setCommentCount(data.count);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       isMounted = false;
     };
@@ -189,15 +190,21 @@ export function FilePreviewModal({
   };
   const handleRotateCw = () => setRotation((prev) => (prev + 90) % 360);
   const handleRotateCcw = () => setRotation((prev) => (prev - 90 + 360) % 360);
+  const { confirm: modalConfirm } = useModalDialog();
 
-  const handleRequestClose = useCallback(() => {
+  const handleRequestClose = useCallback(async () => {
     if (isMarkdownDirty) {
-      if (!window.confirm('当前文档有尚未保存的内容，确定要退出吗？未保存的修改将会丢失。')) {
-        return;
-      }
+      const ok = await modalConfirm({
+        title: '未保存的修改',
+        description: '当前文档有尚未保存的内容，确定要退出吗？未保存的修改将会丢失。',
+        variant: 'warning',
+        confirmText: '确定退出',
+        cancelText: '继续编辑',
+      });
+      if (!ok) return;
     }
     onClose();
-  }, [isMarkdownDirty, onClose]);
+  }, [isMarkdownDirty, onClose, modalConfirm]);
 
   // Drag position state
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -480,257 +487,257 @@ export function FilePreviewModal({
         <div className="relative flex-1 min-h-0 min-w-0 flex overflow-hidden">
           {/* Main Viewer Canvas */}
           <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden bg-gray-100/50 dark:bg-gray-900/50">
-          {loading ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-              <p className="text-sm font-medium">正在准备预览文档...</p>
-            </div>
-          ) : error ? (
-            <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-              <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{error}</p>
-              <p className="text-xs text-gray-500 mb-4">该文件可能需要下载到本地应用中查看</p>
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" />
-                下载查看
-              </button>
-            </div>
-          ) : blobUrl ? (
-            kind === 'markdown' ? (
-              <MarkdownViewer
-                url={blobUrl}
-                fileName={file.name}
-                fileId={file.id}
-                companyId={file.companyId}
-                parentPath={file.parentPath}
-                isDark={isDark}
-                initialMode={file.initialMode}
-                onSaved={onSaved}
-                onDirtyChange={setIsMarkdownDirty}
-              />
-            ) : kind === 'docx' ? (
-              <DocxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
-            ) : kind === 'pptx' ? (
-              <PptxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
-            ) : kind === 'xlsx' ? (
-              <XlsxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
-            ) : kind === 'text' ? (
-              <CodeViewer ref={codeViewerRef} url={blobUrl} fileName={file.name} isDark={isDark} />
-            ) : kind === 'pdf' ? (
-              <iframe src={blobUrl} className="w-full h-full border-0 bg-white" title={file.name} />
-            ) : kind === 'drawio' ? (
-              <DrawioViewer url={blobUrl} fileName={file.name} isDark={isDark} />
-            ) : kind === 'image' ? (
-              <div
-                className="relative flex h-full w-full items-center justify-center p-4 overflow-hidden select-none bg-gray-950/5 dark:bg-black/30"
-                onWheel={(e) => {
-                  if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 20) {
-                    e.preventDefault();
-                    if (e.deltaY < 0) handleZoomIn();
-                    else handleZoomOut();
-                  }
-                }}
-              >
-                {/* Floating Left Prev Button */}
-                {hasPrev && onPrev && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPrev();
-                    }}
-                    className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 hover:bg-black/75 text-white backdrop-blur-md shadow-xl border border-white/20 transition-all hover:scale-110 active:scale-95"
-                    title="上一张 (←)"
-                    aria-label="Previous Image"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-                )}
-
-                {/* Floating Right Next Button */}
-                {hasNext && onNext && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNext();
-                    }}
-                    className="absolute right-3 md:right-5 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 hover:bg-black/75 text-white backdrop-blur-md shadow-xl border border-white/20 transition-all hover:scale-110 active:scale-95"
-                    title="下一张 (→)"
-                    aria-label="Next Image"
-                  >
-                    <ChevronRight className="w-6 h-6" />
-                  </button>
-                )}
-
-                {/* Image Container with Zoom & Rotation */}
+            {loading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-gray-500">
+                <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+                <p className="text-sm font-medium">正在准备预览文档...</p>
+              </div>
+            ) : error ? (
+              <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+                <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{error}</p>
+                <p className="text-xs text-gray-500 mb-4">该文件可能需要下载到本地固件中查看</p>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  下载查看
+                </button>
+              </div>
+            ) : blobUrl ? (
+              kind === 'markdown' ? (
+                <MarkdownViewer
+                  url={blobUrl}
+                  fileName={file.name}
+                  fileId={file.id}
+                  companyId={file.companyId}
+                  parentPath={file.parentPath}
+                  isDark={isDark}
+                  initialMode={file.initialMode}
+                  onSaved={onSaved}
+                  onDirtyChange={setIsMarkdownDirty}
+                />
+              ) : kind === 'docx' ? (
+                <DocxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+              ) : kind === 'pptx' ? (
+                <PptxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+              ) : kind === 'xlsx' ? (
+                <XlsxViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+              ) : kind === 'text' ? (
+                <CodeViewer ref={codeViewerRef} url={blobUrl} fileName={file.name} isDark={isDark} />
+              ) : kind === 'pdf' ? (
+                <iframe src={blobUrl} className="w-full h-full border-0 bg-white" title={file.name} />
+              ) : kind === 'drawio' ? (
+                <DrawioViewer url={blobUrl} fileName={file.name} isDark={isDark} />
+              ) : kind === 'image' ? (
                 <div
-                  className="flex h-full w-full items-center justify-center overflow-auto"
-                  onDoubleClick={() => {
-                    setScale((prev) => (prev > 1.1 ? 1 : 1.75));
+                  className="relative flex h-full w-full items-center justify-center p-4 overflow-hidden select-none bg-gray-950/5 dark:bg-black/30"
+                  onWheel={(e) => {
+                    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 20) {
+                      e.preventDefault();
+                      if (e.deltaY < 0) handleZoomIn();
+                      else handleZoomOut();
+                    }
                   }}
                 >
-                  <img
-                    src={blobUrl}
-                    alt={file.name}
-                    style={{
-                      transform: `scale(${scale}) rotate(${rotation}deg)`,
-                      transition: 'transform 0.15s cubic-bezier(0.2, 0, 0, 1)',
-                    }}
-                    className="max-h-full max-w-full object-contain rounded-lg shadow-md cursor-grab active:cursor-grabbing pointer-events-auto"
-                    draggable={false}
-                  />
-                </div>
-
-                {/* Bottom Floating Control Pill Toolbar */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 dark:bg-gray-900/90 text-white backdrop-blur-md shadow-2xl border border-white/15 text-xs">
-                  {/* Prev */}
-                  <button
-                    type="button"
-                    onClick={onPrev}
-                    disabled={!hasPrev}
-                    className={clsx(
-                      "p-1.5 rounded-full transition-colors",
-                      hasPrev ? "hover:bg-white/20 text-white cursor-pointer" : "text-white/30 cursor-not-allowed"
-                    )}
-                    title="上一张 (←)"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-
-                  {/* Counter */}
-                  {typeof itemCount === 'number' && itemCount > 0 && (
-                    <span className="px-1 text-[11px] font-medium text-white/90 tabular-nums">
-                      {(itemIndex ?? 0) + 1} / {itemCount}
-                    </span>
+                  {/* Floating Left Prev Button */}
+                  {hasPrev && onPrev && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPrev();
+                      }}
+                      className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 hover:bg-black/75 text-white backdrop-blur-md shadow-xl border border-white/20 transition-all hover:scale-110 active:scale-95"
+                      title="上一张 (←)"
+                      aria-label="Previous Image"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
                   )}
 
-                  {/* Next */}
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    disabled={!hasNext}
-                    className={clsx(
-                      "p-1.5 rounded-full transition-colors",
-                      hasNext ? "hover:bg-white/20 text-white cursor-pointer" : "text-white/30 cursor-not-allowed"
+                  {/* Floating Right Next Button */}
+                  {hasNext && onNext && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNext();
+                      }}
+                      className="absolute right-3 md:right-5 top-1/2 -translate-y-1/2 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 hover:bg-black/75 text-white backdrop-blur-md shadow-xl border border-white/20 transition-all hover:scale-110 active:scale-95"
+                      title="下一张 (→)"
+                      aria-label="Next Image"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  )}
+
+                  {/* Image Container with Zoom & Rotation */}
+                  <div
+                    className="flex h-full w-full items-center justify-center overflow-auto"
+                    onDoubleClick={() => {
+                      setScale((prev) => (prev > 1.1 ? 1 : 1.75));
+                    }}
+                  >
+                    <img
+                      src={blobUrl}
+                      alt={file.name}
+                      style={{
+                        transform: `scale(${scale}) rotate(${rotation}deg)`,
+                        transition: 'transform 0.15s cubic-bezier(0.2, 0, 0, 1)',
+                      }}
+                      className="max-h-full max-w-full object-contain rounded-lg shadow-md cursor-grab active:cursor-grabbing pointer-events-auto"
+                      draggable={false}
+                    />
+                  </div>
+
+                  {/* Bottom Floating Control Pill Toolbar */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 dark:bg-gray-900/90 text-white backdrop-blur-md shadow-2xl border border-white/15 text-xs">
+                    {/* Prev */}
+                    <button
+                      type="button"
+                      onClick={onPrev}
+                      disabled={!hasPrev}
+                      className={clsx(
+                        "p-1.5 rounded-full transition-colors",
+                        hasPrev ? "hover:bg-white/20 text-white cursor-pointer" : "text-white/30 cursor-not-allowed"
+                      )}
+                      title="上一张 (←)"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    {/* Counter */}
+                    {typeof itemCount === 'number' && itemCount > 0 && (
+                      <span className="px-1 text-[11px] font-medium text-white/90 tabular-nums">
+                        {(itemIndex ?? 0) + 1} / {itemCount}
+                      </span>
                     )}
-                    title="下一张 (→)"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
 
-                  <div className="w-px h-3.5 bg-white/20 mx-0.5" />
+                    {/* Next */}
+                    <button
+                      type="button"
+                      onClick={onNext}
+                      disabled={!hasNext}
+                      className={clsx(
+                        "p-1.5 rounded-full transition-colors",
+                        hasNext ? "hover:bg-white/20 text-white cursor-pointer" : "text-white/30 cursor-not-allowed"
+                      )}
+                      title="下一张 (→)"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
 
-                  {/* Zoom Out */}
-                  <button
-                    type="button"
-                    onClick={handleZoomOut}
-                    className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-                    title="缩小 (-)"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </button>
+                    <div className="w-px h-3.5 bg-white/20 mx-0.5" />
 
-                  {/* Scale Percent & Reset */}
-                  <button
-                    type="button"
-                    onClick={handleResetZoom}
-                    className="px-1.5 py-0.5 rounded text-[11px] font-medium text-white/90 hover:bg-white/20 transition-colors"
-                    title="点击还原 100%"
-                  >
-                    {Math.round(scale * 100)}%
-                  </button>
+                    {/* Zoom Out */}
+                    <button
+                      type="button"
+                      onClick={handleZoomOut}
+                      className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                      title="缩小 (-)"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
 
-                  {/* Zoom In */}
-                  <button
-                    type="button"
-                    onClick={handleZoomIn}
-                    className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-                    title="放大 (+)"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </button>
+                    {/* Scale Percent & Reset */}
+                    <button
+                      type="button"
+                      onClick={handleResetZoom}
+                      className="px-1.5 py-0.5 rounded text-[11px] font-medium text-white/90 hover:bg-white/20 transition-colors"
+                      title="点击还原 100%"
+                    >
+                      {Math.round(scale * 100)}%
+                    </button>
 
-                  <div className="w-px h-3.5 bg-white/20 mx-0.5" />
+                    {/* Zoom In */}
+                    <button
+                      type="button"
+                      onClick={handleZoomIn}
+                      className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                      title="放大 (+)"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
 
-                  {/* Rotate CCW */}
-                  <button
-                    type="button"
-                    onClick={handleRotateCcw}
-                    className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-                    title="逆时针旋转 90°"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </button>
+                    <div className="w-px h-3.5 bg-white/20 mx-0.5" />
 
-                  {/* Rotate CW */}
-                  <button
-                    type="button"
-                    onClick={handleRotateCw}
-                    className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-                    title="顺时针旋转 90° (R)"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                  </button>
+                    {/* Rotate CCW */}
+                    <button
+                      type="button"
+                      onClick={handleRotateCcw}
+                      className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                      title="逆时针旋转 90°"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
 
-                  <div className="w-px h-3.5 bg-white/20 mx-0.5" />
+                    {/* Rotate CW */}
+                    <button
+                      type="button"
+                      onClick={handleRotateCw}
+                      className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                      title="顺时针旋转 90° (R)"
+                    >
+                      <RotateCw className="w-4 h-4" />
+                    </button>
 
-                  {/* Download */}
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-                    title="下载图片"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
+                    <div className="w-px h-3.5 bg-white/20 mx-0.5" />
+
+                    {/* Download */}
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+                      title="下载图片"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : kind === 'video' ? (
-              <div className="flex h-full w-full items-center justify-center p-4 bg-black">
-                <video src={blobUrl} controls className="max-h-full max-w-full rounded-lg" />
-              </div>
-            ) : kind === 'audio' ? (
-              <div className="flex h-full w-full items-center justify-center p-8">
-                <div className="w-full max-w-md p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg text-center">
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-4">{file.name}</p>
-                  <audio src={blobUrl} controls className="w-full" />
+              ) : kind === 'video' ? (
+                <div className="flex h-full w-full items-center justify-center p-4 bg-black">
+                  <video src={blobUrl} controls className="max-h-full max-w-full rounded-lg" />
                 </div>
-              </div>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                <div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-2xl mb-4">
-                  <FileText className="w-12 h-12 text-gray-400" />
+              ) : kind === 'audio' ? (
+                <div className="flex h-full w-full items-center justify-center p-8">
+                  <div className="w-full max-w-md p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg text-center">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-4">{file.name}</p>
+                    <audio src={blobUrl} controls className="w-full" />
+                  </div>
                 </div>
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{file.name}</h4>
-                <p className="text-xs text-gray-500 max-w-xs mb-5">
-                  当前文件格式暂不支持在线直接渲染，您可以通过下方按钮直接下载查看。
-                </p>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    下载文件
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleOpenInNewTab}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    新标签页打开
-                  </button>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+                  <div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-2xl mb-4">
+                    <FileText className="w-12 h-12 text-gray-400" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{file.name}</h4>
+                  <p className="text-xs text-gray-500 max-w-xs mb-5">
+                    当前文件格式暂不支持在线直接渲染，您可以通过下方按钮直接下载查看。
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      下载文件
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenInNewTab}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      新标签页打开
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )
-          ) : null}
+              )
+            ) : null}
           </div>
 
           {/* Right Comments Sidebar Drawer */}

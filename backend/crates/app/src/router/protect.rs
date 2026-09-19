@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// 构建所有需要身份认证的受保护业务路由
 ///
 /// 本函数集合了核心业务 API，并在最外层挂载数据库级权限认证中间件 `auth_middleware_with_db`：
-/// 每次请求均从数据库实时验证当前 JWT Token 对应用户的启用状态（防已封禁用户携带有效 Token 访问）。
+/// 每次请求均从数据库实时验证当前 JWT Token 对固件户的启用状态（防已封禁用户携带有效 Token 访问）。
 ///
 /// 包含以下业务领域：
 /// - 当前用户个人中心、2FA 设置、会话管理、个人资料与密码修改
@@ -746,7 +746,10 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
         )
         // GitLab API & CI/CD Endpoints
         .route("/api/gitlab/status", get(gitlab::get_status))
-        .route("/api/gitlab/projects/{project_id}", get(gitlab::get_project))
+        .route(
+            "/api/gitlab/projects/{project_id}",
+            get(gitlab::get_project),
+        )
         .route(
             "/api/gitlab/projects/{project_id}/branches",
             get(gitlab::list_branches),
@@ -799,7 +802,11 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
                 .post(config_manage::save_config)
                 .delete(config_manage::delete_config),
         )
-        // ==================== 应用管理端点 (app, class, deploy, user, gitlab ci) ====================
+        .route(
+            "/api/config/{id}",
+            get(config_manage::get_config_by_path).delete(config_manage::delete_config_by_path),
+        )
+        // ==================== 固件管理端点 (app, class, deploy, user, gitlab ci) ====================
         .route("/api/app/page", get(app_manage::page_apps))
         .route("/api/app/apply/page", get(app_manage::page_apply_apps))
         .route("/api/app/create", post(app_manage::create_app))
@@ -807,8 +814,14 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
             "/api/app/{appno}",
             get(app_manage::get_app).delete(app_manage::delete_app),
         )
-        .route("/api/app/{appno}/save/basic", post(app_manage::save_app_basic))
-        .route("/api/app/{appno}/save/charge", post(app_manage::save_app_charge))
+        .route(
+            "/api/app/{appno}/save/basic",
+            post(app_manage::save_app_basic),
+        )
+        .route(
+            "/api/app/{appno}/save/charge",
+            post(app_manage::save_app_charge),
+        )
         .route("/api/app/class/pages", get(app_manage::page_classes))
         .route("/api/app/class/page", get(app_manage::page_classes))
         .route(
@@ -817,23 +830,50 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
                 .post(app_manage::save_class)
                 .delete(app_manage::delete_class),
         )
+        .route(
+            "/api/app/users/candidates",
+            get(app_manage::get_app_user_candidates),
+        )
         .route("/api/app/{appno}/user/list", get(app_manage::get_app_users))
-        .route("/api/app/{appno}/user/create", post(app_manage::create_app_user))
+        .route(
+            "/api/app/{appno}/user/create",
+            post(app_manage::create_app_user),
+        )
         .route("/api/app/{appno}/user", delete(app_manage::delete_app_user))
-        .route("/api/app/{appno}/deploy/list", get(app_manage::get_app_deploys))
+        .route(
+            "/api/app/{appno}/deploy/list",
+            get(app_manage::get_app_deploys),
+        )
         .route(
             "/api/app/{appno}/deploy",
             get(app_manage::get_deploy).delete(app_manage::delete_deploy),
         )
-        .route("/api/app/{appno}/deploy/create", post(app_manage::create_deploy))
-        .route("/api/app/{appno}/deploy/save", post(app_manage::save_deploy))
+        .route(
+            "/api/app/{appno}/deploy/create",
+            post(app_manage::create_deploy),
+        )
+        .route(
+            "/api/app/{appno}/deploy/save",
+            post(app_manage::save_deploy),
+        )
         .route("/api/app/{appno}/deploy/copy", get(app_manage::copy_deploy))
-        .route("/api/gitlab/{appno}/branches", get(app_manage::get_app_branches))
-        .route("/api/gitlab/{appno}/cifile", get(app_manage::get_app_ci_file))
-        .route("/api/gitlab/{appno}/pipeline/history", get(app_manage::get_app_pipeline_history))
-        .route("/api/gitlab/{appno}/triggerci", get(app_manage::trigger_app_ci))
+        .route(
+            "/api/gitlab/{appno}/branches",
+            get(app_manage::get_app_branches),
+        )
+        .route(
+            "/api/gitlab/{appno}/cifile",
+            get(app_manage::get_app_ci_file),
+        )
+        .route(
+            "/api/gitlab/{appno}/pipeline/history",
+            get(app_manage::get_app_pipeline_history),
+        )
+        .route(
+            "/api/gitlab/{appno}/triggerci",
+            get(app_manage::trigger_app_ci),
+        )
         .route("/api/gitlab/{appno}/ci/synch", get(app_manage::sync_app_ci))
-
         // SECURITY: 挂载鉴权中间件检查用户登录与停用状态
         .layer(axum::middleware::from_fn_with_state(
             crate::auth::middleware::AuthDatabaseState {

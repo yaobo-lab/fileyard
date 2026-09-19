@@ -25,7 +25,6 @@ interface CreateAppModalProps {
   classList: AppClass[];
   onSubmit: (data: {
     name: string;
-    key_name: string;
     desc: string;
     class_no: string;
     class_name: string;
@@ -43,7 +42,6 @@ export function CreateAppModal({
   onSubmit,
 }: CreateAppModalProps) {
   const [name, setName] = useState('');
-  const [keyName, setKeyName] = useState('');
   const [desc, setDesc] = useState('');
   const [classNo, setClassNo] = useState('');
   const [docPath, setDocPath] = useState('');
@@ -56,11 +54,7 @@ export function CreateAppModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('请输入应用名称');
-      return;
-    }
-    if (!keyName.trim()) {
-      setError('请输入唯一英文标识 (KeyName)');
+      setError('请输入固件名称');
       return;
     }
 
@@ -72,7 +66,6 @@ export function CreateAppModal({
     try {
       await onSubmit({
         name: name.trim(),
-        key_name: keyName.trim(),
         desc: desc.trim(),
         class_no: classNo,
         class_name: className,
@@ -83,7 +76,6 @@ export function CreateAppModal({
       });
       // reset
       setName('');
-      setKeyName('');
       setDesc('');
       setClassNo('');
       setDocPath('');
@@ -101,7 +93,7 @@ export function CreateAppModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px]">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">新建应用</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">新建固件</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
@@ -111,30 +103,16 @@ export function CreateAppModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-sm font-medium">
-                应用名称 <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="name"
-                placeholder="例如：OA协同系统"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="keyName" className="text-sm font-medium">
-                唯一标识 (KeyName) <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="keyName"
-                placeholder="例如：oa-system"
-                value={keyName}
-                onChange={(e) => setKeyName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="name" className="text-sm font-medium">
+              固件名称 <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="name"
+              placeholder="例如：OA协同系统"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -155,7 +133,7 @@ export function CreateAppModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="status" className="text-sm font-medium">应用状态</Label>
+              <Label htmlFor="status" className="text-sm font-medium">固件状态</Label>
               <Select
                 value={status.toString()}
                 onValueChange={(val) => setStatus(parseInt(val, 10))}
@@ -164,7 +142,7 @@ export function CreateAppModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2">正常运行</SelectItem>
+                  <SelectItem value="2">正常</SelectItem>
                   <SelectItem value="1">已下线</SelectItem>
                 </SelectContent>
               </Select>
@@ -194,7 +172,7 @@ export function CreateAppModal({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="docPath" className="text-sm font-medium">接口文档 / Swagger 地址</Label>
+            <Label htmlFor="docPath" className="text-sm font-medium">文档地址</Label>
             <Input
               id="docPath"
               placeholder="https://api.example.com/swagger"
@@ -204,13 +182,14 @@ export function CreateAppModal({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="desc" className="text-sm font-medium">应用描述</Label>
+            <Label htmlFor="desc" className="text-sm font-medium">固件描述</Label>
             <Textarea
               id="desc"
               rows={3}
               placeholder="请输入简要业务描述..."
               value={desc}
-              onChange={(e) => setDesc(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDesc(e.target.value)}
+
             />
           </div>
 

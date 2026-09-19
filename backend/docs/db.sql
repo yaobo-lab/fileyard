@@ -1,6 +1,6 @@
 CREATE TABLE `app` (
   `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '应用编号',
+  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '固件编号',
   `name` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '名称', 
   `desc` varchar(128) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '描述',
   `class_no` varchar(32) NOT NULL COMMENT '所属分类编号',
@@ -15,25 +15,24 @@ CREATE TABLE `app` (
   `createby_id` varchar(32) NOT NULL COMMENT '创建人ID',
   `lastupdate_time` datetime NOT NULL COMMENT '最后更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_no` (`number`) USING BTREE,
-  UNIQUE KEY `idx_key` (`key_name`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=163 DEFAULT CHARSET=utf8mb3 COMMENT='应用表（系统&服务）';
+  UNIQUE KEY `idx_no` (`number`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=163 DEFAULT CHARSET=utf8mb3 COMMENT='固件表（系统&服务）';
 
 
 CREATE TABLE `app_class` (
   `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '应用编号',
+  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '固件编号',
   `name` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '服务分组名称',
   `desc` varchar(128) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '描述',
   `is_del` tinyint NOT NULL COMMENT '1:删除，0正常',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_no` (`number`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb3 COMMENT='应用分类';
+) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb3 COMMENT='固件分类';
 
 
 CREATE TABLE `app_deploy` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '应用编号',
+  `number` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '固件编号',
   `app_no` varchar(32) NOT NULL COMMENT '所属app编号',
   `name` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '环境名称',
   `branch_name` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '关联分支名称',
@@ -46,7 +45,7 @@ CREATE TABLE `app_deploy` (
   `envs` varchar(255) CHARACTER SET utf8mb3 COLLATE utf8_general_ci NOT NULL COMMENT '环境变量',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_no` (`number`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb3 COMMENT='应用部署环境';
+) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb3 COMMENT='固件部署环境';
 
 
 
@@ -54,11 +53,11 @@ CREATE TABLE `app_user` (
   `id` int NOT NULL AUTO_INCREMENT,
   `uid` int NOT NULL COMMENT '用户编号',
   `uname` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_bin NOT NULL COMMENT '用户名',
-  `app_no` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_bin NOT NULL COMMENT '应用编号',
+  `app_no` varchar(32) CHARACTER SET utf8mb3 COLLATE utf8_bin NOT NULL COMMENT '固件编号',
   `key` varchar(64) CHARACTER SET utf8mb3 COLLATE utf8_bin NOT NULL COMMENT '权限值',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_uid_app` (`uid`,`app_no`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb3 COLLATE=utf8_bin COMMENT='应用与用户关系表';
+) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb3 COLLATE=utf8_bin COMMENT='固件与用户关系表';
 
 
 CREATE TABLE `app_config` (

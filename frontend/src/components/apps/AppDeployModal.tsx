@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useModalDialog } from '@/context/ModalDialogContext';
 import { AppItem, AppDeploy, GitlabBranch } from '@/types/app';
 import {
   Dialog,
@@ -32,6 +33,7 @@ export function AppDeployModal({
   app,
   appService,
 }: AppDeployModalProps) {
+  const { confirm: modalConfirm } = useModalDialog();
   const [deploys, setDeploys] = useState<AppDeploy[]>([]);
   const [branches, setBranches] = useState<GitlabBranch[]>([]);
   const [activeDeploy, setActiveDeploy] = useState<AppDeploy | null>(null);
@@ -163,7 +165,15 @@ export function AppDeployModal({
 
   const handleDelete = async () => {
     if (!app || !activeDeploy) return;
-    if (!confirm(`确定要删除部署环境 "${activeDeploy.name}" 吗？`)) return;
+    const ok = await modalConfirm({
+      title: '确认删除部署环境',
+      description: `确定要删除部署环境 "${activeDeploy.name}" 吗？此操作无法撤销。`,
+      variant: 'destructive',
+      confirmText: '确认删除',
+      cancelText: '取消',
+    });
+    if (!ok) return;
+
     setSaving(true);
     try {
       await appService.deleteDeploy(app.number, activeDeploy.id);
@@ -182,7 +192,7 @@ export function AppDeployModal({
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
           <DialogTitle className="text-xl font-semibold flex items-center gap-2">
             <Server className="w-5 h-5 text-primary" />
-            部署环境管理
+            编译环境管理
             {app && <span className="text-sm font-normal text-muted-foreground">({app.name} - {app.number})</span>}
           </DialogTitle>
         </DialogHeader>
@@ -202,11 +212,10 @@ export function AppDeployModal({
                       key={dep.id}
                       type="button"
                       onClick={() => selectDeploy(dep)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-primary text-primary-foreground font-medium shadow-xs'
-                          : 'hover:bg-muted text-foreground'
-                      }`}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between ${isSelected
+                        ? 'bg-primary text-primary-foreground font-medium shadow-xs'
+                        : 'hover:bg-muted text-foreground'
+                        }`}
                     >
                       <span className="truncate">{dep.name}</span>
                       {dep.auto_pub === 1 && (
@@ -333,8 +342,8 @@ export function AppDeployModal({
 
               <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
                 <div className="space-y-0.5">
-                  <div className="text-sm font-medium">自动发布 (Auto Pub)</div>
-                  <div className="text-xs text-muted-foreground">流水线编译构建完成后是否自动触发容器发布</div>
+                  <div className="text-sm font-medium">自动发布 </div>
+                  <div className="text-xs text-muted-foreground">自动将固件发布到物联网平台</div>
                 </div>
                 <Switch checked={autoPub} onCheckedChange={setAutoPub} />
               </div>

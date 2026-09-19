@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useLocation } from 'react-router-dom';
 import {
     Folder, FileText, Image as ImageIcon, MoreVertical, Download,
     Trash2, Eye, EyeOff, Upload, Grid, List, Search, Plus, Star, Clock,
@@ -97,13 +97,21 @@ interface UserPrefs {
     settings: any;
 }
 
-export function FileBrowser() {
+interface FileBrowserProps {
+    initialMode?: 'department' | 'private';
+}
+
+export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const t = useTranslations('Explorer');
     const tCommon = useTranslations('Common');
     const tProps = useTranslations('Properties');
     const tContextMenu = useTranslations('ContextMenu');
     const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { user } = useAuth();
+    const location = useLocation();
+    const isPrivatePath = location.pathname.startsWith('/private-files');
+    const defaultMode = initialMode || (isPrivatePath ? 'private' : 'department');
+
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
         const saved = localStorage.getItem(`file-view-mode-${user?.id ?? 'default'}`);
@@ -126,9 +134,11 @@ export function FileBrowser() {
     const [isDragging, setIsDragging] = useState(false);
     
     // File view mode: 'department' or 'private'
-    const [fileViewMode, setFileViewMode] = useState<'department' | 'private'>('department');
+    const [fileViewMode, setFileViewMode] = useState<'department' | 'private'>(defaultMode);
     const [isViewModeOpen, setIsViewModeOpen] = useState(false);
     const viewModeRef = useRef<HTMLDivElement>(null);
+
+
     
     // Mobile overflow menu
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -208,6 +218,14 @@ export function FileBrowser() {
     // Department filtering for admins
     const [departments, setDepartments] = useState<{id: string, name: string}[]>([]);
     const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
+    
+    // 监听路由与模式切换
+    useEffect(() => {
+        const targetMode = initialMode || (isPrivatePath ? 'private' : 'department');
+        setFileViewMode(targetMode);
+        setCurrentPath(['Home']);
+        setSelectedDepartment(null);
+    }, [location.pathname, initialMode, isPrivatePath]);
 
     // File Groups
     const [groups, setGroups] = useState<FileGroup[]>([]);
@@ -2499,7 +2517,7 @@ export function FileBrowser() {
                                         }
                                     }}
                                 >
-                                    {folder}
+                                    {folder === 'Home' ? (fileViewMode === 'private' ? t('myPrivateFiles') : t('allFiles')) : folder}
                                 </span>
                             </div>
                         ))}
@@ -2634,15 +2652,14 @@ export function FileBrowser() {
 
                     <div className="border-l border-gray-300 dark:border-gray-700 h-5 hidden sm:block mx-0.5" />
 
-                    {/* View Mode Switcher (All Departments / Private) */}
+                    {/* View Mode Switcher (All Departments) - 仅在部门/全部文件视图下显示，且不混入私有文件 */}
+                    {fileViewMode !== 'private' && (
                     <div className="relative" ref={viewModeRef}>
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsViewModeOpen(!isViewModeOpen); }}
                             className="flex items-center px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
                         >
-                            {fileViewMode === 'private' ? (
-                                <><EyeOff className="w-3.5 h-3.5 mr-1.5 text-purple-500" />{t('myPrivateFiles')}</>
-                            ) : selectedDepartment ? (
+                            {selectedDepartment ? (
                                 <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || t('myDepartment')}</>
                             ) : (user?.role === 'SuperAdmin' || user?.role === 'Admin') ? (
                                 <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />{t('filterAllDepartments')}</>
@@ -2695,22 +2712,10 @@ export function FileBrowser() {
                                         ))}
                                     </>
                                 )}
-                                
-                                <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
-                                <button
-                                    onClick={() => { setFileViewMode('private'); setSelectedDepartment(null); setIsViewModeOpen(false); }}
-                                    className={clsx(
-                                        "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
-                                        fileViewMode === 'private' && "bg-gray-50 dark:bg-gray-700 font-medium"
-                                    )}
-                                >
-                                    <EyeOff className="w-3.5 h-3.5 mr-2 text-purple-500" />
-                                    {t('myPrivateFiles')}
-                                    {fileViewMode === 'private' && <span className="ml-auto text-primary-500">✓</span>}
-                                </button>
                             </div>
                         )}
                     </div>
+                    )}
 
                     {/* Desktop: Action buttons */}
                     <div className="hidden sm:flex items-center space-x-1">

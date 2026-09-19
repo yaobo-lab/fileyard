@@ -2,7 +2,7 @@ import { AppItem, AppClass, AppDeploy, AppUser, GitlabBranch, GitlabPipeline } f
 
 export const createAppService = (authFetch: (url: string, options?: RequestInit) => Promise<Response>) => {
   return {
-    // ===== 应用基础接口 =====
+    // ===== 固件基础接口 =====
     async getAppList(params: {
       page?: number;
       limit?: number;
@@ -69,7 +69,7 @@ export const createAppService = (authFetch: (url: string, options?: RequestInit)
       if (!res.ok) throw new Error(`Failed to delete app: ${res.statusText}`);
     },
 
-    // ===== 应用分类接口 =====
+    // ===== 固件分类接口 =====
     async getClassList(params: { page?: number; limit?: number; name?: string } = {}): Promise<{
       items: AppClass[];
       total: number;
@@ -103,6 +103,39 @@ export const createAppService = (authFetch: (url: string, options?: RequestInit)
     },
 
     // ===== 项目成员接口 =====
+    async getUserCandidates(tenantId?: string): Promise<Array<{ id: string; name: string; email: string; role?: string; avatar_url?: string }>> {
+      try {
+        const res = await authFetch('/api/app/users/candidates');
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            return json.data;
+          }
+        }
+      } catch { }
+
+      try {
+        const res = await authFetch('/api/users');
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json) && json.length > 0) return json;
+          if (Array.isArray(json.data) && json.data.length > 0) return json.data;
+        }
+      } catch { }
+
+      if (tenantId) {
+        try {
+          const res = await authFetch(`/api/users/${tenantId}/shareable`);
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json.users)) return json.users;
+          }
+        } catch { }
+      }
+
+      return [];
+    },
+
     async getAppUsers(appno: string): Promise<AppUser[]> {
       const res = await authFetch(`/api/app/${appno}/user/list`);
       if (!res.ok) throw new Error(`Failed to load app users: ${res.statusText}`);
@@ -110,7 +143,8 @@ export const createAppService = (authFetch: (url: string, options?: RequestInit)
       return json.data || [];
     },
 
-    async createAppUser(appno: string, payload: { uid: number; uname: string; key?: string }): Promise<AppUser> {
+    async createAppUser(appno: string, payload: { uid: string | number; uname: string; key?: string }): Promise<AppUser> {
+
       const res = await authFetch(`/api/app/${appno}/user/create`, {
         method: 'POST',
         body: JSON.stringify(payload),

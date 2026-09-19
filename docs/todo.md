@@ -1,5 +1,5 @@
 
-我要在当前项目实现： 应用管理与配置管理 两个模块功能。
+我要在当前项目实现： 固件管理与配置管理 两个模块功能。
 
 
 下面你要参考下面两个项目，将里面的一些功能，搬到当前项目中（搬的时候，你要保持当前项目的结构，前端风格、保持不要变）
@@ -16,7 +16,7 @@
 关于后端的要求：
 
 你要将：
-应用管理api ： docs\api\internal\api\app_api  
+固件管理api ： docs\api\internal\api\app_api  
 配置管理api ： docs\api\internal\api\config_api 
 
 全部抄一份到当前后端rust 后端中，因为 go项目使用的是mysql 作为后端
@@ -32,4 +32,4 @@
 2: 前端也需要将 docs\web\src\page\pipeline gitlab 的cicd 搬到现有项目中
 3：因为有些字段不需要了，你参考 我简化后的MYSQL 脚本：backend\docs\db.sql 来做字段的处理
 4：配置管理 docs\web\src\page\config   搬到现有项目中
-5：应用管理docs\web\src\page\app  、docs\web\src\page\deploy   搬到现有项目中
+5：固件管理docs\web\src\page\app  、docs\web\src\page\deploy   搬到现有项目中

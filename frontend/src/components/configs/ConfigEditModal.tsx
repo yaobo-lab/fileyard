@@ -138,7 +138,8 @@ export function ConfigEditModal({
               className="font-mono text-xs leading-relaxed bg-zinc-950 text-zinc-100 dark:bg-zinc-950"
               placeholder="version: '1.0'&#10;stages:&#10;  - build&#10;  - deploy"
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setValue(e.target.value)}
+
             />
           </div>
 

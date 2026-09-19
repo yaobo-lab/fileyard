@@ -1,4 +1,4 @@
-//! 应用管理与部署环境、应用分类、项目成员及 GitLab 协同 API 模块
+//! 固件管理与部署环境、固件分类、项目成员及 GitLab 协同 API 模块
 
 use crate::{api::gitlab::gitlab_api_request, auth::AuthUser, AppState};
 use app_entity::entities::{app, app_class, app_deploy, app_user};
@@ -60,7 +60,6 @@ pub struct DeployQuery {
 #[derive(Debug, Deserialize)]
 pub struct CreateAppPayload {
     pub name: String,
-    pub key_name: Option<String>,
     pub desc: Option<String>,
     pub class_no: Option<String>,
     pub class_name: Option<String>,
@@ -73,7 +72,6 @@ pub struct CreateAppPayload {
 #[derive(Debug, Deserialize)]
 pub struct SaveBasicAppPayload {
     pub name: String,
-    pub key_name: Option<String>,
     pub desc: Option<String>,
     pub class_no: Option<String>,
     pub class_name: Option<String>,
@@ -97,9 +95,27 @@ pub struct SaveClassPayload {
     pub desc: Option<String>,
 }
 
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
+    }
+
+    match StringOrNumber::deserialize(deserializer)? {
+        StringOrNumber::String(s) => Ok(s),
+        StringOrNumber::Number(n) => Ok(n.to_string()),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateUserPayload {
-    pub uid: i32,
+    #[serde(deserialize_with = "string_or_number")]
+    pub uid: String,
     pub uname: String,
     pub key: Option<String>,
 }
@@ -132,7 +148,7 @@ pub struct CiActionQuery {
     pub branch: Option<String>,
 }
 
-// ==================== 应用主表接口 ====================
+// ==================== 固件主表接口 ====================
 
 /// GET /api/app/page
 pub async fn page_apps(
@@ -170,7 +186,6 @@ pub async fn page_apps(
                 app::Column::Name
                     .contains(trimmed)
                     .or(app::Column::Number.contains(trimmed))
-                    .or(app::Column::KeyName.contains(trimmed))
                     .or(app::Column::CreatebyName.contains(trimmed)),
             );
         }
@@ -185,10 +200,13 @@ pub async fn page_apps(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let items = paginator.fetch_page(page.saturating_sub(1)).await.map_err(|e| {
-        tracing::error!("Failed to fetch app page: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let items = paginator
+        .fetch_page(page.saturating_sub(1))
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch app page: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!({
         "code": 200,
@@ -222,7 +240,6 @@ pub async fn create_app(
     let active = app::ActiveModel {
         number: Set(number),
         name: Set(payload.name),
-        key_name: Set(payload.key_name.unwrap_or_default()),
         desc: Set(payload.desc.unwrap_or_default()),
         class_no: Set(payload.class_no.unwrap_or_default()),
         class_name: Set(payload.class_name.unwrap_or_default()),
@@ -241,6 +258,7 @@ pub async fn create_app(
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
         tracing::error!("Failed to insert app: {:?}", e);
+        eprintln!("Failed to insert app: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -294,9 +312,6 @@ pub async fn save_app_basic(
     let now = Utc::now().into();
     let mut active: app::ActiveModel = found.into();
     active.name = Set(payload.name);
-    if let Some(key_name) = payload.key_name {
-        active.key_name = Set(key_name);
-    }
     if let Some(desc) = payload.desc {
         active.desc = Set(desc);
     }
@@ -395,7 +410,7 @@ pub async fn delete_app(
     })))
 }
 
-// ==================== 应用分类接口 ====================
+// ==================== 固件分类接口 ====================
 
 /// GET /api/app/class/pages
 pub async fn page_classes(
@@ -423,10 +438,13 @@ pub async fn page_classes(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let items = paginator.fetch_page(page.saturating_sub(1)).await.map_err(|e| {
-        tracing::error!("Failed to fetch app classes: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let items = paginator
+        .fetch_page(page.saturating_sub(1))
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch app classes: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(json!({
         "code": 200,
@@ -579,7 +597,7 @@ pub async fn create_app_user(
     // 检查是否已存在关系
     let existing = app_user::Entity::find()
         .filter(app_user::Column::AppNo.eq(&appno))
-        .filter(app_user::Column::Uid.eq(payload.uid))
+        .filter(app_user::Column::Uid.eq(&payload.uid))
         .one(state.store.db())
         .await
         .map_err(|e| {
@@ -645,7 +663,7 @@ pub async fn delete_app_user(
     })))
 }
 
-// ==================== 部署环境管理接口 ====================
+// ==================== 编译环境管理接口 ====================
 
 /// GET /api/app/{appno}/deploy/list
 pub async fn get_app_deploys(
@@ -871,7 +889,7 @@ pub async fn delete_deploy(
 
 // ==================== GitLab 协同业务接口 ====================
 
-/// 内部辅助：通过 appno 查询应用对应的 gitlab_id
+/// 内部辅助：通过 appno 查询固件对应的 gitlab_id
 async fn get_gitlab_id_by_appno(
     state: &AppState,
     appno: &str,
@@ -892,7 +910,7 @@ async fn get_gitlab_id_by_appno(
     let app = app_opt.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "app_not_found", "message": "应用不存在" })),
+            Json(json!({ "error": "app_not_found", "message": "固件不存在" })),
         )
     })?;
 
@@ -902,7 +920,7 @@ async fn get_gitlab_id_by_appno(
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "gitlab_id_empty",
-                "message": "该应用未配置有效的 GitLab 仓库 ID，请在应用基本信息中填写"
+                "message": "该固件未配置有效的 代码仓库 ID，请在固件基本信息中填写"
             })),
         ));
     }
@@ -916,7 +934,10 @@ pub async fn get_app_branches(
     Path(appno): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let gitlab_id = get_gitlab_id_by_appno(&state, &appno).await?;
-    let path = format!("/projects/{}/repository/branches?per_page=100", urlencoding::encode(&gitlab_id));
+    let path = format!(
+        "/projects/{}/repository/branches?per_page=100",
+        urlencoding::encode(&gitlab_id)
+    );
 
     let res = gitlab_api_request(reqwest::Method::GET, &path, None).await?;
     if !res.status().is_success() {
@@ -957,7 +978,9 @@ pub async fn get_app_ci_file(
                 )
             })?;
 
-        deploy.map(|d| d.branch_name).unwrap_or_else(|| "master".to_string())
+        deploy
+            .map(|d| d.branch_name)
+            .unwrap_or_else(|| "master".to_string())
     } else {
         query.branch.unwrap_or_else(|| "master".to_string())
     };
@@ -1041,7 +1064,9 @@ pub async fn trigger_app_ci(
                 )
             })?;
 
-        deploy.map(|d| d.branch_name).unwrap_or_else(|| "master".to_string())
+        deploy
+            .map(|d| d.branch_name)
+            .unwrap_or_else(|| "master".to_string())
     } else {
         query.branch.unwrap_or_else(|| "master".to_string())
     };
@@ -1077,5 +1102,51 @@ pub async fn sync_app_ci(
     Ok(Json(json!({
         "code": 200,
         "message": "CI 模板同步成功"
+    })))
+}
+
+/// GET /api/app/users/candidates
+pub async fn get_app_user_candidates(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthUser>,
+) -> Result<Json<Value>, StatusCode> {
+    let tenant_filter = if auth.role == "SuperAdmin" {
+        None
+    } else {
+        Some(auth.tenant_id)
+    };
+
+    let users = state
+        .store
+        .users()
+        .list(app_entity::repositories::UserListFilter {
+            tenant_id: tenant_filter,
+            status: Some("active".to_string()),
+            limit: 200,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list candidate users: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let items: Vec<Value> = users
+        .into_iter()
+        .map(|u| {
+            json!({
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "avatar_url": u.avatar_url,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "code": 200,
+        "message": "获取成功",
+        "data": items
     })))
 }

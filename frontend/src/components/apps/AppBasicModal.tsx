@@ -35,7 +35,6 @@ export function AppBasicModal({
   onSubmit,
 }: AppBasicModalProps) {
   const [name, setName] = useState('');
-  const [keyName, setKeyName] = useState('');
   const [desc, setDesc] = useState('');
   const [classNo, setClassNo] = useState('');
   const [docPath, setDocPath] = useState('');
@@ -48,7 +47,6 @@ export function AppBasicModal({
   useEffect(() => {
     if (app) {
       setName(app.name || '');
-      setKeyName(app.key_name || '');
       setDesc(app.desc || '');
       setClassNo(app.class_no || '');
       setDocPath(app.doc_path || '');
@@ -62,7 +60,7 @@ export function AppBasicModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('请输入应用名称');
+      setError('请输入固件名称');
       return;
     }
 
@@ -74,7 +72,6 @@ export function AppBasicModal({
     try {
       await onSubmit({
         name: name.trim(),
-        key_name: keyName.trim(),
         desc: desc.trim(),
         class_no: classNo,
         class_name: className,
@@ -95,7 +92,7 @@ export function AppBasicModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px]">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">编辑应用基础信息</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">编辑基础信息</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
@@ -107,24 +104,13 @@ export function AppBasicModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="app-no" className="text-sm font-medium">应用编号</Label>
+              <Label htmlFor="app-no" className="text-sm font-medium">固件编号</Label>
               <Input id="app-no" value={app?.number || ''} disabled className="bg-muted/50" />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="keyName" className="text-sm font-medium">唯一标识 (KeyName)</Label>
-              <Input
-                id="keyName"
-                value={keyName}
-                onChange={(e) => setKeyName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm font-medium">
-                应用名称 <span className="text-red-500">*</span>
+                固件名称 <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="name"
@@ -132,7 +118,9 @@ export function AppBasicModal({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="classNo" className="text-sm font-medium">所属分类</Label>
               <Select value={classNo} onValueChange={setClassNo}>
@@ -148,11 +136,9 @@ export function AppBasicModal({
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="status" className="text-sm font-medium">应用状态</Label>
+              <Label htmlFor="status" className="text-sm font-medium">固件状态</Label>
               <Select
                 value={status.toString()}
                 onValueChange={(val) => setStatus(parseInt(val, 10))}
@@ -161,7 +147,25 @@ export function AppBasicModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2">正常运行</SelectItem>
+                  <SelectItem value="2">正常</SelectItem>
+                  <SelectItem value="1">已下线</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="status" className="text-sm font-medium">固件状态</Label>
+              <Select
+                value={status.toString()}
+                onValueChange={(val) => setStatus(parseInt(val, 10))}
+              >
+                <SelectTrigger id="status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2">正常</SelectItem>
                   <SelectItem value="1">已下线</SelectItem>
                 </SelectContent>
               </Select>
@@ -189,7 +193,7 @@ export function AppBasicModal({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="docPath" className="text-sm font-medium">接口文档 / Swagger 地址</Label>
+            <Label htmlFor="docPath" className="text-sm font-medium">文档地址</Label>
             <Input
               id="docPath"
               placeholder="https://api.example.com/swagger"
@@ -204,7 +208,8 @@ export function AppBasicModal({
               id="desc"
               rows={3}
               value={desc}
-              onChange={(e) => setDesc(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDesc(e.target.value)}
+
             />
           </div>
 

@@ -3,7 +3,7 @@
 use crate::AppState;
 use app_entity::entities::app_config;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
 };
@@ -223,4 +223,20 @@ pub async fn delete_config(
         "code": 200,
         "message": "删除成功"
     })))
+}
+
+/// GET /api/config/{id}
+pub async fn get_config_by_path(
+    state: State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, StatusCode> {
+    get_config(state, Query(ConfigIdQuery { id })).await
+}
+
+/// DELETE /api/config/{id}
+pub async fn delete_config_by_path(
+    state: State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<Value>, StatusCode> {
+    delete_config(state, Query(ConfigIdQuery { id })).await
 }

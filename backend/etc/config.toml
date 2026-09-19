@@ -85,8 +85,8 @@ redirect_uri = ""
 # https://wx.aam.com/api/auth/wecom/callback
 enabled = true
 corp_id = "wwbc61c69bd65fc69b"                                 # 企业微信 CorpId，如 ww1234567890abcdef
-agent_id = "1000015"                                           # 自建应用 AgentId，如 1000002
-corp_secret = "uRywD4tMDiKOZCOgFJ6yb2jZDd7D743M-pgapQ0fmPQ"    # 自建应用 Secret
+agent_id = "1000015"                                           # 自建固件 AgentId，如 1000002
+corp_secret = "uRywD4tMDiKOZCOgFJ6yb2jZDd7D743M-pgapQ0fmPQ"    # 自建固件 Secret
 redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
 
 [gitlab]

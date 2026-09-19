@@ -2,7 +2,6 @@ export interface AppItem {
   id: number;
   number: string;
   name: string;
-  key_name: string;
   desc: string;
   class_no: string;
   class_name: string;
@@ -42,8 +41,9 @@ export interface AppDeploy {
 
 export interface AppUser {
   id: number;
-  uid: number;
+  uid: string | number;
   uname: string;
+
   app_no: string;
   key: string;
 }

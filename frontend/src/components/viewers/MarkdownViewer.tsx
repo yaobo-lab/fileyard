@@ -33,6 +33,7 @@ import { languages } from '@codemirror/language-data';
 import { search } from '@codemirror/search';
 import { githubLight, githubDark } from '@uiw/codemirror-theme-github';
 import { useTranslations } from '../../context/I18nContext';
+import { useModalDialog } from '../../context/ModalDialogContext';
 import { copyToClipboard } from '@/lib/utils';
 
 export interface MarkdownViewerProps {
@@ -133,6 +134,7 @@ export function MarkdownViewer({
   onDirtyChange,
 }: MarkdownViewerProps) {
   const t = useTranslations('MarkdownEditor');
+  const { confirm: modalConfirm } = useModalDialog();
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -593,21 +595,28 @@ export function MarkdownViewer({
     }
   };
 
-  const handleResetContent = () => {
+  const handleResetContent = async () => {
     if (!isDirty) return;
-    if (window.confirm(t('unsavedConfirmMessage') || '您有尚未保存的修改，确定要放弃本次修改吗？')) {
-      setContent(initialContentRef.current);
-      setIsDirty(false);
-      onDirtyChangeRef.current?.(false);
-      if (editorViewRef.current) {
-        editorViewRef.current.dispatch({
-          changes: {
-            from: 0,
-            to: editorViewRef.current.state.doc.length,
-            insert: initialContentRef.current,
-          },
-        });
-      }
+    const ok = await modalConfirm({
+      title: '放弃未保存的修改',
+      description: t('unsavedConfirmMessage') || '您有尚未保存的修改，确定要放弃本次修改吗？',
+      variant: 'warning',
+      confirmText: '确定放弃',
+      cancelText: '取消',
+    });
+    if (!ok) return;
+
+    setContent(initialContentRef.current);
+    setIsDirty(false);
+    onDirtyChangeRef.current?.(false);
+    if (editorViewRef.current) {
+      editorViewRef.current.dispatch({
+        changes: {
+          from: 0,
+          to: editorViewRef.current.state.doc.length,
+          insert: initialContentRef.current,
+        },
+      });
     }
   };
 
