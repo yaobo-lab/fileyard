@@ -10,7 +10,7 @@ import {
 import clsx from 'clsx';
 import { CreateFileRequestModal, FileRequestData } from '../components/CreateFileRequestModal';
 import { UploadProgressModal, UploadFile } from '../components/UploadProgressModal';
-import { FilePreviewModal } from '../components/FilePreviewModal';
+import { FilePreviewModal, detectFileKind } from '../components/FilePreviewModal';
 import { RenameModal } from '../components/RenameModal';
 import { NewFolderModal } from '../components/NewFolderModal';
 import { FileActivityModal } from '../components/FileActivityModal';
@@ -2283,6 +2283,53 @@ export function FileBrowser() {
         setCurrentPage(1);
     }, [searchQuery, currentPath]);
 
+    // Image navigation for preview modal
+    const activePreviewCandidates = useMemo(() => {
+        if (isGroupViewerMinimized && groupFiles.length > 0) {
+            return groupFiles;
+        }
+        return filteredFiles;
+    }, [isGroupViewerMinimized, groupFiles, filteredFiles]);
+
+    const previewImageFiles = useMemo(() => {
+        return activePreviewCandidates.filter(f => {
+            if (f.type === 'folder' || f.type === 'group') return false;
+            return detectFileKind(f.name, f.type || f.content_type) === 'image';
+        });
+    }, [activePreviewCandidates]);
+
+    const currentImageIndex = useMemo(() => {
+        if (!previewFile || detectFileKind(previewFile.name, previewFile.type) !== 'image') {
+            return -1;
+        }
+        return previewImageFiles.findIndex(f => f.id === previewFile.id || f.name === previewFile.name);
+    }, [previewFile, previewImageFiles]);
+
+    const hasPrevImage = currentImageIndex > 0;
+    const hasNextImage = currentImageIndex >= 0 && currentImageIndex < previewImageFiles.length - 1;
+
+    const handlePrevImage = useCallback(() => {
+        if (currentImageIndex > 0) {
+            const target = previewImageFiles[currentImageIndex - 1];
+            if (isGroupViewerMinimized && groupFiles.length > 0) {
+                handleGroupViewerPreview(target);
+            } else {
+                handlePreview(target);
+            }
+        }
+    }, [currentImageIndex, previewImageFiles, isGroupViewerMinimized, groupFiles, handleGroupViewerPreview, handlePreview]);
+
+    const handleNextImage = useCallback(() => {
+        if (currentImageIndex >= 0 && currentImageIndex < previewImageFiles.length - 1) {
+            const target = previewImageFiles[currentImageIndex + 1];
+            if (isGroupViewerMinimized && groupFiles.length > 0) {
+                handleGroupViewerPreview(target);
+            } else {
+                handlePreview(target);
+            }
+        }
+    }, [currentImageIndex, previewImageFiles, isGroupViewerMinimized, groupFiles, handleGroupViewerPreview, handlePreview]);
+
     const handleSort = (key: 'name' | 'size' | 'modified') => {
         if (sortBy === key) {
             setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -2914,7 +2961,18 @@ export function FileBrowser() {
                                                             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{file.name}</p>
                                                             <p className="text-xs text-gray-500 dark:text-gray-400">{file.size}</p>
                                                         </div>
-                                                        <Star className="w-3.5 h-3.5 text-yellow-400 fill-current flex-shrink-0" />
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleStar(file);
+                                                            }}
+                                                            className="p-1 rounded-md text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-all flex-shrink-0 group/star"
+                                                            title={t('unstar') || '取消收藏'}
+                                                            aria-label="取消收藏"
+                                                        >
+                                                            <Star className="w-3.5 h-3.5 fill-current group-hover/star:scale-120 transition-transform" />
+                                                        </button>
                                                     </div>
                                                 ))}
                                             </div>
@@ -2927,7 +2985,7 @@ export function FileBrowser() {
                             {visibleStarred.map(file => (
                                 <div 
                                     key={`quick-${file.id}`} 
-                                    className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center space-x-3" 
+                                    className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center space-x-3 group" 
                                     onClick={() => {
                                         if (file.type === 'group') {
                                             handleGroupClick(file);
@@ -2945,7 +3003,18 @@ export function FileBrowser() {
                                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{file.name}</p>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">{file.size}</p>
                                     </div>
-                                    <Star className="w-4 h-4 text-yellow-400 fill-current flex-shrink-0" />
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleStar(file);
+                                        }}
+                                        className="p-1.5 -mr-1 rounded-md text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-all flex-shrink-0 group/star"
+                                        title={t('unstar') || '取消收藏'}
+                                        aria-label="取消收藏"
+                                    >
+                                        <Star className="w-4 h-4 fill-current group-hover/star:scale-125 transition-transform" />
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -2966,6 +3035,19 @@ export function FileBrowser() {
                     file={previewFile}
                     onSaved={() => {
                         fetchFiles();
+                    }}
+                    onPrev={handlePrevImage}
+                    onNext={handleNextImage}
+                    hasPrev={hasPrevImage}
+                    hasNext={hasNextImage}
+                    itemIndex={currentImageIndex >= 0 ? currentImageIndex : undefined}
+                    itemCount={previewImageFiles.length}
+                    isStarred={Boolean(previewFile && (starredFiles.includes(previewFile.id) || files.find(f => f.id === previewFile.id)?.is_starred))}
+                    onToggleStar={() => {
+                        if (previewFile) {
+                            const target = files.find(f => f.id === previewFile.id) || previewFile;
+                            toggleStar(target);
+                        }
                     }}
                 />
             )}
@@ -3293,7 +3375,18 @@ export function FileBrowser() {
                                                     </span>
                                                 )}
                                                 {file.is_starred && (
-                                                    <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleStar(file);
+                                                        }}
+                                                        className="pointer-events-auto p-1 rounded-md text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 hover:bg-yellow-50/80 dark:hover:bg-yellow-950/50 transition-all group/gridstar"
+                                                        title={t('unstar') || '取消收藏'}
+                                                        aria-label="取消收藏"
+                                                    >
+                                                        <Star className="w-3.5 h-3.5 fill-current group-hover/gridstar:scale-125 transition-transform" />
+                                                    </button>
                                                 )}
                                             </div>
                                         )}
@@ -3563,6 +3656,20 @@ export function FileBrowser() {
                                                             {file.is_locked && <span title="Locked" className="flex-shrink-0"><Lock className="w-3.5 h-3.5 ml-1 text-orange-500" /></span>}
                                                             {file.approval_status === 'pending' && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded flex-shrink-0">Pending</span>}
                                                             {file.approval_status === 'rejected' && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 rounded flex-shrink-0">Rejected</span>}
+                                                            {file.is_starred && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleStar(file);
+                                                                    }}
+                                                                    className="ml-2 p-0.5 rounded text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-all flex-shrink-0 group/liststar"
+                                                                    title={t('unstar') || '取消收藏'}
+                                                                    aria-label="取消收藏"
+                                                                >
+                                                                    <Star className="w-3.5 h-3.5 fill-current group-hover/liststar:scale-125 transition-transform" />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                         <div className="sm:hidden text-xs text-gray-500 dark:text-gray-400">{file.size} • {formatDateTime(file.modified)}</div>
                                                     </div>

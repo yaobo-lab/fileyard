@@ -24,9 +24,10 @@ const CORE_WIDGETS: WidgetDefinition[] = [
     { id: 'stats-2', name: 'Users', description: 'Active users count', icon: Users, configurable: false },
     { id: 'stats-3', name: 'Storage', description: 'Storage usage summary', icon: HardDrive, configurable: false },
     { id: 'stats-4', name: 'Files', description: 'Total files count', icon: FileText, configurable: false },
+    { id: 'activity-chart', name: 'Activity Chart', description: 'Activity overview', icon: BarChart3, configurable: true, defaultConfig: { days: 7 } },
+    { id: 'file-types', name: 'File Types', description: 'File types distribution', icon: HardDrive, configurable: false },
     { id: 'activity', name: 'Activity Feed', description: 'Recent activity log', icon: Activity, configurable: true, defaultConfig: { limit: 7, max_items: 7 } },
     { id: 'requests', name: 'File Requests', description: 'Active file request links', icon: LinkIcon, configurable: true, defaultConfig: { show_expired: false } },
-    { id: 'storage', name: 'Storage Distribution', description: 'Storage by tenant/company', icon: HardDrive, configurable: false },
     { id: 'departments', name: 'Departments', description: 'Department overview', icon: FolderOpen, configurable: true, defaultConfig: { max_shown: 6 } },
 ];
 
@@ -43,7 +44,7 @@ const ADDITIONAL_WIDGETS: WidgetDefinition[] = [
 const AVAILABLE_WIDGETS: WidgetDefinition[] = [...CORE_WIDGETS, ...ADDITIONAL_WIDGETS];
 
 const DEFAULT_CONFIG: WidgetConfig = {
-    visible_widgets: ['stats-1', 'stats-2', 'stats-3', 'stats-4', 'activity', 'requests', 'storage', 'departments'],
+    visible_widgets: ['stats-1', 'stats-2', 'stats-3', 'stats-4', 'activity-chart', 'file-types', 'activity', 'requests', 'departments'],
     widget_settings: {},
     custom_widgets: []
 };
@@ -70,14 +71,29 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
         }
     }, [currentConfig]);
 
+    const isWidgetVisible = (widgetId: string) => {
+        if (config.visible_widgets.includes(widgetId)) return true;
+        if (widgetId === 'file-types' && config.visible_widgets.includes('storage')) return true;
+        return false;
+    };
+
     const toggleWidgetVisibility = (widgetId: string) => {
         setConfig(prev => {
-            const visible = prev.visible_widgets.includes(widgetId);
+            const isCurrentlyVisible = isWidgetVisible(widgetId);
+            let nextVisible: string[];
+            if (isCurrentlyVisible) {
+                nextVisible = prev.visible_widgets.filter(
+                    id => id !== widgetId && !(widgetId === 'file-types' && id === 'storage')
+                );
+            } else {
+                const cleaned = prev.visible_widgets.filter(
+                    id => !(widgetId === 'file-types' && id === 'storage')
+                );
+                nextVisible = [...cleaned, widgetId];
+            }
             return {
                 ...prev,
-                visible_widgets: visible
-                    ? prev.visible_widgets.filter(id => id !== widgetId)
-                    : [...prev.visible_widgets, widgetId]
+                visible_widgets: nextVisible
             };
         });
     };
@@ -98,12 +114,17 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            // 规范化 visible_widgets，将旧的 'storage' 替换为 'file-types'
+            const normalizedConfig = {
+                ...config,
+                visible_widgets: config.visible_widgets.map(id => id === 'storage' ? 'file-types' : id)
+            };
             // Save to backend
             await authFetch(`/api/users/${user?.id}`, {
                 method: 'PUT',
-                body: JSON.stringify({ widget_config: config })
+                body: JSON.stringify({ widget_config: normalizedConfig })
             });
-            onSave(config);
+            onSave(normalizedConfig);
             onClose();
         } catch (error) {
             console.error('Failed to save widget config:', error);
@@ -118,7 +139,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
 
     if (!isOpen) return null;
 
-    const configurableWidgets = AVAILABLE_WIDGETS.filter(w => w.configurable && config.visible_widgets.includes(w.id));
+    const configurableWidgets = AVAILABLE_WIDGETS.filter(w => w.configurable && isWidgetVisible(w.id));
 
     const getWidgetName = (w: WidgetDefinition) => {
         const key = `widget_${w.id}`;
@@ -200,7 +221,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                 </p>
                                 {AVAILABLE_WIDGETS.map((widget) => {
                                     const Icon = widget.icon;
-                                    const isVisible = config.visible_widgets.includes(widget.id);
+                                    const isVisible = isWidgetVisible(widget.id);
                                     return (
                                         <div
                                             key={widget.id}
@@ -287,6 +308,92 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                                     </div>
                                                 )}
                                                 
+                                                {widget.id === 'activity-chart' && (
+                                                    <div className="space-y-3">
+                                                        <label className="block">
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('activityChartDays')}</span>
+                                                            <select
+                                                                value={settings.days || 7}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'days', parseInt(e.target.value))}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                                                            >
+                                                                <option value={7}>7 {t('days')}</option>
+                                                                <option value={14}>14 {t('days')}</option>
+                                                                <option value={30}>30 {t('days')}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                )}
+
+                                                {widget.id === 'storage-trends' && (
+                                                    <div className="space-y-3">
+                                                        <label className="block">
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('storageTrendsPeriod')}</span>
+                                                            <select
+                                                                value={settings.period || '30d'}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'period', e.target.value)}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                                                            >
+                                                                <option value="7d">7 {t('days')}</option>
+                                                                <option value="30d">30 {t('days')}</option>
+                                                                <option value="90d">90 {t('days')}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                )}
+
+                                                {widget.id === 'recent-uploads' && (
+                                                    <div className="space-y-3">
+                                                        <label className="block">
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('recentUploadsLimit')}</span>
+                                                            <select
+                                                                value={settings.limit || 5}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'limit', parseInt(e.target.value))}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                                                            >
+                                                                <option value={5}>5 {t('numItems', { count: 5 })}</option>
+                                                                <option value={10}>10 {t('numItems', { count: 10 })}</option>
+                                                                <option value={15}>15 {t('numItems', { count: 15 })}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                )}
+
+                                                {widget.id === 'upcoming-expiry' && (
+                                                    <div className="space-y-3">
+                                                        <label className="block">
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('upcomingExpiryDays')}</span>
+                                                            <select
+                                                                value={settings.days_ahead || 7}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'days_ahead', parseInt(e.target.value))}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                                                            >
+                                                                <option value={3}>3 {t('days')}</option>
+                                                                <option value={7}>7 {t('days')}</option>
+                                                                <option value={14}>14 {t('days')}</option>
+                                                                <option value={30}>30 {t('days')}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                )}
+
+                                                {widget.id === 'notifications' && (
+                                                    <div className="space-y-3">
+                                                        <label className="block">
+                                                            <span className="text-sm text-gray-600 dark:text-gray-400">{t('notificationsLimit')}</span>
+                                                            <select
+                                                                value={settings.limit || 5}
+                                                                onChange={(e) => updateWidgetSetting(widget.id, 'limit', parseInt(e.target.value))}
+                                                                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm"
+                                                            >
+                                                                <option value={5}>5 {t('numItems', { count: 5 })}</option>
+                                                                <option value={10}>10 {t('numItems', { count: 10 })}</option>
+                                                                <option value={15}>15 {t('numItems', { count: 15 })}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                )}
+
                                                 {widget.id === 'requests' && (
                                                     <div className="space-y-3">
                                                         <label className="flex items-center cursor-pointer">
@@ -334,7 +441,7 @@ export function WidgetSettingsModal({ isOpen, onClose, onSave, currentConfig }: 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     {ADDITIONAL_WIDGETS.map((widget) => {
                                         const Icon = widget.icon;
-                                        const isAdded = config.custom_widgets.includes(widget.id) || config.visible_widgets.includes(widget.id);
+                                        const isAdded = isWidgetVisible(widget.id) || config.custom_widgets.includes(widget.id);
                                         
                                         return (
                                             <div

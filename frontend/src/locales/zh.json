@@ -343,7 +343,17 @@
     "widget_storage-trends": "存储趋势",
     "widget_storage-trends_desc": "存储随时间的变化趋势",
     "widget_notifications": "系统通知",
-    "widget_notifications_desc": "最近的系统告警与消息"
+    "widget_notifications_desc": "最近的系统告警与消息",
+    "widget_activity-chart": "活动概览",
+    "widget_activity-chart_desc": "系统操作活跃度走势",
+    "widget_file-types": "文件类型",
+    "widget_file-types_desc": "按类型分布的文件占比与格式统计",
+    "storageTrendsPeriod": "趋势统计周期",
+    "recentUploadsLimit": "显示文件数量",
+    "upcomingExpiryDays": "到期预警天数",
+    "notificationsLimit": "显示通知数量",
+    "activityChartDays": "活动统计天数",
+    "days": "天"
   },
   "FileRequests": {
     "title": "文件收集",

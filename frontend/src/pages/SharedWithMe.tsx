@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Share2, Download, FileText, Image, Film, Music, Folder, ChevronLeft, ChevronRight, Loader2, Eye, FolderPlus, Check } from 'lucide-react';
 import { format } from 'date-fns';
@@ -6,7 +6,7 @@ import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { useTranslations } from '../context/I18nContext';
-import { FilePreviewModal } from '../components/FilePreviewModal';
+import { FilePreviewModal, detectFileKind } from '../components/FilePreviewModal';
 import { FileGlyphVisual, FileSystemFolderGlyph } from '../components/FileGlyphs';
 
 interface SharedFile {
@@ -119,7 +119,7 @@ export function SharedWithMe() {
         }
     };
     
-    const handlePreview = (file: SharedFile, e?: React.MouseEvent) => {
+    const handlePreview = useCallback((file: SharedFile, e?: React.MouseEvent) => {
         e?.stopPropagation();
         const fileType = getFileType(file.content_type, file.name);
         setPreviewFile({
@@ -128,8 +128,35 @@ export function SharedWithMe() {
             type: fileType,
         });
         setIsPreviewOpen(true);
-    };
-    
+    }, []);
+
+    // Image navigation for shared files
+    const sharedImageFiles = useMemo(() => {
+        return files.filter(f => detectFileKind(f.name, f.content_type || undefined) === 'image');
+    }, [files]);
+
+    const currentImageIndex = useMemo(() => {
+        if (!previewFile || detectFileKind(previewFile.name, previewFile.type) !== 'image') {
+            return -1;
+        }
+        return sharedImageFiles.findIndex(f => f.name === previewFile.name);
+    }, [previewFile, sharedImageFiles]);
+
+    const hasPrevImage = currentImageIndex > 0;
+    const hasNextImage = currentImageIndex >= 0 && currentImageIndex < sharedImageFiles.length - 1;
+
+    const handlePrevImage = useCallback(() => {
+        if (currentImageIndex > 0) {
+            handlePreview(sharedImageFiles[currentImageIndex - 1]);
+        }
+    }, [currentImageIndex, sharedImageFiles, handlePreview]);
+
+    const handleNextImage = useCallback(() => {
+        if (currentImageIndex >= 0 && currentImageIndex < sharedImageFiles.length - 1) {
+            handlePreview(sharedImageFiles[currentImageIndex + 1]);
+        }
+    }, [currentImageIndex, sharedImageFiles, handlePreview]);
+
     const handleMyFilesClick = () => {
         navigate('/files');
     };
@@ -374,6 +401,12 @@ export function SharedWithMe() {
                     setPreviewFile(null);
                 }}
                 file={previewFile}
+                onPrev={handlePrevImage}
+                onNext={handleNextImage}
+                hasPrev={hasPrevImage}
+                hasNext={hasNextImage}
+                itemIndex={currentImageIndex >= 0 ? currentImageIndex : undefined}
+                itemCount={sharedImageFiles.length}
             />
         </div>
     );

@@ -27,9 +27,19 @@ interface FileCommentsPanelProps {
     fileId: string;
     companyId: string;
     isExpanded?: boolean;
+    variant?: 'collapsible' | 'sidebar';
+    onClose?: () => void;
+    onCountChange?: (count: number) => void;
 }
 
-export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: FileCommentsPanelProps) {
+export function FileCommentsPanel({
+    fileId,
+    companyId,
+    isExpanded = false,
+    variant = 'collapsible',
+    onClose,
+    onCountChange,
+}: FileCommentsPanelProps) {
     const authFetch = useAuthFetch();
     const { user } = useAuth();
     const { confirm: modalConfirm } = useModalDialog();
@@ -45,8 +55,12 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    const [expanded, setExpanded] = useState(isExpanded);
+    const [expanded, setExpanded] = useState(variant === 'sidebar' ? true : isExpanded);
     const [commentCount, setCommentCount] = useState(0);
+
+    useEffect(() => {
+        onCountChange?.(commentCount);
+    }, [commentCount, onCountChange]);
 
     const fetchComments = useCallback(async () => {
         setLoading(true);
@@ -284,30 +298,38 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
                             <div className="flex items-center gap-3 mt-2">
                                 {!isReply && (
                                     <button
-                                        onClick={() => {
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             setReplyingTo(comment.id);
                                             setReplyContent('');
                                         }}
-                                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
+                                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 cursor-pointer transition-colors"
                                     >
                                         <CornerDownRight className="w-3 h-3" /> {t('reply')}
                                     </button>
                                 )}
                                 {comment.can_edit && (
                                     <button
-                                        onClick={() => {
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             setEditingId(comment.id);
                                             setEditContent(comment.content);
                                         }}
-                                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
+                                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 cursor-pointer transition-colors"
                                     >
                                         <Pencil className="w-3 h-3" /> {t('edit')}
                                     </button>
                                 )}
                                 {comment.can_delete && (
                                     <button
-                                        onClick={() => handleDeleteComment(comment.id, parentId)}
-                                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteComment(comment.id, parentId);
+                                        }}
+                                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 cursor-pointer transition-colors"
                                     >
                                         <Trash2 className="w-3 h-3" /> {t('delete')}
                                     </button>
@@ -355,6 +377,88 @@ export function FileCommentsPanel({ fileId, companyId, isExpanded = false }: Fil
             </div>
         );
     };
+
+    if (variant === 'sidebar') {
+        return (
+            <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/80 dark:border-gray-800 shrink-0 bg-white dark:bg-gray-900 select-none">
+                    <div className="flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{t('title') || '评论'}</span>
+                        {commentCount > 0 && (
+                            <span className="px-1.5 py-0.2 text-[11px] font-semibold bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 rounded-full border border-primary-200/60 dark:border-primary-800/60">
+                                {commentCount}
+                            </span>
+                        )}
+                    </div>
+                    {onClose && (
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            title="收起评论"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+
+                {/* Body - Comments Scroll Area */}
+                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 select-text">
+                    {error && (
+                        <div className="mb-3 p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs rounded-lg">
+                            {error}
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 text-primary-600 animate-spin" />
+                        </div>
+                    )}
+
+                    {!loading && comments.length > 0 && (
+                        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {comments.map((comment) => (
+                                <CommentItem key={comment.id} comment={comment} />
+                            ))}
+                        </div>
+                    )}
+
+                    {!loading && comments.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400 dark:text-gray-500">
+                            <div className="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-full mb-2">
+                                <MessageSquare className="w-6 h-6 opacity-60" />
+                            </div>
+                            <p className="text-xs">{t('noComments') || '暂无评论，快来发表第一条评论吧！'}</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer - New Comment Form */}
+                <div className="border-t border-gray-200/80 dark:border-gray-800 p-3 bg-white dark:bg-gray-900 shrink-0 select-text">
+                    <form onSubmit={handleSubmitComment} className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            placeholder={t('writeCommentPlaceholder') || '输入评论内容...'}
+                            className="flex-1 px-3 py-2 text-xs sm:text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                        />
+                        <button
+                            type="submit"
+                            disabled={submitting || !newComment.trim()}
+                            className="px-3.5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0 shadow-xs"
+                            title="发表"
+                        >
+                            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="border-t border-gray-200 dark:border-gray-700">

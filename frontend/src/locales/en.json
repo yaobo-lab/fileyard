@@ -343,7 +343,17 @@
     "widget_storage-trends": "Storage Trends",
     "widget_storage-trends_desc": "Storage usage over time",
     "widget_notifications": "Notifications",
-    "widget_notifications_desc": "Recent system notifications"
+    "widget_notifications_desc": "Recent system notifications",
+    "widget_activity-chart": "Activity Overview",
+    "widget_activity-chart_desc": "System activity trends over time",
+    "widget_file-types": "File Types",
+    "widget_file-types_desc": "Distribution of files by type and format",
+    "storageTrendsPeriod": "Trend Period",
+    "recentUploadsLimit": "Recent Files Count",
+    "upcomingExpiryDays": "Days Ahead for Expiry",
+    "notificationsLimit": "Notifications Count",
+    "activityChartDays": "Activity Chart Range",
+    "days": "Days"
   },
   "FileRequests": {
     "title": "File Requests",

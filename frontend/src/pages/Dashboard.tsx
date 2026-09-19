@@ -21,17 +21,24 @@ import { useTranslations } from '../context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-// Default layout: slot -> widget mapping
+// Widget categories
+const STAT_WIDGET_IDS = ['stats-1', 'stats-2', 'stats-3', 'stats-4'];
+const DEFAULT_VISIBLE_WIDGETS = [
+    'stats-1', 'stats-2', 'stats-3', 'stats-4',
+    'activity-chart', 'file-types', 'activity', 'requests', 'departments'
+];
+
+// Default layout mapping
 const DEFAULT_LAYOUT: Record<string, string> = {
-    '1': 'stats-1',
-    '2': 'stats-2',
-    '3': 'stats-3',
-    '4': 'stats-4',
-    '5': 'activity-chart',
-    '6': 'file-types',
-    '7': 'activity',
-    '8': 'requests',
-    '9': 'departments'
+    'stat-0': 'stats-1',
+    'stat-1': 'stats-2',
+    'stat-2': 'stats-3',
+    'stat-3': 'stats-4',
+    'main-0': 'activity-chart',
+    'main-1': 'file-types',
+    'main-2': 'activity',
+    'main-3': 'requests',
+    'main-4': 'departments'
 };
 
 interface WidgetConfig {
@@ -41,7 +48,7 @@ interface WidgetConfig {
 }
 
 const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
-    visible_widgets: ['stats-1', 'stats-2', 'stats-3', 'stats-4', 'activity-chart', 'file-types', 'activity', 'requests', 'departments'],
+    visible_widgets: DEFAULT_VISIBLE_WIDGETS,
     widget_settings: {},
     custom_widgets: []
 };
@@ -54,6 +61,44 @@ interface DashboardStats {
     storage_used_formatted: string;
     storage_quota_bytes: number | null;
     storage_quota_formatted: string | null;
+}
+
+// 提取当前可见的 widget 列表，按 layout 已排好的顺序排序，新开启的 widget 追加到末尾
+function getOrderedWidgets(
+    layout: Record<string, string>,
+    visibleWidgets: string[],
+    isStat: boolean
+): string[] {
+    const targetSet = new Set(
+        visibleWidgets
+            .map(id => id === 'storage' ? 'file-types' : id)
+            .filter(id => isStat ? STAT_WIDGET_IDS.includes(id) : !STAT_WIDGET_IDS.includes(id))
+    );
+
+    // 提取 layout 中所有已分配槽位的 widgets，按槽位升序排列
+    const sortedSlots = Object.keys(layout).sort((a, b) => {
+        const numA = parseInt(a.replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(b.replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+    });
+
+    const orderedFromLayout: string[] = [];
+    sortedSlots.forEach(slot => {
+        let widgetId = layout[slot];
+        if (widgetId === 'storage') widgetId = 'file-types';
+        if (widgetId && targetSet.has(widgetId) && !orderedFromLayout.includes(widgetId)) {
+            orderedFromLayout.push(widgetId);
+            targetSet.delete(widgetId);
+        }
+    });
+
+    // 将新启用、尚未在 layout 中的 widget 追加到后面
+    const remainingWidgets: string[] = [];
+    targetSet.forEach(widgetId => {
+        remainingWidgets.push(widgetId);
+    });
+
+    return [...orderedFromLayout, ...remainingWidgets];
 }
 
 export function Dashboard() {
@@ -76,7 +121,6 @@ export function Dashboard() {
     });
     const [departments, setDepartments] = useState<any[]>([]);
     const [layout, setLayout] = useState<Record<string, string>>(() => {
-        // Try to load from user preferences
         if (user?.dashboard_layout && typeof user.dashboard_layout === 'object' && !Array.isArray(user.dashboard_layout)) {
             return user.dashboard_layout as Record<string, string>;
         }
@@ -121,6 +165,20 @@ export function Dashboard() {
         }
     }, [user?.dashboard_layout, user?.widget_config]);
 
+    // 计算当前可见与排序的小组件
+    const visibleWidgets = useMemo(() => {
+        const list = widgetConfig?.visible_widgets || DEFAULT_VISIBLE_WIDGETS;
+        return list.map(id => id === 'storage' ? 'file-types' : id);
+    }, [widgetConfig?.visible_widgets]);
+
+    const orderedStats = useMemo(() => {
+        return getOrderedWidgets(layout, visibleWidgets, true);
+    }, [layout, visibleWidgets]);
+
+    const orderedMain = useMemo(() => {
+        return getOrderedWidgets(layout, visibleWidgets, false);
+    }, [layout, visibleWidgets]);
+
     // Initialize Swapy
     useEffect(() => {
         if (!containerRef.current) return;
@@ -128,6 +186,7 @@ export function Dashboard() {
         // Destroy existing instance
         if (swapyRef.current) {
             swapyRef.current.destroy();
+            swapyRef.current = null;
         }
 
         // Create new swapy instance
@@ -137,26 +196,28 @@ export function Dashboard() {
 
         // Handle swap events
         swapyRef.current.onSwap((event: any) => {
-            const newLayout: Record<string, string> = {};
             const swapData = event.data?.array || event.newSlotItemMap?.asArray || [];
-            swapData.forEach((item: any) => {
-                if (item.item && item.slot) {
-                    newLayout[item.slot] = item.item;
-                }
-            });
-            
-            // Only update if we got valid data
-            if (Object.keys(newLayout).length > 0) {
-                setLayout(newLayout);
-                
-                // Save to backend
-                authFetch(`/api/users/${user?.id}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ dashboard_layout: newLayout })
-                }).catch(error => {
-                    console.error('Failed to save layout:', error);
+            if (!swapData || swapData.length === 0) return;
+
+            setLayout(prevLayout => {
+                const newLayout: Record<string, string> = { ...prevLayout };
+                swapData.forEach((item: any) => {
+                    if (item.item && item.slot) {
+                        newLayout[item.slot] = item.item;
+                    }
                 });
-            }
+
+                if (user?.id) {
+                    authFetch(`/api/users/${user.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ dashboard_layout: newLayout })
+                    }).catch(error => {
+                        console.error('Failed to save layout:', error);
+                    });
+                }
+
+                return newLayout;
+            });
         });
 
         return () => {
@@ -165,7 +226,7 @@ export function Dashboard() {
                 swapyRef.current = null;
             }
         };
-    }, [user?.id, authFetch]);
+    }, [user?.id, authFetch, orderedStats.join(','), orderedMain.join(',')]);
 
     // Fetch data on mount and when tenant changes
     useEffect(() => {
@@ -286,26 +347,19 @@ export function Dashboard() {
         'notifications': <NotificationsWidget limit={getWidgetSettings('notifications').limit || 5} />
     }), [stats, departments, maxDepartments, widgetConfig]);
 
-    // Get widget for a slot
-    const getSlotWidget = (slot: string) => {
-        const widgetId = layout[slot];
-        if (!widgetId || !widgets[widgetId]) return null;
-        return (
-            <div data-swapy-item={widgetId} className="h-full">
-                {widgets[widgetId]}
-            </div>
-        );
-    };
-
     // Reset layout to default
     const handleResetLayout = async () => {
         setLayout(DEFAULT_LAYOUT);
+        setWidgetConfig(DEFAULT_WIDGET_CONFIG);
         try {
             await authFetch(`/api/users/${user?.id}`, {
                 method: 'PUT',
-                body: JSON.stringify({ dashboard_layout: DEFAULT_LAYOUT })
+                body: JSON.stringify({ 
+                    dashboard_layout: DEFAULT_LAYOUT,
+                    widget_config: DEFAULT_WIDGET_CONFIG
+                })
             });
-            window.location.reload();
+            refreshUser();
         } catch (error) {
             console.error('Failed to reset layout:', error);
         }
@@ -385,45 +439,59 @@ export function Dashboard() {
             {/* Swapy Container */}
             <div ref={containerRef} className="space-y-6">
                 {/* Stats Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div data-swapy-slot="1" className="min-h-[100px]">
-                        {getSlotWidget('1')}
+                {orderedStats.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {orderedStats.map((widgetId, index) => (
+                            <div 
+                                key={`stat-slot-${index}`} 
+                                data-swapy-slot={`stat-slot-${index}`} 
+                                className="min-h-[100px]"
+                            >
+                                <div data-swapy-item={widgetId} className="h-full">
+                                    {widgets[widgetId]}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                    <div data-swapy-slot="2" className="min-h-[100px]">
-                        {getSlotWidget('2')}
-                    </div>
-                    <div data-swapy-slot="3" className="min-h-[100px]">
-                        {getSlotWidget('3')}
-                    </div>
-                    <div data-swapy-slot="4" className="min-h-[100px]">
-                        {getSlotWidget('4')}
-                    </div>
-                </div>
+                )}
 
-                {/* Charts Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div data-swapy-slot="5" className="min-h-[300px]">
-                        {getSlotWidget('5')}
+                {/* Main Content & Charts Grid */}
+                {orderedMain.length > 0 && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {orderedMain.map((widgetId, index) => (
+                            <div 
+                                key={`main-slot-${index}`} 
+                                data-swapy-slot={`main-slot-${index}`} 
+                                className="min-h-[320px]"
+                            >
+                                <div data-swapy-item={widgetId} className="h-full">
+                                    {widgets[widgetId]}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                    <div data-swapy-slot="6" className="min-h-[300px]">
-                        {getSlotWidget('6')}
-                    </div>
-                </div>
+                )}
 
-                {/* Main Content Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div data-swapy-slot="7" className="lg:col-span-2 min-h-[400px]">
-                        {getSlotWidget('7')}
+                {/* Empty state when all widgets are hidden */}
+                {orderedStats.length === 0 && orderedMain.length === 0 && (
+                    <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                        <Settings2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                        <h3 className="text-base font-medium text-foreground mb-1">
+                            {t('noWidgetsVisible') || '当前未显示任何小组件'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            {t('clickCustomizeToAdd') || '点击“自定义组件”选择要在仪表盘中展示的内容'}
+                        </p>
+                        <Button 
+                            variant="default"
+                            onClick={() => setIsSettingsOpen(true)}
+                            className="gap-2"
+                        >
+                            <Settings2 className="w-4 h-4" />
+                            {t('customize')}
+                        </Button>
                     </div>
-                    <div className="space-y-6">
-                        <div data-swapy-slot="8" className="min-h-[180px]">
-                            {getSlotWidget('8')}
-                        </div>
-                        <div data-swapy-slot="9" className="min-h-[180px]">
-                            {getSlotWidget('9')}
-                        </div>
-                    </div>
-                </div>
+                )}
             </div>
 
             {/* Widget Settings Modal */}
