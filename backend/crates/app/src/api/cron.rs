@@ -23,7 +23,7 @@ pub async fn cleanup_expired_files(
         .list_retention_policies()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch tenants: {:?}", e);
+            log::error!("Failed to fetch tenants: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -32,7 +32,7 @@ pub async fn cleanup_expired_files(
     for (tenant_id, retention_days) in tenants {
         // Skip tenants with infinite retention (0 = never auto-delete from trash)
         if retention_days == 0 {
-            tracing::debug!("Skipping tenant {} - infinite retention policy", tenant_id);
+            log::debug!("Skipping tenant {} - infinite retention policy", tenant_id);
             continue;
         }
 
@@ -46,14 +46,14 @@ pub async fn cleanup_expired_files(
             .list_expired(tenant_id, cutoff_date)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch expired files: {:?}", e);
+                log::error!("Failed to fetch expired files: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         for (file_name, storage_path) in expired_files {
             // 3. Delete from storage
             if let Err(e) = state.storage.delete(&storage_path).await {
-                tracing::error!(
+                log::error!(
                     "Failed to delete file from storage: {:?}, error: {:?}",
                     storage_path,
                     e
@@ -66,7 +66,7 @@ pub async fn cleanup_expired_files(
                     deleted_count += rows;
                 }
                 Err(e) => {
-                    tracing::error!(
+                    log::error!(
                         "Failed to delete file metadata: {:?}, error: {:?}",
                         file_name,
                         e
@@ -103,7 +103,7 @@ pub async fn notify_expiring_requests(
         .list_expiring(now, three_days)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch expiring requests: {:?}", e);
+            log::error!("Failed to fetch expiring requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -165,7 +165,7 @@ pub async fn check_storage_quotas(
         .list_with_storage_quota()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch tenants: {:?}", e);
+            log::error!("Failed to fetch tenants: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

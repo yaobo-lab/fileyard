@@ -32,7 +32,7 @@ pub async fn get_settings(
     let settings = virus_scan::get_tenant_settings(&state.store, auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get virus scan settings: {:?}", e);
+            log::error!("Failed to get virus scan settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -82,7 +82,7 @@ pub async fn update_settings(
     )
     .await
     .map_err(|e| {
-        tracing::error!("Failed to update virus scan settings: {:?}", e);
+        log::error!("Failed to update virus scan settings: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -107,7 +107,7 @@ pub async fn get_metrics(
     let metrics = virus_scan::get_metrics(&state.store, &state.virus_scan_config, cb_ref)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get virus scan metrics: {:?}", e);
+            log::error!("Failed to get virus scan metrics: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -143,7 +143,7 @@ pub async fn get_scan_results(
         virus_scan::get_scan_history(&state.store, auth.tenant_id, limit, offset, infected_only)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to get scan history: {:?}", e);
+                log::error!("Failed to get scan history: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -169,7 +169,7 @@ pub async fn get_quarantined_files(
     let results = virus_scan::get_quarantined_files(&state.store, auth.tenant_id, limit, offset)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get quarantined files: {:?}", e);
+            log::error!("Failed to get quarantined files: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -233,7 +233,7 @@ pub async fn rescan_file(
     let job_id = virus_scan::enqueue_scan(&state.store, file_id, auth.tenant_id, 100)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to enqueue rescan: {:?}", e);
+            log::error!("Failed to enqueue rescan: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -241,7 +241,7 @@ pub async fn rescan_file(
     virus_scan::update_file_scan_status(&state.store, file_id, "pending")
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update file scan status: {:?}", e);
+            log::error!("Failed to update file scan status: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

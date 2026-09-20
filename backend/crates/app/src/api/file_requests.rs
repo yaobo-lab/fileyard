@@ -1,4 +1,4 @@
-﻿use crate::compliance::{
+use crate::compliance::{
     check_compliance_action, get_tenant_compliance_mode, ComplianceAction, ComplianceRestrictions,
 };
 use crate::AppState;
@@ -38,11 +38,11 @@ pub async fn create_file_request(
     Extension(auth): Extension<AuthUser>,
     body: String,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::debug!("Received file request body: {}", body);
+    log::debug!("Received file request body: {}", body);
 
     let input: CreateFileRequestInput = serde_json::from_str(&body).map_err(|e| {
-        tracing::error!("Failed to parse file request JSON: {:?}", e);
-        tracing::error!("Raw body was: {}", body);
+        log::error!("Failed to parse file request JSON: {:?}", e);
+        log::error!("Raw body was: {}", body);
         StatusCode::UNPROCESSABLE_ENTITY
     })?;
 
@@ -61,7 +61,7 @@ pub async fn create_file_request(
     if let Err(violation) =
         check_compliance_action(&state.store, auth.tenant_id, ComplianceAction::PublicShare).await
     {
-        tracing::warn!("Compliance violation: {:?}", violation);
+        log::warn!("Compliance violation: {:?}", violation);
         return Err(violation.to_status_code());
     }
 
@@ -92,7 +92,7 @@ pub async fn create_file_request(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create file request: {:?}", e);
+            log::error!("Failed to create file request: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -197,7 +197,7 @@ pub async fn list_file_requests(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list file requests: {:?}", e);
+            log::error!("Failed to list file requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -246,7 +246,7 @@ pub async fn get_file_request(
     if visibility == "private" {
         // Private requests: only the creator can access
         if request.created_by != auth.user_id {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to access private file request {} owned by {}",
                 auth.user_id,
                 request.id,
@@ -270,7 +270,7 @@ pub async fn get_file_request(
             // If request has a department, user must be in that department
             if let Some(req_dept_id) = request.department_id {
                 if user_department_id != Some(req_dept_id) {
-                    tracing::warn!(
+                    log::warn!(
                         "User {} (dept {:?}) attempted to access file request {} in dept {}",
                         auth.user_id,
                         user_department_id,
@@ -334,7 +334,7 @@ pub async fn delete_file_request(
         if visibility == "private" {
             // Private requests: only the creator can delete
             if request.created_by != auth.user_id {
-                tracing::warn!(
+                log::warn!(
                     "User {} attempted to delete private file request {} owned by {}",
                     auth.user_id,
                     request.id,
@@ -356,7 +356,7 @@ pub async fn delete_file_request(
             // If request has a department, user must be in that department
             if let Some(req_dept_id) = request.department_id {
                 if user_department_id != Some(req_dept_id) {
-                    tracing::warn!(
+                    log::warn!(
                         "User {} (dept {:?}) attempted to delete file request {} in dept {}",
                         auth.user_id,
                         user_department_id,
@@ -517,7 +517,7 @@ pub async fn public_upload(
                     .iter()
                     .any(|b| b.to_lowercase() == ext_lower)
                 {
-                    tracing::warn!(
+                    log::warn!(
                         "Public upload blocked: attempted to upload blocked extension .{} (file: {}, request: {})",
                         ext_lower, file_name, token
                     );
@@ -550,7 +550,7 @@ pub async fn public_upload(
         let temp_path = temp_dir.join(&temp_file_name);
 
         let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-            tracing::error!("Failed to create temp file for public upload: {:?}", e);
+            log::error!("Failed to create temp file for public upload: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -559,7 +559,7 @@ pub async fn public_upload(
 
         // Stream chunks to temp file while computing hash (constant memory usage)
         while let Some(chunk) = field.chunk().await.map_err(|e| {
-            tracing::error!("Failed to read chunk in public upload: {:?}", e);
+            log::error!("Failed to read chunk in public upload: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })? {
             size += chunk.len() as i64;
@@ -570,14 +570,14 @@ pub async fn public_upload(
                     // Clean up temp file before returning error
                     drop(temp_file);
                     let _ = tokio::fs::remove_file(&temp_path).await;
-                    tracing::warn!("Public upload exceeded max size: {} > {}", size, max_size);
+                    log::warn!("Public upload exceeded max size: {} > {}", size, max_size);
                     return Err(StatusCode::PAYLOAD_TOO_LARGE);
                 }
             }
 
             hasher.update(&chunk);
             temp_file.write_all(&chunk).await.map_err(|e| {
-                tracing::error!("Failed to write chunk to temp file: {:?}", e);
+                log::error!("Failed to write chunk to temp file: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
         }
@@ -609,7 +609,7 @@ pub async fn public_upload(
         if !content_exists {
             // Acquire transfer scheduler permit based on file size (prioritizes small files)
             let transfer_permit = state.scheduler.acquire_upload_permit(Some(size)).await;
-            tracing::debug!(
+            log::debug!(
                 "Public upload permit acquired: token={}, size={}, class={}",
                 token,
                 size,
@@ -622,22 +622,22 @@ pub async fn public_upload(
                 .upload_from_path(&storage_path, &temp_path)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Storage error in public upload: {:?}", e);
+                    log::error!("Storage error in public upload: {:?}", e);
                     // Clean up temp file on error
                     let _ = std::fs::remove_file(&temp_path);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
-            tracing::debug!("Uploaded new content to storage: {}", storage_path);
+            log::debug!("Uploaded new content to storage: {}", storage_path);
 
             // Permit is released here when upload completes
             drop(transfer_permit);
         } else {
-            tracing::debug!("Content already exists, deduplicating: {}", storage_path);
+            log::debug!("Content already exists, deduplicating: {}", storage_path);
         }
 
         // Clean up temp file after successful upload
         if let Err(e) = tokio::fs::remove_file(&temp_path).await {
-            tracing::warn!("Failed to remove temp file: {:?}", e);
+            log::warn!("Failed to remove temp file: {:?}", e);
         }
 
         // Enqueue S3 replication if enabled (only for new content, not deduplicated)
@@ -654,11 +654,11 @@ pub async fn public_upload(
                 )
                 .await
                 {
-                    tracing::warn!(
+                    log::warn!(
                         target: "replication",
-                        storage_path = %storage_key,
-                        error = %e,
-                        "Failed to enqueue replication job for public upload"
+                        "Failed to enqueue replication job for public upload (storage_path: {}, error: {})",
+                        storage_key,
+                        e
                     );
                 }
             });
@@ -686,7 +686,7 @@ pub async fn public_upload(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to create file metadata: {:?}", e);
+                log::error!("Failed to create file metadata: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -706,11 +706,11 @@ pub async fn public_upload(
                 )
                 .await
                 {
-                    tracing::warn!(
+                    log::warn!(
                         target: "virus_scan",
-                        file_id = %file_id,
-                        error = %e,
-                        "Failed to enqueue virus scan job for public upload"
+                        "Failed to enqueue virus scan job for public upload (file_id: {}, error: {})",
+                        file_id,
+                        e
                     );
                 }
             });
@@ -731,7 +731,7 @@ pub async fn public_upload(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to create upload record: {:?}", e);
+                log::error!("Failed to create upload record: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 

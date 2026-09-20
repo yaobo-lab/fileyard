@@ -1,4 +1,4 @@
-//! GitLab API 客户端与 CI/CD 模块
+﻿//! GitLab API 客户端与 CI/CD 模块
 //!
 //! 提供基于官方 `gitlab` crate 的异步集成：
 //! - 连接健康检查与 Token 认证状态检测
@@ -133,7 +133,7 @@ pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (Statu
         .build_async()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create GitLab async client: {:?}", e);
+            log::error!("Failed to create GitLab async client: {:?}", e);
             (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
@@ -181,7 +181,7 @@ pub(crate) async fn gitlab_api_request(
     }
 
     req.send().await.map_err(|e| {
-        tracing::error!("GitLab API HTTP request failed: {:?}", e);
+        log::error!("GitLab API HTTP request failed: {:?}", e);
         (
             StatusCode::BAD_GATEWAY,
             Json(json!({

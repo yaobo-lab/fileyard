@@ -51,7 +51,7 @@ impl ApiUsageWriter {
     pub fn record(&self, metric: ApiMetric) {
         // Use try_send to avoid blocking - if channel is full, drop the metric
         if let Err(e) = self.sender.try_send(metric) {
-            tracing::warn!("API usage channel full, dropping metric: {:?}", e);
+            log::warn!("API usage channel full, dropping metric: {:?}", e);
         }
     }
 }
@@ -118,10 +118,10 @@ async fn flush_metrics(store: &DataStore, buffer: &mut Vec<ApiMetric>) {
 
     match store.api_usage().flush_metrics(&items).await {
         Ok(_) => {
-            tracing::debug!("Flushed {} API usage metrics to database", items.len());
+            log::debug!("Flushed {} API usage metrics to database", items.len());
         }
         Err(e) => {
-            tracing::error!("Failed to write API usage metrics: {:?}", e);
+            log::error!("Failed to write API usage metrics: {:?}", e);
         }
     }
 

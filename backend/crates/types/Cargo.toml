@@ -11,7 +11,6 @@ anyhow.workspace = true
 chrono.workspace = true
 tokio.workspace = true
 log.workspace = true
-config.workspace = true
 reqwest.workspace = true
 colored.workspace = true
 moka-cache.workspace = true

@@ -38,7 +38,7 @@ pub async fn register_extension(
 ) -> Result<Json<Value>, StatusCode> {
     // Fetch and validate manifest
     let manifest = fetch_manifest(&input.manifest_url).await.map_err(|e| {
-        tracing::error!("Manifest fetch error: {:?}", e);
+        log::error!("Manifest fetch error: {:?}", e);
         StatusCode::BAD_REQUEST
     })?;
 
@@ -89,7 +89,7 @@ pub async fn register_extension(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to register extension: {:?}", e);
+            log::error!("Failed to register extension: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -125,7 +125,7 @@ pub async fn install_extension(
             .unwrap_or(false); // If allowed_tenant_ids is None, only owner has access
 
     if !has_access {
-        tracing::warn!(
+        log::warn!(
             "Tenant {} attempted to install extension {} without access",
             auth.tenant_id,
             extension_id
@@ -151,7 +151,7 @@ pub async fn install_extension(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create installation: {:?}", e);
+            log::error!("Failed to create installation: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::CONFLICT)?;
@@ -160,7 +160,7 @@ pub async fn install_extension(
     grant_permissions(&state.store, installation.id, &input.permissions)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to grant permissions: {:?}", e);
+            log::error!("Failed to grant permissions: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -275,12 +275,12 @@ pub async fn validate_manifest(
 ) -> Result<Json<Value>, StatusCode> {
     let manifest = if let Some(url) = input.manifest_url {
         fetch_manifest(&url).await.map_err(|e| {
-            tracing::error!("Manifest validation error: {:?}", e);
+            log::error!("Manifest validation error: {:?}", e);
             StatusCode::BAD_REQUEST
         })?
     } else if let Some(json) = input.manifest {
         parse_manifest(&json).map_err(|e| {
-            tracing::error!("Manifest parse error: {:?}", e);
+            log::error!("Manifest parse error: {:?}", e);
             StatusCode::BAD_REQUEST
         })?
     } else {
@@ -402,7 +402,7 @@ pub async fn update_extension_access(
             .update_access(extension_id, auth.tenant_id, allowed_ids.clone())
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update extension access: {:?}", e);
+                log::error!("Failed to update extension access: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })? {
             None => return Err(StatusCode::NOT_FOUND),
@@ -463,12 +463,12 @@ pub async fn trigger_automation(
     )
     .await
     .map_err(|e| {
-        tracing::error!("Failed to create scheduler: {:?}", e);
+        log::error!("Failed to create scheduler: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     scheduler.trigger_job(job_id).await.map_err(|e| {
-        tracing::error!("Failed to trigger job: {:?}", e);
+        log::error!("Failed to trigger job: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -509,7 +509,7 @@ pub async fn create_job(
     )
     .await
     .map_err(|e| {
-        tracing::error!("Failed to create job: {:?}", e);
+        log::error!("Failed to create job: {:?}", e);
         StatusCode::BAD_REQUEST
     })?;
 

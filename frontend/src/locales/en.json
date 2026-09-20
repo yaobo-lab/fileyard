@@ -65,6 +65,7 @@
     "approvals": "Approvals",
     "storage": "Storage",
     "sharedWithMe": "Shared with Me",
+    "myShares": "My Shares",
     "fileRequests": "File Requests",
     "extensions": "Extensions",
     "companies": "Companies",
@@ -98,6 +99,9 @@
     "timezoneDesc": "Used as the default for scheduling and timestamps"
   },
   "Explorer": {
+    "allFiles": "Department Files",
+    "departmentFiles": "Department Files",
+    "firmwareFiles": "Firmware Files",
     "quickAccess": "Quick Access",
     "searchPlaceholder": "Search files...",
     "selectedCount": "{count} items selected",
@@ -130,7 +134,7 @@
     "showingItems": "Showing {start} - {end} of {total} items",
     "previous": "Previous",
     "next": "Next",
-    "myPrivateFiles": "My Private Files",
+    "myPrivateFiles": "Personal Files",
     "myDepartment": "My Department",
     "filterByDepartment": "Filter by Department",
     "recycleBin": "Recycle Bin",
@@ -149,7 +153,9 @@
     "folderNamePlaceholder": "e.g., Projects",
     "create": "Create",
     "itemsPerPage": "Items per page",
-    "auto": "Auto"
+    "auto": "Auto",
+    "star": "Star",
+    "unstar": "Unstar"
   },
   "Share": {
     "title": "Share File",
@@ -443,6 +449,33 @@
     "saving": "Saving...",
     "saved": "Saved!",
     "saveFailed": "Failed to save file"
+  },
+  "MyShares": {
+    "title": "My Shares",
+    "description": "View and manage files you have shared with others or via public links",
+    "searchPlaceholder": "Search by file name or recipient...",
+    "loading": "Loading shared files...",
+    "noShares": "No shared files",
+    "noSharesDesc": "When you share files, your share history will appear here.",
+    "colName": "File Name",
+    "colShareType": "Share Type",
+    "colDuration": "Expiration Days",
+    "colDownloads": "Downloads",
+    "colCreated": "Shared On",
+    "colExpires": "Expires",
+    "colActions": "Actions",
+    "publicLink": "Anyone with link",
+    "orgOnly": "Org members only",
+    "neverExpires": "Never",
+    "expired": "Expired",
+    "active": "Active",
+    "copyLink": "Copy Link",
+    "linkCopied": "Link copied",
+    "revokeShare": "Revoke",
+    "revokeConfirm": "Are you sure you want to revoke this share? The recipient or link will no longer be able to access this file.",
+    "revokeSuccess": "Share revoked successfully",
+    "revokeFailed": "Failed to revoke share",
+    "preview": "Preview"
   },
   "Users": {
     "title": "Users",

@@ -209,7 +209,7 @@ pub async fn list_pending(
         .list_pending(company_id, limit, offset, query.department_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list pending approvals: {:?}", e);
+            log::error!("Failed to list pending approvals: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -680,7 +680,7 @@ pub async fn create_policy(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create approval policy: {}", e);
+            log::error!("Failed to create approval policy: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

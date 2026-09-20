@@ -90,8 +90,8 @@ export function MoveFileModal({
             const res = await authFetch(`/api/files/${currentCompany.id}?${queryString}`);
             if (res.ok) {
                 const files = await res.json();
-                // Filter only folders and build tree
-                const folderList = files.filter((f: any) => f.type === 'folder');
+                // Filter only folders and build tree (排除固件文件独立管理目录)
+                const folderList = files.filter((f: any) => f.type === 'folder' && f.name !== '固件文件');
                 const tree = buildFolderTree(folderList);
                 setFolders(tree);
             }

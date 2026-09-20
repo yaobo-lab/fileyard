@@ -23,6 +23,7 @@ import { FileRequests } from './pages/FileRequests';
 import { Approvals } from './pages/Approvals';
 import RecycleBin from './pages/RecycleBin';
 import { SharedWithMe } from './pages/SharedWithMe';
+import { MyShares } from './pages/MyShares';
 import { Help } from './pages/Help';
 import { Profile } from './pages/Profile';
 import { Extensions } from './pages/Extensions';
@@ -136,6 +137,7 @@ function App() {
                                                 <Route path="approvals" element={<Approvals />} />
                                                 <Route path="recycle-bin" element={<RecycleBin />} />
                                                 <Route path="shared-with-me" element={<SharedWithMe />} />
+                                                <Route path="my-shares" element={<MyShares />} />
                                                 <Route path="apps" element={<AppsPage />} />
                                                 <Route path="extensions" element={<Extensions />} />
                                                 <Route path="extensions/:id" element={<ExtensionDetails />} />

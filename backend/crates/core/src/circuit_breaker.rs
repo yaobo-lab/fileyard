@@ -1,4 +1,4 @@
-//! Circuit Breaker Pattern for External Services
+﻿//! Circuit Breaker Pattern for External Services
 //!
 //! Implements the circuit breaker pattern to prevent cascading failures
 //! when external services (Redis, S3, etc.) become unavailable.
@@ -10,7 +10,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 
 /// Circuit breaker states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -180,10 +180,10 @@ pub async fn update_ai_settings(
         .await
         .map_err(ai_error_response)?;
 
-    tracing::info!(
-        tenant_id = %target_tenant_id,
-        user_id = %auth.user_id,
-        "AI settings updated"
+    log::info!(
+        "AI settings updated (tenant_id: {}, user_id: {})",
+        target_tenant_id,
+        auth.user_id
     );
 
     Ok(Json(TenantAiSettingsResponse::from(settings)))
@@ -614,7 +614,7 @@ async fn get_file_content(
     .map_err(|_| AiError::Forbidden)?;
 
     if !has_access {
-        tracing::warn!(
+        log::warn!(
             "AI access denied: user {} attempted to access file {} without permission",
             user_id,
             file_id
@@ -662,7 +662,7 @@ async fn get_file_content(
     }
 
     if !crate::text_extract::is_extractable(&mime) {
-        tracing::warn!("Unsupported file format for AI text extraction: file={}, mime={}", file.name, mime);
+        log::warn!("Unsupported file format for AI text extraction: file={}, mime={}", file.name, mime);
         return Err(AiError::ContentExtractionFailed);
     }
 
@@ -672,23 +672,23 @@ async fn get_file_content(
         .download(&file.storage_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to download file for AI: {:?}", e);
+            log::error!("Failed to download file for AI: {:?}", e);
             AiError::ContentExtractionFailed
         })?;
 
     if file.size_bytes == 0 || bytes.is_empty() {
-        tracing::warn!("File {} ({}) is empty (0 bytes), cannot process with AI", file.name, file_id);
+        log::warn!("File {} ({}) is empty (0 bytes), cannot process with AI", file.name, file_id);
         return Err(AiError::FileContentEmpty);
     }
 
     // Extract text based on file type (PDF, Office docs, plain text, etc.)
     let content = crate::text_extract::extract_text(&bytes, &mime).map_err(|e| {
-        tracing::warn!("Text extraction failed for {} ({}): {}", file.name, mime, e);
+        log::warn!("Text extraction failed for {} ({}): {}", file.name, mime, e);
         AiError::ContentExtractionFailed
     })?;
 
     if content.trim().is_empty() {
-        tracing::warn!("Extracted text content is empty for {} ({})", file.name, file_id);
+        log::warn!("Extracted text content is empty for {} ({})", file.name, file_id);
         return Err(AiError::FileContentEmpty);
     }
 

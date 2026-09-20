@@ -1,4 +1,4 @@
-//! Pure Rust SAML Signature Verification
+﻿//! Pure Rust SAML Signature Verification
 //!
 //! Verifies XML digital signatures on SAML Response/Assertion elements
 //! using RSA-SHA256 (or RSA-SHA1). No C dependencies.
@@ -74,7 +74,7 @@ pub fn parse_x509_pem(pem: &str) -> Result<RsaPublicKey, SamlCryptoError> {
     // SECURITY: Check certificate validity dates (warn on expired certs)
     let not_after = cert.tbs_certificate.validity.not_after.to_date_time();
     let not_before = cert.tbs_certificate.validity.not_before.to_date_time();
-    tracing::debug!(
+    log::debug!(
         "IdP certificate validity: {:?} to {:?}",
         not_before,
         not_after
@@ -96,7 +96,7 @@ pub fn parse_x509_pem(pem: &str) -> Result<RsaPublicKey, SamlCryptoError> {
         0,
     ) {
         if now > not_after {
-            tracing::warn!(
+            log::warn!(
                 "IdP signing certificate has expired (NotAfter: {:?}). Certificate should be rotated.",
                 not_after
             );
@@ -159,7 +159,7 @@ pub fn verify_saml_signature(
             hasher.finalize().to_vec()
         }
         a if a.contains("sha1") || a.contains("SHA1") => {
-            tracing::warn!("SHA-1 digest algorithm rejected as insecure: {}", a);
+            log::warn!("SHA-1 digest algorithm rejected as insecure: {}", a);
             return Err(SamlCryptoError::UnsupportedAlgorithm(format!(
                 "{} (SHA-1 is not supported — use SHA-256)",
                 a
@@ -185,7 +185,7 @@ pub fn verify_saml_signature(
                 .map_err(|e| SamlCryptoError::SignatureInvalid(format!("RSA-SHA256: {}", e)))?;
         }
         a if a.contains("sha1") || a.contains("SHA1") || a.contains("#rsa-sha1") => {
-            tracing::warn!("RSA-SHA1 signature algorithm rejected as insecure: {}", a);
+            log::warn!("RSA-SHA1 signature algorithm rejected as insecure: {}", a);
             return Err(SamlCryptoError::UnsupportedAlgorithm(format!(
                 "{} (SHA-1 is not supported — use RSA-SHA256)",
                 a

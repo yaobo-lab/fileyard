@@ -301,7 +301,7 @@ pub async fn get_tenant_compliance_mode(
         .compliance_mode(tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get tenant compliance mode: {:?}", e);
+            log::error!("Failed to get tenant compliance mode: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .unwrap_or_else(|| "Standard".to_string());
@@ -541,7 +541,7 @@ pub async fn get_compliance_restrictions(
     // Cache the result
     if let Some(ref cache) = state.cache {
         if let Err(e) = cache.set(&cache_key, &restrictions, ttl::COMPLIANCE).await {
-            tracing::warn!("Failed to cache compliance restrictions: {}", e);
+            log::warn!("Failed to cache compliance restrictions: {}", e);
         }
     }
 
@@ -566,7 +566,7 @@ pub async fn record_consent(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to record consent: {:?}", e);
+            log::error!("Failed to record consent: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -608,7 +608,7 @@ pub async fn get_consent_status(
         .list_consents(user_id, auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get consent status: {:?}", e);
+            log::error!("Failed to get consent status: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -631,7 +631,7 @@ pub async fn revoke_consent(
         .revoke_consent(auth.user_id, auth.tenant_id, &consent_type)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to revoke consent: {:?}", e);
+            log::error!("Failed to revoke consent: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -683,7 +683,7 @@ pub async fn create_deletion_request(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create deletion request: {:?}", e);
+            log::error!("Failed to create deletion request: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -735,7 +735,7 @@ pub async fn list_deletion_requests(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list deletion requests: {:?}", e);
+            log::error!("Failed to list deletion requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -810,7 +810,7 @@ pub async fn log_file_export(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to log file export: {:?}", e);
+            log::error!("Failed to log file export: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

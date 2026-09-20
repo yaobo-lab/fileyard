@@ -1,4 +1,4 @@
-//! Password hashing utilities with tuned Argon2 parameters
+﻿//! Password hashing utilities with tuned Argon2 parameters
 //!
 //! Provides consistent, secure password hashing across the application.
 //! Uses Argon2id with OWASP-recommended parameters for increased security.
@@ -26,7 +26,7 @@ pub fn get_argon2<'a>() -> Argon2<'a> {
     )
     .unwrap_or_else(|_| {
         // Fallback to default params if custom params fail
-        tracing::warn!("Failed to create custom Argon2 params, using defaults");
+        log::warn!("Failed to create custom Argon2 params, using defaults");
         Params::default()
     });
 

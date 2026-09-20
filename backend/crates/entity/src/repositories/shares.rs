@@ -31,6 +31,25 @@ pub struct SharedFileRow {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MyShareRow {
+    pub id: Uuid,
+    pub file_id: Uuid,
+    pub name: String,
+    pub size: i64,
+    pub content_type: Option<String>,
+    pub folder_path: Option<String>,
+    pub token: String,
+    pub is_public: bool,
+    pub is_directory: bool,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub download_count: i32,
+    pub created_at: DateTime<Utc>,
+    pub shared_with_user_id: Option<Uuid>,
+    pub shared_with_user_name: Option<String>,
+    pub shared_with_user_email: Option<String>,
+}
+
 pub struct ShareRepository<'a> {
     db: &'a DatabaseConnection,
 }
@@ -256,5 +275,123 @@ impl<'a> ShareRepository<'a> {
         };
         file_shares::Entity::insert(active).exec(self.db).await?;
         Ok(id)
+    }
+
+    pub async fn list_my_shares(
+        &self,
+        user_id: Uuid,
+        tenant_id: Uuid,
+        limit: u64,
+        offset: u64,
+    ) -> DataResult<(Vec<MyShareRow>, i64)> {
+        let count_sql = r#"
+            SELECT COUNT(*) 
+            FROM file_shares fs
+            JOIN files_metadata fm ON fs.file_id = fm.id
+            WHERE fs.created_by = $1 
+              AND fs.tenant_id = $2
+              AND fm.is_deleted = false
+        "#;
+        let count_stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            count_sql,
+            vec![user_id.into(), tenant_id.into()],
+        );
+        let count_row = self.db.query_one(count_stmt).await?;
+        let total: i64 = match count_row {
+            Some(r) => r.try_get_by_index(0).unwrap_or(0),
+            None => 0,
+        };
+
+        let data_sql = r#"
+            SELECT 
+                fs.id,
+                fm.id as file_id,
+                fm.name,
+                fm.size_bytes,
+                fm.content_type,
+                fm.parent_path,
+                fs.token,
+                fs.is_public,
+                fs.is_directory,
+                fs.expires_at,
+                fs.download_count,
+                fs.created_at,
+                fs.shared_with_user_id,
+                u.name as recipient_name,
+                u.email as recipient_email
+            FROM file_shares fs
+            JOIN files_metadata fm ON fs.file_id = fm.id
+            LEFT JOIN users u ON fs.shared_with_user_id = u.id
+            WHERE fs.created_by = $1 
+              AND fs.tenant_id = $2
+              AND fm.is_deleted = false
+            ORDER BY fs.created_at DESC
+            LIMIT $3 OFFSET $4
+        "#;
+        let data_stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            data_sql,
+            vec![
+                user_id.into(),
+                tenant_id.into(),
+                (limit as i64).into(),
+                (offset as i64).into(),
+            ],
+        );
+        let rows = self.db.query_all(data_stmt).await?;
+        let mut list = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: Uuid = row.try_get_by_index(0)?;
+            let file_id: Uuid = row.try_get_by_index(1)?;
+            let name: String = row.try_get_by_index(2)?;
+            let size: i64 = row.try_get_by_index(3)?;
+            let content_type: Option<String> = row.try_get_by_index(4).ok();
+            let folder_path: Option<String> = row.try_get_by_index(5).ok();
+            let token: String = row.try_get_by_index(6)?;
+            let is_public: bool = row.try_get_by_index(7)?;
+            let is_directory: bool = row.try_get_by_index(8)?;
+            let expires_at: Option<DateTime<FixedOffset>> = row.try_get_by_index(9).ok();
+            let download_count: i32 = row.try_get_by_index(10)?;
+            let created_at: DateTime<FixedOffset> = row.try_get_by_index(11)?;
+            let shared_with_user_id: Option<Uuid> = row.try_get_by_index(12).ok();
+            let shared_with_user_name: Option<String> = row.try_get_by_index(13).ok();
+            let shared_with_user_email: Option<String> = row.try_get_by_index(14).ok();
+
+            list.push(MyShareRow {
+                id,
+                file_id,
+                name,
+                size,
+                content_type,
+                folder_path,
+                token,
+                is_public,
+                is_directory,
+                expires_at: expires_at.map(|e| e.with_timezone(&Utc)),
+                download_count,
+                created_at: created_at.with_timezone(&Utc),
+                shared_with_user_id,
+                shared_with_user_name,
+                shared_with_user_email,
+            });
+        }
+
+        Ok((list, total))
+    }
+
+    pub async fn delete_my_share(
+        &self,
+        share_id: Uuid,
+        user_id: Uuid,
+        tenant_id: Uuid,
+    ) -> DataResult<bool> {
+        let stmt = Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            "DELETE FROM file_shares WHERE id = $1 AND created_by = $2 AND tenant_id = $3",
+            vec![share_id.into(), user_id.into(), tenant_id.into()],
+        );
+        let res = self.db.execute(stmt).await?;
+        Ok(res.rows_affected() > 0)
     }
 }

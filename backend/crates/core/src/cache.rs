@@ -1,4 +1,4 @@
-//! Redis caching utilities for ClovaLink
+﻿//! Redis caching utilities for ClovaLink
 //!
 //! Provides a simple API for caching serializable data with TTL support.
 //! Includes circuit breaker protection to prevent cascading failures.
@@ -10,7 +10,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 /// Cache key prefixes for different data types
 pub mod keys {

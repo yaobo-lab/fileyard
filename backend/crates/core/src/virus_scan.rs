@@ -1,4 +1,4 @@
-﻿//! ClamAV Virus Scanning Module
+//! ClamAV Virus Scanning Module
 //!
 //! Provides async virus scanning using ClamAV daemon (clamd).
 //! Scanning is non-blocking - uploads complete immediately while scans run in background.
@@ -18,7 +18,7 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 use uuid::Uuid;
 
 fn tenant_from_entity(m: app_entity::entities::tenants::Model) -> Tenant {
@@ -495,10 +495,8 @@ pub async fn enqueue_scan_with_backpressure(
         if queue_size >= max_queue_size {
             warn!(
                 target: "virus_scan",
-                queue_size = queue_size,
-                max_queue_size = max_queue_size,
-                file_id = %file_id,
-                "Virus scan queue full, rejecting job"
+                "Virus scan queue full, rejecting job (queue_size: {}, max_queue_size: {}, file_id: {})",
+                queue_size, max_queue_size, file_id
             );
             return Err(VirusScanError::QueueFull);
         }
@@ -511,10 +509,8 @@ pub async fn enqueue_scan_with_backpressure(
 
     debug!(
         target: "virus_scan",
-        job_id = %result,
-        file_id = %file_id,
-        tenant_id = %tenant_id,
-        "Enqueued virus scan job"
+        "Enqueued virus scan job: job_id={}, file_id={}, tenant_id={}",
+        result, file_id, tenant_id
     );
 
     Ok(result)
@@ -593,10 +589,8 @@ pub async fn fail_job(
 
     info!(
         target: "virus_scan",
-        job_id = %job_id,
-        retry_count = current_retry + 1,
-        backoff_secs = backoff_secs,
-        "Job failed, scheduled retry with exponential backoff"
+        "Job failed, scheduled retry with exponential backoff (job_id: {}, retry_count: {}, backoff_secs: {})",
+        job_id, current_retry + 1, backoff_secs
     );
 
     Ok(())
@@ -615,9 +609,8 @@ pub async fn requeue_job(
 
     debug!(
         target: "virus_scan",
-        job_id = %job_id,
-        reason = reason,
-        "Job requeued for later processing"
+        "Job requeued for later processing (job_id: {}, reason: {})",
+        job_id, reason
     );
 
     Ok(())
@@ -687,10 +680,8 @@ pub async fn check_and_suspend_uploader(
         .await?;
     info!(
         target: "virus_scan",
-        user_id = %user_id,
-        offense_count = offense_count,
-        threshold = threshold,
-        "User malware offense count updated"
+        "User malware offense count updated (user_id: {}, offense_count: {}, threshold: {})",
+        user_id, offense_count, threshold
     );
 
     // Check if threshold is reached
@@ -721,18 +712,15 @@ pub async fn check_and_suspend_uploader(
         {
             error!(
                 target: "virus_scan",
-                user_id = %user_id,
-                error = %e,
-                "Failed to create security alert for auto-suspension"
+                "Failed to create security alert for auto-suspension (user_id: {}, error: {})",
+                user_id, e
             );
         }
 
         warn!(
             target: "virus_scan",
-            user_id = %user_id,
-            offense_count = offense_count,
-            threshold = threshold,
-            "User auto-suspended for uploading malware"
+            "User auto-suspended for uploading malware (user_id: {}, offense_count: {}, threshold: {})",
+            user_id, offense_count, threshold
         );
 
         return Ok(true);
@@ -807,17 +795,17 @@ impl VirusScanWorker {
         if !self.config.enabled {
             info!(
                 target: "virus_scan",
-                worker_id = self.worker_id,
-                "Virus scan worker disabled, exiting"
+                "Virus scan worker disabled, exiting (worker_id: {})",
+                self.worker_id
             );
             return;
         }
 
         info!(
             target: "virus_scan",
-            worker_id = self.worker_id,
-            clamd_addr = %self.config.clamd_addr(),
-            "Virus scan worker started"
+            "Virus scan worker started (worker_id: {}, clamd_addr: {})",
+            self.worker_id,
+            self.config.clamd_addr()
         );
 
         // Wait for clamd to be available
@@ -826,16 +814,16 @@ impl VirusScanWorker {
                 Ok(true) => {
                     info!(
                         target: "virus_scan",
-                        worker_id = self.worker_id,
-                        "Connected to ClamAV daemon"
+                        "Connected to ClamAV daemon (worker_id: {})",
+                        self.worker_id
                     );
                     break;
                 }
                 Ok(false) | Err(_) => {
                     warn!(
                         target: "virus_scan",
-                        worker_id = self.worker_id,
-                        "Waiting for ClamAV daemon..."
+                        "Waiting for ClamAV daemon... (worker_id: {})",
+                        self.worker_id
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
@@ -855,9 +843,9 @@ impl VirusScanWorker {
                 Err(e) => {
                     error!(
                         target: "virus_scan",
-                        worker_id = self.worker_id,
-                        error = %e,
-                        "Worker error, sleeping before retry"
+                        "Worker error, sleeping before retry (worker_id: {}, error: {})",
+                        self.worker_id,
+                        e
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                 }
@@ -874,10 +862,10 @@ impl VirusScanWorker {
 
         info!(
             target: "virus_scan",
-            worker_id = self.worker_id,
-            job_id = %job.id,
-            file_id = %job.file_id,
-            "Processing virus scan job"
+            "Processing virus scan job (worker_id: {}, job_id: {}, file_id: {})",
+            self.worker_id,
+            job.id,
+            job.file_id
         );
 
         // Get tenant settings
@@ -941,9 +929,9 @@ impl VirusScanWorker {
         if !self.circuit_breaker.allow_request() {
             warn!(
                 target: "virus_scan",
-                worker_id = self.worker_id,
-                job_id = %job.id,
-                "Circuit breaker is open, requeuing job"
+                "Circuit breaker is open, requeuing job (worker_id: {}, job_id: {})",
+                self.worker_id,
+                job.id
             );
             requeue_job(
                 &self.store,
@@ -995,9 +983,9 @@ impl VirusScanWorker {
                     if let Err(e) = self.storage.delete(&storage_path).await {
                         error!(
                             target: "virus_scan",
-                            file_id = %job.file_id,
-                            error = %e,
-                            "Failed to delete infected file"
+                            "Failed to delete infected file (file_id: {}, error: {})",
+                            job.file_id,
+                            e
                         );
                     }
                     // Mark file as deleted in database
@@ -1057,13 +1045,13 @@ impl VirusScanWorker {
         if scan_result.is_infected {
             warn!(
                 target: "virus_scan",
-                worker_id = self.worker_id,
-                job_id = %job.id,
-                file_id = %job.file_id,
-                threat_name = ?scan_result.threat_name,
-                action = ?action_taken,
-                duration_ms = scan_result.scan_duration_ms,
-                "Virus detected!"
+                "Virus detected! (worker_id: {}, job_id: {}, file_id: {}, threat_name: {:?}, action: {:?}, duration_ms: {})",
+                self.worker_id,
+                job.id,
+                job.file_id,
+                scan_result.threat_name,
+                action_taken,
+                scan_result.scan_duration_ms
             );
 
             // Send security alert and notifications
@@ -1095,9 +1083,9 @@ impl VirusScanWorker {
                 {
                     error!(
                         target: "virus_scan",
-                        file_id = %job.file_id,
-                        error = %e,
-                        "Failed to create security alert for malware detection"
+                        "Failed to create security alert for malware detection (file_id: {}, error: {})",
+                        job.file_id,
+                        e
                     );
                 }
 
@@ -1131,9 +1119,9 @@ impl VirusScanWorker {
                         {
                             error!(
                                 target: "virus_scan",
-                                file_id = %job.file_id,
-                                error = %e,
-                                "Failed to send malware detection notifications"
+                                "Failed to send malware detection notifications (file_id: {}, error: {})",
+                                job.file_id,
+                                e
                             );
                         }
                     }
@@ -1162,17 +1150,17 @@ impl VirusScanWorker {
                             {
                                 error!(
                                     target: "virus_scan",
-                                    user_id = %user_id,
-                                    error = %e,
-                                    "Failed to check/suspend uploader after malware detection"
+                                    "Failed to check/suspend uploader after malware detection (user_id: {}, error: {})",
+                                    user_id,
+                                    e
                                 );
                             }
                         } else {
                             info!(
                                 target: "virus_scan",
-                                user_id = %user_id,
-                                role = ?uploader_role,
-                                "Skipping auto-suspend for admin user"
+                                "Skipping auto-suspend for admin user (user_id: {}, role: {:?})",
+                                user_id,
+                                uploader_role
                             );
                         }
                     }
@@ -1181,11 +1169,11 @@ impl VirusScanWorker {
         } else {
             info!(
                 target: "virus_scan",
-                worker_id = self.worker_id,
-                job_id = %job.id,
-                file_id = %job.file_id,
-                duration_ms = scan_result.scan_duration_ms,
-                "File scanned - clean"
+                "File scanned - clean (worker_id: {}, job_id: {}, file_id: {}, duration_ms: {})",
+                self.worker_id,
+                job.id,
+                job.file_id,
+                scan_result.scan_duration_ms
             );
         }
 

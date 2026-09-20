@@ -51,7 +51,7 @@ pub async fn get_global_settings(
     }
 
     let settings = state.store.global_settings().all().await.map_err(|e| {
-        tracing::error!("Failed to fetch global settings: {:?}", e);
+        log::error!("Failed to fetch global settings: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -112,7 +112,7 @@ pub async fn update_global_settings(
     // Update each setting
     for setting in &input.settings {
         if !valid_keys.contains(&setting.key.as_str()) {
-            tracing::warn!(
+            log::warn!(
                 "Attempted to update invalid global setting key: {}",
                 setting.key
             );
@@ -125,7 +125,7 @@ pub async fn update_global_settings(
             .upsert(&setting.key, setting.value.clone(), auth.user_id)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update global setting '{}': {:?}", setting.key, e);
+                log::error!("Failed to update global setting '{}': {:?}", setting.key, e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
     }
@@ -170,7 +170,7 @@ pub async fn upload_logo(
     }
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        tracing::error!("Failed to get multipart field: {:?}", e);
+        log::error!("Failed to get multipart field: {:?}", e);
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
@@ -184,7 +184,7 @@ pub async fn upload_logo(
             // Validate it's an image (SVG, PNG, or other image types)
             let is_valid = content_type.starts_with("image/") || content_type == "image/svg+xml";
             if !is_valid {
-                tracing::warn!("Invalid logo content type: {}", content_type);
+                log::warn!("Invalid logo content type: {}", content_type);
                 return Err(StatusCode::BAD_REQUEST);
             }
 
@@ -211,7 +211,7 @@ pub async fn upload_logo(
                 .upload(&filename, data.to_vec())
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to upload logo: {:?}", e);
+                    log::error!("Failed to upload logo: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -225,7 +225,7 @@ pub async fn upload_logo(
                 .upsert("logo_url", json!(logo_url), auth.user_id)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to save logo URL: {:?}", e);
+                    log::error!("Failed to save logo URL: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -272,7 +272,7 @@ pub async fn delete_logo(
         .delete("logo_url")
         .await
         .map_err(|e| {
-            tracing::error!("Failed to delete logo setting: {:?}", e);
+            log::error!("Failed to delete logo setting: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -310,7 +310,7 @@ pub async fn upload_favicon(
     }
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        tracing::error!("Failed to get multipart field: {:?}", e);
+        log::error!("Failed to get multipart field: {:?}", e);
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
@@ -327,7 +327,7 @@ pub async fn upload_favicon(
                 || content_type == "image/x-icon"
                 || content_type == "image/vnd.microsoft.icon";
             if !is_valid {
-                tracing::warn!("Invalid favicon content type: {}", content_type);
+                log::warn!("Invalid favicon content type: {}", content_type);
                 return Err(StatusCode::BAD_REQUEST);
             }
 
@@ -355,7 +355,7 @@ pub async fn upload_favicon(
                 .upload(&filename, data.to_vec())
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to upload favicon: {:?}", e);
+                    log::error!("Failed to upload favicon: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -369,7 +369,7 @@ pub async fn upload_favicon(
                 .upsert("favicon_url", json!(favicon_url), auth.user_id)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to save favicon URL: {:?}", e);
+                    log::error!("Failed to save favicon URL: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -416,7 +416,7 @@ pub async fn delete_favicon(
         .delete("favicon_url")
         .await
         .map_err(|e| {
-            tracing::error!("Failed to delete favicon setting: {:?}", e);
+            log::error!("Failed to delete favicon setting: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

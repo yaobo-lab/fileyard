@@ -53,7 +53,7 @@ pub async fn list_tenants(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list tenants: {:?}", e);
+            log::error!("Failed to list tenants: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -129,7 +129,7 @@ pub async fn accessible_tenants(
         .user(auth.user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch user for accessible tenants: {:?}", e);
+            log::error!("Failed to fetch user for accessible tenants: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -144,7 +144,7 @@ pub async fn accessible_tenants(
             .list_active()
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch all tenants for SuperAdmin: {:?}", e);
+                log::error!("Failed to fetch all tenants for SuperAdmin: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
     } else {
@@ -163,7 +163,7 @@ pub async fn accessible_tenants(
             .list_by_ids(&tenant_ids, Some("active"))
             .await
             .map_err(|e| {
-                tracing::error!("Failed to fetch accessible tenants: {:?}", e);
+                log::error!("Failed to fetch accessible tenants: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
     };
@@ -227,7 +227,7 @@ pub async fn create_tenant(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create tenant: {:?}", e);
+            log::error!("Failed to create tenant: {:?}", e);
             if e.to_string().contains("unique") || e.to_string().contains("duplicate") {
                 StatusCode::CONFLICT
             } else {
@@ -373,7 +373,7 @@ pub async fn update_tenant(
         .update(active)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update tenant: {:?}", e);
+            log::error!("Failed to update tenant: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -385,7 +385,7 @@ pub async fn update_tenant(
         let _ = cache.delete(&compliance_key).await;
         let _ = cache.delete(&tenant_key).await;
         let _ = cache.delete_pattern("clovalink:user:*").await;
-        tracing::info!("Invalidated all caches for tenant {} after update", id);
+        log::info!("Invalidated all caches for tenant {} after update", id);
     }
 
     Ok(Json(json!({
@@ -413,14 +413,14 @@ pub async fn edit_my_company(
     Json(input): Json<UpdateTenantInput>,
 ) -> Result<Json<Value>, StatusCode> {
     // Debug logging
-    tracing::info!(
+    log::info!(
         "edit_my_company called: user_id={}, user_tenant_id={}, user_role={}, requested_tenant_id={}", 
         auth.user_id, auth.tenant_id, auth.role, id
     );
 
     // Check if user is Owner or Admin of this tenant
     if auth.tenant_id != id {
-        tracing::warn!(
+        log::warn!(
             "Forbidden: tenant_id mismatch. user_tenant={}, requested={}",
             auth.tenant_id,
             id
@@ -428,11 +428,11 @@ pub async fn edit_my_company(
         return Err(StatusCode::FORBIDDEN);
     }
     if auth.role != "Owner" && auth.role != "Admin" && auth.role != "SuperAdmin" {
-        tracing::warn!("Forbidden: insufficient role. user_role={}", auth.role);
+        log::warn!("Forbidden: insufficient role. user_role={}", auth.role);
         return Err(StatusCode::FORBIDDEN);
     }
 
-    tracing::info!(
+    log::info!(
         "Authorization passed for user {} (role={}) to edit tenant {}",
         auth.user_id,
         auth.role,
@@ -448,7 +448,7 @@ pub async fn edit_my_company(
     // Check if trying to disable MFA when compliance requires it
     if let Some(enable_totp) = input.enable_totp {
         if !enable_totp && restrictions.mfa_locked {
-            tracing::warn!("Cannot disable MFA in {} mode", compliance_mode);
+            log::warn!("Cannot disable MFA in {} mode", compliance_mode);
             return Err(StatusCode::FORBIDDEN);
         }
     }
@@ -457,7 +457,7 @@ pub async fn edit_my_company(
     if let Some(retention_days) = input.retention_policy_days {
         if let Some(min_days) = restrictions.min_retention_days {
             if retention_days < min_days {
-                tracing::warn!(
+                log::warn!(
                     "Retention days {} below minimum {} for {} mode",
                     retention_days,
                     min_days,
@@ -598,7 +598,7 @@ pub async fn edit_my_company(
         .update(active)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update tenant: {:?}", e);
+            log::error!("Failed to update tenant: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -628,7 +628,7 @@ pub async fn edit_my_company(
         let _ = cache.delete(&compliance_key).await;
         let _ = cache.delete(&tenant_key).await;
         let _ = cache.delete_pattern("clovalink:user:*").await;
-        tracing::info!("Invalidated all caches for tenant {} after edit", id);
+        log::info!("Invalidated all caches for tenant {} after edit", id);
     }
 
     Ok(Json(json!({
@@ -663,7 +663,7 @@ pub async fn switch_tenant(
     Extension(auth): Extension<AuthUser>,
     Path(tenant_id): Path<Uuid>,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::info!(
+    log::info!(
         "Switch tenant request: user={}, target_tenant={}, role={}",
         auth.user_id,
         tenant_id,
@@ -676,7 +676,7 @@ pub async fn switch_tenant(
         .user(auth.user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch user for tenant switch: {:?}", e);
+            log::error!("Failed to fetch user for tenant switch: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -692,7 +692,7 @@ pub async fn switch_tenant(
                 .unwrap_or(false);
 
         if !has_access {
-            tracing::warn!(
+            log::warn!(
                 "User {} denied access to tenant {}",
                 auth.user_id,
                 tenant_id
@@ -708,14 +708,14 @@ pub async fn switch_tenant(
         .by_id(tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch tenant {}: {:?}", tenant_id, e);
+            log::error!("Failed to fetch tenant {}: {:?}", tenant_id, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     let tenant = match tenant {
         Some(t) if t.status == "active" => t,
         Some(t) => {
-            tracing::warn!(
+            log::warn!(
                 "Attempted to switch to non-active tenant {} (status: {})",
                 tenant_id,
                 t.status
@@ -723,7 +723,7 @@ pub async fn switch_tenant(
             return Err(StatusCode::FORBIDDEN);
         }
         None => {
-            tracing::warn!("Tenant {} not found", tenant_id);
+            log::warn!("Tenant {} not found", tenant_id);
             return Err(StatusCode::NOT_FOUND);
         }
     };
@@ -736,7 +736,7 @@ pub async fn switch_tenant(
         use app_core::cache::keys;
         let user_key = keys::user(auth.user_id);
         let _ = cache.delete(&user_key).await;
-        tracing::info!(
+        log::info!(
             "Invalidated user cache for {} after tenant switch to {}",
             auth.user_id,
             tenant_id
@@ -794,7 +794,7 @@ pub async fn test_smtp(
     )
     .await
     .map_err(|e| {
-        tracing::error!("SMTP Test Failed: {:?}", e);
+        log::error!("SMTP Test Failed: {:?}", e);
         StatusCode::BAD_REQUEST
     })?;
 
@@ -873,7 +873,7 @@ pub async fn suspend_tenant(
         let _ = cache.delete_pattern("clovalink:user:*").await;
     }
 
-    tracing::info!(
+    log::info!(
         "SuperAdmin {} suspended tenant {} ({})",
         auth.user_id,
         id,
@@ -946,7 +946,7 @@ pub async fn unsuspend_tenant(
         let _ = cache.delete_pattern("clovalink:user:*").await;
     }
 
-    tracing::info!(
+    log::info!(
         "SuperAdmin {} unsuspended tenant {} ({})",
         auth.user_id,
         id,
@@ -990,7 +990,7 @@ pub async fn delete_tenant(
         .delete_cascade(id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to cascade delete tenant {}: {:?}", id, e);
+            log::error!("Failed to cascade delete tenant {}: {:?}", id, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1023,7 +1023,7 @@ pub async fn delete_tenant(
         let _ = cache.delete_pattern("clovalink:user:*").await;
     }
 
-    tracing::warn!(
+    log::warn!(
         "SuperAdmin {} PERMANENTLY DELETED tenant {} ({}) - {} users, {} files removed",
         auth.user_id,
         id,

@@ -612,6 +612,8 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
         )
         .route("/api/shared-with-me", get(sharing::list_shared_with_me))
         .route("/api/shared-with-me/copy", post(sharing::copy_to_my_files))
+        .route("/api/my-shares", get(sharing::list_my_shares))
+        .route("/api/my-shares/{share_id}", delete(sharing::delete_my_share))
         // File Groups
         .route(
             "/api/groups/{company_id}",

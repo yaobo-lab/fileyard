@@ -1,4 +1,4 @@
-//! File Comments API Handlers
+﻿//! File Comments API Handlers
 //!
 //! Provides CRUD operations for file comments with proper access control.
 
@@ -102,7 +102,7 @@ pub async fn list_comments(
         .list(tenant_id, file_uuid)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch comments: {:?}", e);
+            log::error!("Failed to fetch comments: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -233,7 +233,7 @@ pub async fn create_comment(
         .create(tenant_id, file_uuid, auth.user_id, content, parent_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create comment: {:?}", e);
+            log::error!("Failed to create comment: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

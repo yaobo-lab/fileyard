@@ -181,7 +181,7 @@ fn encrypt_passphrase_at_rest(passphrase: &str) -> String {
     let master_key = match types::config::get_config().backup.master_key.as_deref() {
         Some(k) if k.len() >= 32 => k,
         _ => {
-            tracing::warn!("BACKUP_MASTER_KEY not set or too short — storing passphrase without at-rest encryption");
+            log::warn!("BACKUP_MASTER_KEY not set or too short — storing passphrase without at-rest encryption");
             return passphrase.to_string();
         }
     };
@@ -205,7 +205,7 @@ fn encrypt_passphrase_at_rest(passphrase: &str) -> String {
             )
         }
         Err(e) => {
-            tracing::error!("Failed to encrypt passphrase at rest: {:?}", e);
+            log::error!("Failed to encrypt passphrase at rest: {:?}", e);
             passphrase.to_string()
         }
     }
@@ -317,7 +317,7 @@ fn encrypt_backup(plaintext: &[u8], passphrase: &str) -> Result<Value, StatusCod
     let cipher = ChaCha20Poly1305::new((&key).into());
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
-        tracing::error!("Backup encryption failed: {:?}", e);
+        log::error!("Backup encryption failed: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -385,7 +385,7 @@ fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; KEY_SIZE], StatusCod
     argon2
         .hash_password_into(passphrase.as_bytes(), salt, &mut key)
         .map_err(|e| {
-            tracing::error!("Argon2 key derivation failed: {:?}", e);
+            log::error!("Argon2 key derivation failed: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -412,7 +412,7 @@ pub(crate) async fn verify_password_confirmation(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if fail_count >= 5 {
-        tracing::warn!("Password confirmation rate limit hit for user {}", user_id);
+        log::warn!("Password confirmation rate limit hit for user {}", user_id);
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
@@ -466,7 +466,7 @@ fn get_passphrase(headers: &HeaderMap) -> Result<String, StatusCode> {
 
     // Prevent DoS via extremely long passphrases hitting Argon2id
     if passphrase.len() > 1024 {
-        tracing::warn!("Passphrase exceeds max length ({})", passphrase.len());
+        log::warn!("Passphrase exceeds max length ({})", passphrase.len());
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -593,7 +593,7 @@ async fn check_backup_enabled(
 /// Returns 503 if circuit is open, 429 if too many concurrent operations.
 fn check_backup_infra(state: &AppState) -> Result<tokio::sync::OwnedSemaphorePermit, StatusCode> {
     if !state.backup_circuit_breaker.allow_request() {
-        tracing::warn!("Backup circuit breaker is open — rejecting request");
+        log::warn!("Backup circuit breaker is open — rejecting request");
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     state
@@ -601,7 +601,7 @@ fn check_backup_infra(state: &AppState) -> Result<tokio::sync::OwnedSemaphorePer
         .clone()
         .try_acquire_owned()
         .map_err(|_| {
-            tracing::warn!("Backup concurrency limit reached — rejecting request");
+            log::warn!("Backup concurrency limit reached — rejecting request");
             StatusCode::TOO_MANY_REQUESTS
         })
 }
@@ -629,7 +629,7 @@ async fn collect_tenant_core(
         .one(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect tenant core: {:?}", e);
+            log::error!("Failed to collect tenant core: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -676,7 +676,7 @@ async fn collect_users(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect users: {:?}", e);
+            log::error!("Failed to collect users: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -717,7 +717,7 @@ async fn collect_departments(db: &DatabaseConnection, tenant_id: Uuid) -> Result
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect departments: {:?}", e);
+            log::error!("Failed to collect departments: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -742,7 +742,7 @@ async fn collect_roles(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect roles: {:?}", e);
+            log::error!("Failed to collect roles: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -753,7 +753,7 @@ async fn collect_roles(db: &DatabaseConnection, tenant_id: Uuid) -> Result<Value
             .all(db)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to collect role permissions: {:?}", e);
+                log::error!("Failed to collect role permissions: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
         let perms_val: Vec<Value> = perms
@@ -784,7 +784,7 @@ async fn collect_audit_settings(db: &DatabaseConnection, tenant_id: Uuid) -> Res
         .one(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect audit settings: {:?}", e);
+            log::error!("Failed to collect audit settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -805,7 +805,7 @@ async fn collect_virus_scan(db: &DatabaseConnection, tenant_id: Uuid) -> Result<
         .one(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect virus scan: {:?}", e);
+            log::error!("Failed to collect virus scan: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -823,7 +823,7 @@ async fn collect_ai_settings(
         .one(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect ai settings: {:?}", e);
+            log::error!("Failed to collect ai settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -847,7 +847,7 @@ async fn collect_discord_settings(
         .one(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect discord settings: {:?}", e);
+            log::error!("Failed to collect discord settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -866,7 +866,7 @@ async fn collect_sso_oidc(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect sso oidc: {:?}", e);
+            log::error!("Failed to collect sso oidc: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -893,7 +893,7 @@ async fn collect_sso_saml(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect sso saml: {:?}", e);
+            log::error!("Failed to collect sso saml: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -914,7 +914,7 @@ async fn collect_sso_identities(db: &DatabaseConnection, tenant_id: Uuid) -> Res
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query tenant users for sso identities: {:?}", e);
+            log::error!("Failed to query tenant users for sso identities: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -931,7 +931,7 @@ async fn collect_sso_identities(db: &DatabaseConnection, tenant_id: Uuid) -> Res
             .all(db)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to collect oidc identities: {:?}", e);
+                log::error!("Failed to collect oidc identities: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
     } else {
@@ -944,7 +944,7 @@ async fn collect_sso_identities(db: &DatabaseConnection, tenant_id: Uuid) -> Res
             .all(db)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to collect saml identities: {:?}", e);
+                log::error!("Failed to collect saml identities: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
     } else {
@@ -995,7 +995,7 @@ async fn collect_sso_mappings(db: &DatabaseConnection, tenant_id: Uuid) -> Resul
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect sso mappings: {:?}", e);
+            log::error!("Failed to collect sso mappings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1013,7 +1013,7 @@ async fn collect_approval_policies(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect approval policies: {:?}", e);
+            log::error!("Failed to collect approval policies: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1031,7 +1031,7 @@ async fn collect_email_templates(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect email templates: {:?}", e);
+            log::error!("Failed to collect email templates: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1050,7 +1050,7 @@ async fn collect_notification_settings(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect notification settings: {:?}", e);
+            log::error!("Failed to collect notification settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1073,7 +1073,7 @@ async fn collect_file_metadata(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect file metadata: {:?}", e);
+            log::error!("Failed to collect file metadata: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1084,7 +1084,7 @@ async fn collect_file_metadata(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect file shares: {:?}", e);
+            log::error!("Failed to collect file shares: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1110,7 +1110,7 @@ async fn collect_audit_logs(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect audit logs: {:?}", e);
+            log::error!("Failed to collect audit logs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1133,7 +1133,7 @@ async fn collect_approval_history(
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect approval history: {:?}", e);
+            log::error!("Failed to collect approval history: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1192,7 +1192,7 @@ async fn collect_global_email_templates(db: &DatabaseConnection) -> Result<Value
         .all(db)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to collect global email templates: {:?}", e);
+            log::error!("Failed to collect global email templates: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1363,7 +1363,7 @@ pub async fn export_tenant_backup(
     // Encrypt the backup
     let plaintext = serde_json::to_vec(&backup).map_err(|e| {
         state.backup_circuit_breaker.record_failure();
-        tracing::error!("Backup serialization failed: {:?}", e);
+        log::error!("Backup serialization failed: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let encrypted = encrypt_backup(&plaintext, &passphrase).map_err(|e| {
@@ -1889,7 +1889,7 @@ pub async fn import_tenant_backup(
 
     // Commit transaction
     tx.commit().await.map_err(|e| {
-        tracing::error!("Failed to commit backup import: {:?}", e);
+        log::error!("Failed to commit backup import: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -2054,7 +2054,7 @@ pub async fn apply_settings_profile(
     }
 
     tx.commit().await.map_err(|e| {
-        tracing::error!("Failed to commit settings profile: {:?}", e);
+        log::error!("Failed to commit settings profile: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -2239,7 +2239,7 @@ pub async fn apply_global_settings_profile(
     }
 
     tx.commit().await.map_err(|e| {
-        tracing::error!("Failed to commit global settings profile: {:?}", e);
+        log::error!("Failed to commit global settings profile: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -2716,7 +2716,7 @@ async fn apply_roles(
                     .unwrap_or(true);
                 if !permission.is_empty() {
                     if !VALID_PERMISSIONS.contains(&permission) {
-                        tracing::warn!("Skipping unknown permission in import: {}", permission);
+                        log::warn!("Skipping unknown permission in import: {}", permission);
                         continue;
                     }
                     let p_active = app_entity::role_permissions::ActiveModel {
@@ -2751,7 +2751,7 @@ async fn apply_users(
             .ok_or(StatusCode::BAD_REQUEST)?;
 
         if !email.contains('@') || !email.contains('.') || email.len() > 254 {
-            tracing::warn!("Skipping user with invalid email in import: {}", email);
+            log::warn!("Skipping user with invalid email in import: {}", email);
             continue;
         }
 
@@ -3263,7 +3263,7 @@ pub async fn save_backup_to_storage(
         .upload(&storage_path, encrypted_bytes.clone())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to save backup to storage: {:?}", e);
+            log::error!("Failed to save backup to storage: {:?}", e);
             state.backup_circuit_breaker.record_failure();
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
@@ -3286,7 +3286,7 @@ pub async fn save_backup_to_storage(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to record backup history: {:?}", e);
+            log::error!("Failed to record backup history: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -3534,7 +3534,7 @@ pub async fn download_saved_backup(
     }
 
     let data = state.storage.download(&backup.storage_path).await.map_err(|e| {
-        tracing::error!("Failed to download backup from storage: {:?}", e);
+        log::error!("Failed to download backup from storage: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -3693,7 +3693,7 @@ pub async fn start_backup_scheduler(
     semaphore: Arc<tokio::sync::Semaphore>,
     redis_url: String,
 ) {
-    tracing::info!("Backup scheduler started");
+    log::info!("Backup scheduler started");
     let db = store.db().clone();
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -3704,7 +3704,7 @@ pub async fn start_backup_scheduler(
 
         // Skip if circuit breaker is open
         if !circuit_breaker.allow_request() {
-            tracing::debug!("Backup scheduler: circuit breaker open, skipping cycle");
+            log::debug!("Backup scheduler: circuit breaker open, skipping cycle");
             continue;
         }
 
@@ -3712,7 +3712,7 @@ pub async fn start_backup_scheduler(
         let lock_acquired = match acquire_scheduler_lock(&redis_url).await {
             Ok(acquired) => acquired,
             Err(e) => {
-                tracing::debug!("Backup scheduler: failed to acquire lock: {:?}", e);
+                log::debug!("Backup scheduler: failed to acquire lock: {:?}", e);
                 continue;
             }
         };
@@ -3724,7 +3724,7 @@ pub async fn start_backup_scheduler(
         let due_tenants = match find_due_tenants(&db).await {
             Ok(t) => t,
             Err(e) => {
-                tracing::error!("Backup scheduler: failed to find due tenants: {:?}", e);
+                log::error!("Backup scheduler: failed to find due tenants: {:?}", e);
                 continue;
             }
         };
@@ -3733,14 +3733,14 @@ pub async fn start_backup_scheduler(
         if let Err(e) =
             check_and_run_global_auto_backup(&store, &db, &storage, &circuit_breaker, &semaphore).await
         {
-            tracing::debug!("Global auto-backup check: {:?}", e);
+            log::debug!("Global auto-backup check: {:?}", e);
         }
 
         if due_tenants.is_empty() {
             continue;
         }
 
-        tracing::info!(
+        log::info!(
             "Backup scheduler: {} tenants due for backup",
             due_tenants.len()
         );
@@ -3753,7 +3753,7 @@ pub async fn start_backup_scheduler(
             let permit = match semaphore.clone().try_acquire_owned() {
                 Ok(p) => p,
                 Err(_) => {
-                    tracing::info!("Backup scheduler: semaphore full, deferring remaining tenants");
+                    log::info!("Backup scheduler: semaphore full, deferring remaining tenants");
                     break;
                 }
             };
@@ -3779,7 +3779,7 @@ pub async fn start_backup_scheduler(
 
             match result {
                 Ok((size, duration_ms)) => {
-                    tracing::info!(
+                    log::info!(
                         "Auto-backup completed for '{}': {}KB in {}ms",
                         tenant_name,
                         size / 1024,
@@ -3791,7 +3791,7 @@ pub async fn start_backup_scheduler(
                             .await;
                 }
                 Err(e) => {
-                    tracing::error!("Auto-backup failed for '{}': {:?}", tenant_name, e);
+                    log::error!("Auto-backup failed for '{}': {:?}", tenant_name, e);
                 }
             }
 
@@ -3846,7 +3846,7 @@ async fn find_due_tenants(
         let schedule = match normalize_cron(&cron_expr).parse::<cron::Schedule>() {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!(
+                log::warn!(
                     "Invalid cron '{}' for tenant '{}': {:?}",
                     cron_expr,
                     name,
@@ -3985,7 +3985,7 @@ async fn run_auto_backup(
         .upload(&storage_path, encrypted_bytes)
         .await
         .map_err(|e| {
-            tracing::error!("Auto-backup storage upload failed: {:?}", e);
+            log::error!("Auto-backup storage upload failed: {:?}", e);
             circuit_breaker.record_failure();
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
@@ -4038,7 +4038,7 @@ async fn get_or_create_auto_passphrase(db: &DatabaseConnection) -> Result<String
     if let Some(model) = existing {
         if let Some(stored) = model.value.as_str() {
             let passphrase = decrypt_passphrase_at_rest(stored).map_err(|e| {
-                tracing::error!("Failed to decrypt auto-backup passphrase: {}", e);
+                log::error!("Failed to decrypt auto-backup passphrase: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -4080,7 +4080,7 @@ async fn enforce_retention(
         let _ = app_entity::backup_history::Entity::delete_by_id(backup.id)
             .exec(db)
             .await;
-        tracing::info!(
+        log::info!(
             "Retention cleanup: deleted backup {} for tenant {}",
             backup.id,
             tenant_id
@@ -4169,13 +4169,13 @@ async fn check_and_run_global_auto_backup(
         .try_acquire_owned()
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
 
-    tracing::info!("Running global auto-backup");
+    log::info!("Running global auto-backup");
 
     let result = run_auto_backup_global(store, db, storage, circuit_breaker).await;
 
     match result {
         Ok((size, duration_ms)) => {
-            tracing::info!(
+            log::info!(
                 "Global auto-backup completed: {}KB in {}ms",
                 size / 1024,
                 duration_ms
@@ -4195,7 +4195,7 @@ async fn check_and_run_global_auto_backup(
             let _ = enforce_global_retention(db, storage, retention).await;
         }
         Err(e) => {
-            tracing::error!("Global auto-backup failed: {:?}", e);
+            log::error!("Global auto-backup failed: {:?}", e);
         }
     }
 
@@ -4308,7 +4308,7 @@ pub async fn save_global_backup_to_storage(
         .upload(&storage_path, encrypted_bytes)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to save global backup to storage: {:?}", e);
+            log::error!("Failed to save global backup to storage: {:?}", e);
             state.backup_circuit_breaker.record_failure();
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
@@ -4330,7 +4330,7 @@ pub async fn save_global_backup_to_storage(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to record global backup history: {:?}", e);
+            log::error!("Failed to record global backup history: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -4485,7 +4485,7 @@ async fn run_auto_backup_global(
         .upload(&storage_path, encrypted_bytes)
         .await
         .map_err(|e| {
-            tracing::error!("Global auto-backup storage upload failed: {:?}", e);
+            log::error!("Global auto-backup storage upload failed: {:?}", e);
             circuit_breaker.record_failure();
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
@@ -4542,7 +4542,7 @@ async fn enforce_global_retention(
         let _ = app_entity::backup_history::Entity::delete_by_id(backup.id)
             .exec(db)
             .await;
-        tracing::info!("Global retention cleanup: deleted backup {}", backup.id);
+        log::info!("Global retention cleanup: deleted backup {}", backup.id);
     }
 
     Ok(())

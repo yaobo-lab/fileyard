@@ -1,4 +1,4 @@
-﻿//! Discord OAuth and DM Notification Handlers
+//! Discord OAuth and DM Notification Handlers
 //!
 //! Provides endpoints for:
 //! - OAuth flow (connect/disconnect Discord account)
@@ -263,7 +263,7 @@ pub async fn oauth_callback(
     Query(params): Query<OAuthCallbackParams>,
 ) -> Result<Redirect, (StatusCode, String)> {
     if let Some(error) = params.error {
-        tracing::warn!("Discord OAuth error: {}", error);
+        log::warn!("Discord OAuth error: {}", error);
         return Ok(Redirect::temporary("/settings?discord=error"));
     }
 
@@ -307,7 +307,7 @@ pub async fn oauth_callback(
 
     if !token_response.status().is_success() {
         let error_text = token_response.text().await.unwrap_or_default();
-        tracing::error!("Discord token exchange failed: {}", error_text);
+        log::error!("Discord token exchange failed: {}", error_text);
         return Ok(Redirect::temporary("/settings?discord=error"));
     }
 
@@ -353,14 +353,18 @@ pub async fn oauth_callback(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to store Discord connection: {:?}", e);
+            log::error!("Failed to store Discord connection: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to save connection".to_string(),
             )
         })?;
 
-    tracing::info!(user_id = %user_id, discord_user = %discord_user.username, "Discord account connected");
+    log::info!(
+        "Discord account connected (user_id: {}, discord_user: {})",
+        user_id,
+        discord_user.username
+    );
 
     Ok(Redirect::temporary("/settings?discord=connected"))
 }
@@ -378,7 +382,7 @@ pub async fn disconnect(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    tracing::info!(user_id = %auth.user_id, "Discord account disconnected");
+    log::info!("Discord account disconnected (user_id: {})", auth.user_id);
 
     Ok(Json(json!({ "success": true })))
 }
@@ -489,7 +493,7 @@ pub async fn send_dm(
         return Err(format!("Failed to send message: {}", error));
     }
 
-    tracing::info!(user_id = %user_id, event = %event_type, "Discord DM sent");
+    log::info!("Discord DM sent (user_id: {}, event: {})", user_id, event_type);
     Ok(())
 }
 
@@ -536,7 +540,7 @@ pub async fn notify_file_upload(
     );
 
     if let Err(e) = send_dm(store, owner_id, "file_uploaded", &message).await {
-        tracing::debug!("Discord DM skipped or failed: {}", e);
+        log::debug!("Discord DM skipped or failed: {}", e);
     }
 }
 
@@ -562,7 +566,7 @@ pub async fn notify_file_shared(
     }
 
     if let Err(e) = send_dm(store, recipient_id, "file_shared", &message).await {
-        tracing::debug!("Discord DM skipped or failed: {}", e);
+        log::debug!("Discord DM skipped or failed: {}", e);
     }
 }
 
@@ -584,7 +588,7 @@ pub async fn notify_comment(
     );
 
     if let Err(e) = send_dm(store, owner_id, "comment", &message).await {
-        tracing::debug!("Discord DM skipped or failed: {}", e);
+        log::debug!("Discord DM skipped or failed: {}", e);
     }
 }
 
@@ -607,6 +611,6 @@ pub async fn notify_file_request(
     );
 
     if let Err(e) = send_dm(store, recipient_id, "file_request", &message).await {
-        tracing::debug!("Discord DM skipped or failed: {}", e);
+        log::debug!("Discord DM skipped or failed: {}", e);
     }
 }

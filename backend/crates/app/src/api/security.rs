@@ -63,7 +63,7 @@ pub async fn list_alerts(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch alerts: {:?}", e);
+            log::error!("Failed to fetch alerts: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

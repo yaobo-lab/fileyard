@@ -30,7 +30,7 @@ pub async fn dispatch_file_event(
     let extensions = match get_file_processor_extensions(store, event.company_id).await {
         Ok(exts) => exts,
         Err(e) => {
-            tracing::error!("Failed to get file processor extensions: {:?}", e);
+            log::error!("Failed to get file processor extensions: {:?}", e);
             return;
         }
     };
@@ -43,7 +43,7 @@ pub async fn dispatch_file_event(
     let redis_client = match redis::Client::open(redis_url) {
         Ok(client) => client,
         Err(e) => {
-            tracing::error!("Failed to connect to Redis for rate limiting: {:?}", e);
+            log::error!("Failed to connect to Redis for rate limiting: {:?}", e);
             return;
         }
     };
@@ -60,7 +60,7 @@ pub async fn dispatch_file_event(
         .unwrap_or(false);
 
         if !has_permission {
-            tracing::warn!(
+            log::warn!(
                 "Extension {} does not have file_processor:run permission for tenant {}",
                 extension.id,
                 event.company_id
@@ -75,7 +75,7 @@ pub async fn dispatch_file_event(
 
         // Check rate limit
         if !check_rate_limit(&redis_client, &extension.id, 60).await {
-            tracing::warn!(
+            log::warn!(
                 "Rate limit exceeded for extension {} - skipping file event",
                 extension.id
             );
@@ -109,14 +109,14 @@ pub async fn dispatch_file_event(
             .await
             {
                 Ok((status, _)) => {
-                    tracing::info!(
+                    log::info!(
                         "File event dispatched to extension {} - status {}",
                         extension_clone.id,
                         status
                     );
                 }
                 Err(e) => {
-                    tracing::error!(
+                    log::error!(
                         "Failed to dispatch file event to extension {}: {:?}",
                         extension_clone.id,
                         e
@@ -159,7 +159,7 @@ async fn check_rate_limit(
     let mut conn = match redis_client.get_multiplexed_async_connection().await {
         Ok(conn) => conn,
         Err(e) => {
-            tracing::error!("Failed to get Redis connection: {:?}", e);
+            log::error!("Failed to get Redis connection: {:?}", e);
             return true; // Allow on Redis error
         }
     };
@@ -175,7 +175,7 @@ async fn check_rate_limit(
     match result {
         Ok((count, _)) => count <= limit_per_minute as i32,
         Err(e) => {
-            tracing::error!("Redis rate limit check failed: {:?}", e);
+            log::error!("Redis rate limit check failed: {:?}", e);
             true // Allow on error
         }
     }
@@ -205,7 +205,7 @@ pub async fn dispatch_file_deleted_event(
     let extensions = match get_file_processor_extensions(store, company_id).await {
         Ok(exts) => exts,
         Err(e) => {
-            tracing::error!("Failed to get file processor extensions: {:?}", e);
+            log::error!("Failed to get file processor extensions: {:?}", e);
             return;
         }
     };

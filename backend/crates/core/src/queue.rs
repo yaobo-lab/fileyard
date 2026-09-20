@@ -1,4 +1,4 @@
-//! Redis-based background job queue for ClovaLink
+﻿//! Redis-based background job queue for ClovaLink
 //!
 //! Provides a general-purpose job queue for offloading heavy operations:
 //! - File processing (thumbnails, virus scanning)
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Queue configuration

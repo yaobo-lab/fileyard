@@ -1187,12 +1187,20 @@ impl<'a> FileRepository<'a> {
                     files_metadata::Column::ParentPath.is_null()
                         .or(files_metadata::Column::ParentPath.eq("")),
                 );
+                // 固件文件是独立的固件文件管理体系，不在部门文件根目录中展示
+                if filter.view_mode == "department" {
+                    q = q.filter(files_metadata::Column::Name.ne("固件文件"));
+                }
             }
         } else {
             q = q.filter(
                 files_metadata::Column::ParentPath.is_null()
                     .or(files_metadata::Column::ParentPath.eq("")),
             );
+            // 固件文件是独立的固件文件管理体系，不在部门文件根目录中展示
+            if filter.view_mode == "department" {
+                q = q.filter(files_metadata::Column::Name.ne("固件文件"));
+            }
         }
 
         Ok(q.all(self.db).await?)

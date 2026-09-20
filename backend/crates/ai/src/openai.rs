@@ -1,4 +1,4 @@
-//! OpenAI Provider Implementation
+﻿//! OpenAI Provider Implementation
 
 use crate::error::AiError;
 use crate::provider::{AiProvider, AiResponse, EmbeddingResponse};
@@ -176,7 +176,7 @@ impl AiProvider for OpenAiProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            tracing::error!("OpenAI embedding error: {} - {}", status, error_text);
+            log::error!("OpenAI embedding error: {} - {}", status, error_text);
             return Err(AiError::ProviderError(format!(
                 "OpenAI API error: {}",
                 status
@@ -242,7 +242,7 @@ impl OpenAiProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            tracing::error!("OpenAI chat error: {} - {}", status, error_text);
+            log::error!("OpenAI chat error: {} - {}", status, error_text);
             return Err(AiError::ProviderError(format!(
                 "OpenAI API error: {}",
                 status

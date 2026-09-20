@@ -1,4 +1,4 @@
-//! 企业微信 (WeCom) SSO 扫码与网页授权登录模块
+﻿//! 企业微信 (WeCom) SSO 扫码与网页授权登录模块
 //!
 //! 提供以下功能端点：
 //! - `GET /api/auth/wecom/config`: 获取前端构建内嵌二维码或扫码所需的公开配置
@@ -169,7 +169,7 @@ pub async fn wecom_callback(
     let frontend_url = &config.frontend_url;
 
     if let Some(err) = params.error {
-        tracing::warn!("WeCom callback returned error: {}", err);
+        log::warn!("WeCom callback returned error: {}", err);
         return Ok(Redirect::temporary(&format!(
             "{frontend_url}/auth/sso/complete?error=wecom_auth_failed"
         )));
@@ -207,18 +207,18 @@ pub async fn wecom_callback(
         .send()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to request WeCom token: {:?}", e);
+            log::error!("Failed to request WeCom token: {:?}", e);
             StatusCode::BAD_GATEWAY
         })?
         .json::<WeComTokenResponse>()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to parse WeCom token response: {:?}", e);
+            log::error!("Failed to parse WeCom token response: {:?}", e);
             StatusCode::BAD_GATEWAY
         })?;
 
     if token_res.errcode != 0 || token_res.access_token.is_none() {
-        tracing::error!(
+        log::error!(
             "WeCom gettoken error: code={}, msg={}",
             token_res.errcode,
             token_res.errmsg
@@ -244,7 +244,7 @@ pub async fn wecom_callback(
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     if userinfo_res.errcode != 0 || userinfo_res.user_id.is_none() {
-        tracing::error!(
+        log::error!(
             "WeCom getuserinfo error: code={}, msg={}",
             userinfo_res.errcode,
             userinfo_res.errmsg
@@ -277,7 +277,7 @@ pub async fn wecom_callback(
         .unwrap_or_else(|| format!("{}@wecom.local", wecom_user_id.to_lowercase()));
 
     let tenants = state.store.tenants().list_active().await.map_err(|e| {
-        tracing::error!("Failed to load tenants for WeCom login: {:?}", e);
+        log::error!("Failed to load tenants for WeCom login: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -314,7 +314,7 @@ pub async fn wecom_callback(
     let resolution = resolve_sso_user(&state.store, &identity, &provision_config, None)
         .await
         .map_err(|(code, msg)| {
-            tracing::error!("WeCom user resolution error: {} - {}", code, msg);
+            log::error!("WeCom user resolution error: {} - {}", code, msg);
             code
         })?;
 

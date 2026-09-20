@@ -34,8 +34,8 @@ rand = { workspace = true }
 # Cron parsing for automation jobs
 cron = { workspace = true }
 
-# Tracing
-tracing = { workspace = true }
+# Logging
+log = { workspace = true }
 
 # Shared crates
 app-entity = { workspace = true }

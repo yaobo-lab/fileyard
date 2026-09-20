@@ -67,7 +67,7 @@ pub use security::{
     TypeCountResult,
 };
 pub use search::{CompanySearchRow, FileSearchRow, GroupSearchRow, SearchBundle, SearchRepository, UserSearchRow};
-pub use shares::{ShareRepository, ShareableUserRow, SharedFileRow};
+pub use shares::{MyShareRow, ShareRepository, ShareableUserRow, SharedFileRow};
 pub use sso::{NewSsoMapping, SsoMappingPatch, SsoRepository};
 pub use system::{DatabasePoolStats, StorageFile, SystemRepository};
 pub use tenants::{ListTenantsFilter, TenantRepository};

@@ -18,6 +18,7 @@ import {
   Sliders,
   Lock,
   Cpu,
+  Send,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -120,6 +121,12 @@ export function AppSidebar({
       title: t('sharedWithMe'),
       url: '/shared-with-me',
       icon: Share2,
+      visible: hasPermission('files.view'),
+    },
+    {
+      title: t('myShares'),
+      url: '/my-shares',
+      icon: Send,
       visible: hasPermission('files.view'),
     },
     {

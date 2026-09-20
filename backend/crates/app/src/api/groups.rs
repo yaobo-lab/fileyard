@@ -1,4 +1,4 @@
-﻿//! File Groups API handlers
+//! File Groups API handlers
 //!
 //! Allows users to create and manage file groups - manual collections of related files.
 
@@ -185,7 +185,7 @@ pub async fn list_groups(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list groups: {:?}", e);
+            log::error!("Failed to list groups: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -282,10 +282,10 @@ pub async fn create_group(
         .await
         .map_err(|e| {
             if e.to_string().contains("duplicate key") {
-                tracing::warn!("Duplicate group name: {}", name);
+                log::warn!("Duplicate group name: {}", name);
                 StatusCode::CONFLICT
             } else {
-                tracing::error!("Failed to create group: {:?}", e);
+                log::error!("Failed to create group: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         })?
@@ -306,7 +306,7 @@ pub async fn create_group(
         )
         .await;
 
-    tracing::info!(user_id = %auth.user_id, group_id = %group.id, "File group created");
+    log::info!("File group created (user_id: {}, group_id: {})", auth.user_id, group.id);
 
     Ok(Json(group))
 }
@@ -333,7 +333,7 @@ pub async fn update_group(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to rename group in company folder",
                 auth.user_id
             );
@@ -379,14 +379,14 @@ pub async fn update_group(
             if e.to_string().contains("duplicate key") {
                 StatusCode::CONFLICT
             } else {
-                tracing::error!("Failed to update group: {:?}", e);
+                log::error!("Failed to update group: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         })?
         .ok_or(StatusCode::NOT_FOUND)?
         .into();
 
-    tracing::info!(user_id = %auth.user_id, group_id = %group_uuid, "File group updated");
+    log::info!("File group updated (user_id: {}, group_id: {})", auth.user_id, group_uuid);
 
     Ok(Json(group))
 }
@@ -412,7 +412,7 @@ pub async fn delete_group(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to delete group in company folder",
                 auth.user_id
             );
@@ -440,7 +440,7 @@ pub async fn delete_group(
         .delete(tenant_id, group_uuid)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to delete group: {:?}", e);
+            log::error!("Failed to delete group: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -459,7 +459,7 @@ pub async fn delete_group(
         )
         .await;
 
-    tracing::info!(user_id = %auth.user_id, group_id = %group_uuid, "File group deleted");
+    log::info!("File group deleted (user_id: {}, group_id: {})", auth.user_id, group_uuid);
 
     Ok(Json(
         json!({ "success": true, "message": "Group deleted. Files have been unlinked." }),
@@ -521,7 +521,7 @@ pub async fn add_file_to_group(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if current_count as i64 >= MAX_FILES_PER_GROUP {
-        tracing::warn!(
+        log::warn!(
             "Group {} has reached max file limit of {}",
             group_uuid,
             MAX_FILES_PER_GROUP
@@ -536,22 +536,22 @@ pub async fn add_file_to_group(
         .set_file_group(tenant_id, file_uuid, Some(group_uuid))
         .await
         .map_err(|e| {
-            tracing::error!("Failed to add file to group: {:?}", e);
+            log::error!("Failed to add file to group: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        file_id = %file_uuid,
-        group_id = %group_uuid,
-        "File added to group"
+    log::info!(
+        "File added to group (user_id: {}, file_id: {}, group_id: {})",
+        auth.user_id,
+        file_uuid,
+        group_uuid
     );
 
     // Invalidate file cache since grouped files are now hidden from main list
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -583,7 +583,7 @@ pub async fn remove_file_from_group(
         .active_file(tenant_id, file_uuid)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch file info: {:?}", e);
+            log::error!("Failed to fetch file info: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -607,7 +607,7 @@ pub async fn remove_file_from_group(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to check for duplicate: {:?}", e);
+            log::error!("Failed to check for duplicate: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -624,10 +624,10 @@ pub async fn remove_file_from_group(
             .unwrap_or_default();
         let suggested_name = format!("{} (1){}", name_without_ext, extension);
 
-        tracing::warn!(
-            file_id = %file_uuid,
-            file_name = %file_name,
-            "Cannot remove file from group - duplicate name exists at target location"
+        log::warn!(
+            "Cannot remove file from group - duplicate name exists at target location (file_id: {}, file_name: {})",
+            file_uuid,
+            file_name
         );
 
         return Ok(Json(json!({
@@ -645,7 +645,7 @@ pub async fn remove_file_from_group(
         .set_file_group(tenant_id, file_uuid, None)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to remove file from group: {:?}", e);
+            log::error!("Failed to remove file from group: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -653,13 +653,13 @@ pub async fn remove_file_from_group(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    tracing::info!(user_id = %auth.user_id, file_id = %file_uuid, "File removed from group");
+    log::info!("File removed from group (user_id: {}, file_id: {})", auth.user_id, file_uuid);
 
     // Invalidate file cache since file is now visible in main list again
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -715,7 +715,7 @@ pub async fn get_group_files(
             group.created_by,
             group.lock_requires_role.as_deref(),
         ) {
-            tracing::warn!(
+            log::warn!(
                 "Access denied: user {} (role: {}) attempted to access locked group {} (requires: {:?})",
                 auth.user_id, auth.role, group_uuid, group.lock_requires_role
             );
@@ -728,7 +728,7 @@ pub async fn get_group_files(
     }
 
     // Get files in this group
-    tracing::info!(
+    log::info!(
         "Fetching files for group {} in tenant {}",
         group_uuid,
         tenant_id
@@ -740,11 +740,11 @@ pub async fn get_group_files(
         .files(tenant_id, group_uuid)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get group files: {:?}", e);
+            log::error!("Failed to get group files: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!("Found {} files in group {}", files.len(), group_uuid);
+    log::info!("Found {} files in group {}", files.len(), group_uuid);
 
     let files_json: Vec<Value> = files
         .into_iter()
@@ -792,7 +792,7 @@ pub async fn move_group_to_folder(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to move group in company folder",
                 auth.user_id
             );
@@ -818,11 +818,11 @@ pub async fn move_group_to_folder(
     // Check if trying to change visibility - groups are locked to their original visibility
     if let Some(ref target_vis) = input.target_visibility {
         if target_vis != &current_visibility {
-            tracing::warn!(
-                group_id = %group_uuid,
-                current = %current_visibility,
-                target = %target_vis,
-                "Attempted to move group across visibility boundary"
+            log::warn!(
+                "Attempted to move group across visibility boundary (group_id: {}, current: {}, target: {})",
+                group_uuid,
+                current_visibility,
+                target_vis
             );
             return Ok(Json(json!({
                 "error": "Groups cannot be moved between department and private files. They are locked to their original visibility.",
@@ -874,7 +874,7 @@ pub async fn move_group_to_folder(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to move group: {:?}", e);
+            log::error!("Failed to move group: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -893,18 +893,18 @@ pub async fn move_group_to_folder(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        group_id = %group_uuid,
-        target_path = %target_path,
-        "Group moved to folder"
+    log::info!(
+        "Group moved to folder (user_id: {}, group_id: {}, target_path: {})",
+        auth.user_id,
+        group_uuid,
+        target_path
     );
 
     // Invalidate file cache
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -951,7 +951,7 @@ pub async fn lock_group(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to lock group in company folder",
                 auth.user_id
             );
@@ -1050,10 +1050,10 @@ pub async fn lock_group(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        group_id = %group_uuid,
-        "Group locked"
+    log::info!(
+        "Group locked (user_id: {}, group_id: {})",
+        auth.user_id,
+        group_uuid
     );
 
     Ok(Json(json!({
@@ -1084,7 +1084,7 @@ pub async fn unlock_group(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         if auth.role != "SuperAdmin" && auth.role != "Admin" {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to unlock group in company folder",
                 auth.user_id
             );
@@ -1215,10 +1215,10 @@ pub async fn unlock_group(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        group_id = %group_uuid,
-        "Group unlocked"
+    log::info!(
+        "Group unlocked (user_id: {}, group_id: {})",
+        auth.user_id,
+        group_uuid
     );
 
     Ok(Json(json!({

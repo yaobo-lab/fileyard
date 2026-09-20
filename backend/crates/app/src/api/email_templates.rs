@@ -1,4 +1,4 @@
-use crate::AppState;
+﻿use crate::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -33,7 +33,7 @@ pub async fn list_global_templates(
         .list_global()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch email templates: {:?}", e);
+            log::error!("Failed to fetch email templates: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -55,7 +55,7 @@ pub async fn get_global_template(
         .get_global(&key)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch email template: {:?}", e);
+            log::error!("Failed to fetch email template: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -81,7 +81,7 @@ pub async fn update_global_template(
         .update_global(&key, input.subject, input.body_html, input.body_text)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update email template: {:?}", e);
+            log::error!("Failed to update email template: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -89,7 +89,7 @@ pub async fn update_global_template(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    tracing::info!(
+    log::info!(
         "SuperAdmin {} updated global email template: {}",
         auth.user_id,
         key
@@ -114,7 +114,7 @@ pub async fn list_tenant_templates(
         .list_global()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch email templates: {:?}", e);
+            log::error!("Failed to fetch email templates: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -124,7 +124,7 @@ pub async fn list_tenant_templates(
         .list_tenant(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch tenant email templates: {:?}", e);
+            log::error!("Failed to fetch tenant email templates: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -223,11 +223,11 @@ pub async fn update_tenant_template(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update tenant email template: {:?}", e);
+            log::error!("Failed to update tenant email template: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!(
+    log::info!(
         "Admin {} in tenant {} updated email template: {}",
         auth.user_id,
         auth.tenant_id,
@@ -255,7 +255,7 @@ pub async fn reset_tenant_template(
         .reset_tenant(auth.tenant_id, &key)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to reset tenant email template: {:?}", e);
+            log::error!("Failed to reset tenant email template: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -266,7 +266,7 @@ pub async fn reset_tenant_template(
         })));
     }
 
-    tracing::info!(
+    log::info!(
         "Admin {} in tenant {} reset email template to default: {}",
         auth.user_id,
         auth.tenant_id,

@@ -323,7 +323,7 @@ pub async fn upload_file(
 
     // Verify tenant access - SECURITY: prevent cross-tenant uploads
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
-        tracing::warn!(
+        log::warn!(
             "Security: User {} from tenant {} attempted to upload to tenant {}",
             auth.user_id,
             auth.tenant_id,
@@ -339,7 +339,7 @@ pub async fn upload_file(
             is_inside_company_folder(&state.store, tenant_id, Some(&parent_path)).await;
 
         if in_company_folder {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to upload to company folder (parent_path: {})",
                 auth.user_id,
                 parent_path
@@ -384,7 +384,7 @@ pub async fn upload_file(
                     .iter()
                     .any(|b| b.to_lowercase() == ext_lower)
                 {
-                    tracing::warn!(
+                    log::warn!(
                         "Upload blocked: user {} attempted to upload blocked extension .{} (file: {})",
                         auth.user_id, ext_lower, file_name
                     );
@@ -420,7 +420,7 @@ pub async fn upload_file(
 
         // Stream the upload to a temporary file while computing Blake3 hash
         let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-            tracing::error!("Failed to create temp file: {:?}", e);
+            log::error!("Failed to create temp file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -429,13 +429,13 @@ pub async fn upload_file(
 
         // Stream chunks to temp file while computing hash
         while let Some(chunk) = field.chunk().await.map_err(|e| {
-            tracing::error!("Failed to read chunk: {:?}", e);
+            log::error!("Failed to read chunk: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })? {
             size += chunk.len() as i64;
             hasher.update(&chunk);
             temp_file.write_all(&chunk).await.map_err(|e| {
-                tracing::error!("Failed to write chunk: {:?}", e);
+                log::error!("Failed to write chunk: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
         }
@@ -539,7 +539,7 @@ pub async fn upload_file(
                 )
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            tracing::info!(
+            log::info!(
                 "Auto-renamed duplicate file '{}' to '{}'",
                 file_name,
                 unique_name
@@ -589,7 +589,7 @@ pub async fn upload_file(
 
         // Use existing storage path if content already exists (deduplication), otherwise use content-addressed key
         let key = if let Some(ref existing_path) = existing_content {
-            tracing::info!(
+            log::info!(
                 "Deduplication: Reusing existing storage for content hash {}",
                 &content_hash[..8]
             );
@@ -602,7 +602,7 @@ pub async fn upload_file(
         if existing_content.is_none() {
             // Acquire transfer scheduler permit based on file size (prioritizes small files)
             let transfer_permit = state.scheduler.acquire_upload_permit(Some(size)).await;
-            tracing::debug!(
+            log::debug!(
                 "Upload permit acquired: file={}, size={}, class={}",
                 file_name,
                 size,
@@ -614,7 +614,7 @@ pub async fn upload_file(
                 .upload_from_path(&key, &temp_path)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to upload to storage: {:?}", e);
+                    log::error!("Failed to upload to storage: {:?}", e);
                     // Clean up temp file on error
                     let _ = std::fs::remove_file(&temp_path);
                     StatusCode::INTERNAL_SERVER_ERROR
@@ -626,7 +626,7 @@ pub async fn upload_file(
 
         // Clean up temp file after successful upload
         if let Err(e) = tokio::fs::remove_file(&temp_path).await {
-            tracing::warn!("Failed to remove temp file: {:?}", e);
+            log::warn!("Failed to remove temp file: {:?}", e);
         }
 
         // For SOX mode, mark previous version as immutable
@@ -662,7 +662,7 @@ pub async fn upload_file(
             .create_file(create_params)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to save file metadata: {:?}", e);
+                log::error!("Failed to save file metadata: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -708,11 +708,11 @@ pub async fn upload_file(
                 )
                 .await
                 {
-                    tracing::warn!(
+                    log::warn!(
                         target: "replication",
-                        storage_path = %storage_key,
-                        error = %e,
-                        "Failed to enqueue replication job"
+                        "Failed to enqueue replication job (storage_path: {}, error: {})",
+                        storage_key,
+                        e
                     );
                 }
             });
@@ -732,11 +732,11 @@ pub async fn upload_file(
                 )
                 .await
                 {
-                    tracing::warn!(
+                    log::warn!(
                         target: "virus_scan",
-                        file_id = %file_id,
-                        error = %e,
-                        "Failed to enqueue virus scan job"
+                        "Failed to enqueue virus scan job (file_id: {}, error: {})",
+                        file_id,
+                        e
                     );
                 }
             });
@@ -767,7 +767,7 @@ pub async fn upload_file(
         if let Some(ref cache) = state.cache {
             let pattern = format!("clovalink:files:{}:*", tenant_id);
             if let Err(e) = cache.delete_pattern(&pattern).await {
-                tracing::warn!("Failed to invalidate file cache: {}", e);
+                log::warn!("Failed to invalidate file cache: {}", e);
             }
         }
 
@@ -917,7 +917,7 @@ pub async fn can_access_file(
         };
 
         if !is_locker && !is_owner && !has_required_role {
-            tracing::warn!(
+            log::warn!(
                 "Access denied to locked file {}: user {} (role: {}) not authorized (locker: {:?}, owner: {:?}, requires_role: {:?})",
                 file_id, user_id, user_role, locked_by, owner_id, lock_requires_role
             );
@@ -935,7 +935,7 @@ pub async fn can_access_file(
         let is_owner = owner_id == Some(user_id);
         let is_manager = user_role == "Manager";
         if !is_owner && !is_manager {
-            tracing::warn!(
+            log::warn!(
                 "Share denied for file {}: user {} (role: {}) is not owner or manager",
                 file_id,
                 user_id,
@@ -1100,7 +1100,7 @@ pub async fn list_files(
         .list_files(filter)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list files from DB: {:?}", e);
+            log::error!("Failed to list files from DB: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1167,7 +1167,7 @@ pub async fn list_files(
                     sizes.insert(folder_id, total);
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to calculate folder size for {}: {:?}",
                         folder_path,
                         e
@@ -1245,7 +1245,7 @@ pub async fn list_files(
     // Cache the result
     if let Some(ref cache) = state.cache {
         if let Err(e) = cache.set(&cache_key, &file_items, ttl::FILES).await {
-            tracing::warn!("Failed to cache file listing: {}", e);
+            log::warn!("Failed to cache file listing: {}", e);
         }
     }
 
@@ -1287,7 +1287,7 @@ pub async fn create_folder(
     let tenant_id = Uuid::parse_str(&company_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
-        tracing::warn!(
+        log::warn!(
             "Security: User {} from tenant {} attempted to create folder in tenant {}",
             auth.user_id,
             auth.tenant_id,
@@ -1302,7 +1302,7 @@ pub async fn create_folder(
         let in_company_folder =
             is_inside_company_folder(&state.store, tenant_id, Some(parent_path)).await;
         if in_company_folder {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to create folder in company folder (parent_path: {})",
                 auth.user_id,
                 parent_path
@@ -1376,7 +1376,7 @@ pub async fn create_folder(
         .create_folder(folder_params)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to save folder metadata: {:?}", e);
+            log::error!("Failed to save folder metadata: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1384,7 +1384,7 @@ pub async fn create_folder(
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -1452,7 +1452,7 @@ fn sanitize_zip_path(path: &str) -> Option<String> {
 
     // Final check: reject if it still looks like an absolute path
     if sanitized.starts_with('/') || sanitized.contains(':') {
-        tracing::warn!("Rejecting potentially unsafe zip path: {}", path);
+        log::warn!("Rejecting potentially unsafe zip path: {}", path);
         return None;
     }
 
@@ -1484,7 +1484,7 @@ async fn download_folder_as_zip(
         format!("{}/{}", parent_path, folder_name)
     };
 
-    tracing::info!(
+    log::info!(
         "Downloading folder as zip: {} (parent: {})",
         folder_path,
         parent_path
@@ -1497,18 +1497,18 @@ async fn download_folder_as_zip(
         .find_descendant_files(tenant_id, &folder_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query folder files: {}", e);
+            log::error!("Failed to query folder files: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     if files.is_empty() {
-        tracing::info!("Folder {} has no files, returning empty zip", folder_path);
+        log::info!("Folder {} has no files, returning empty zip", folder_path);
     }
 
     // Check total size before starting
     let total_size: i64 = files.iter().map(|f| f.size_bytes).sum();
     if total_size > MAX_ZIP_SIZE_BYTES {
-        tracing::warn!(
+        log::warn!(
             "Folder {} exceeds max zip size ({} bytes > {} bytes)",
             folder_path,
             total_size,
@@ -1547,7 +1547,7 @@ async fn download_folder_as_zip(
             let safe_path = match sanitize_zip_path(&relative_path) {
                 Some(p) => p,
                 None => {
-                    tracing::warn!("Skipping file with unsafe path: {}", relative_path);
+                    log::warn!("Skipping file with unsafe path: {}", relative_path);
                     continue;
                 }
             };
@@ -1556,16 +1556,16 @@ async fn download_folder_as_zip(
             match state.storage.download(&file.storage_path).await {
                 Ok(data) => {
                     if let Err(e) = zip.start_file(&safe_path, options) {
-                        tracing::error!("Failed to start zip file {}: {}", safe_path, e);
+                        log::error!("Failed to start zip file {}: {}", safe_path, e);
                         continue;
                     }
                     if let Err(e) = zip.write_all(&data) {
-                        tracing::error!("Failed to write file {} to zip: {}", safe_path, e);
+                        log::error!("Failed to write file {} to zip: {}", safe_path, e);
                         continue;
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to download file {} from storage: {}",
                         file.storage_path,
                         e
@@ -1576,7 +1576,7 @@ async fn download_folder_as_zip(
         }
 
         zip.finish().map_err(|e| {
-            tracing::error!("Failed to finish zip: {}", e);
+            log::error!("Failed to finish zip: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     }
@@ -1649,7 +1649,7 @@ async fn download_shared_folder_as_zip(
         format!("{}/{}", parent_path, folder_name)
     };
 
-    tracing::info!(
+    log::info!(
         "Downloading shared folder as zip: {} (parent: {})",
         folder_path,
         parent_path
@@ -1662,14 +1662,14 @@ async fn download_shared_folder_as_zip(
         .list_files_in_folder_recursive(tenant_id, &folder_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query folder files for share: {}", e);
+            log::error!("Failed to query folder files for share: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     // Check total size before starting
     let total_size: i64 = files.iter().map(|(_, _, _, size)| size).sum();
     if total_size > MAX_ZIP_SIZE_BYTES {
-        tracing::warn!(
+        log::warn!(
             "Shared folder {} exceeds max zip size ({} bytes > {} bytes)",
             folder_path,
             total_size,
@@ -1707,7 +1707,7 @@ async fn download_shared_folder_as_zip(
             let safe_path = match sanitize_zip_path(&relative_path) {
                 Some(p) => p,
                 None => {
-                    tracing::warn!(
+                    log::warn!(
                         "Skipping file with unsafe path in shared zip: {}",
                         relative_path
                     );
@@ -1719,16 +1719,16 @@ async fn download_shared_folder_as_zip(
             match state.storage.download(storage_path).await {
                 Ok(data) => {
                     if let Err(e) = zip.start_file(&safe_path, options) {
-                        tracing::error!("Failed to start zip file {}: {}", safe_path, e);
+                        log::error!("Failed to start zip file {}: {}", safe_path, e);
                         continue;
                     }
                     if let Err(e) = zip.write_all(&data) {
-                        tracing::error!("Failed to write file {} to zip: {}", safe_path, e);
+                        log::error!("Failed to write file {} to zip: {}", safe_path, e);
                         continue;
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to download file {} from storage for share: {}",
                         storage_path,
                         e
@@ -1738,7 +1738,7 @@ async fn download_shared_folder_as_zip(
         }
 
         zip.finish().map_err(|e| {
-            tracing::error!("Failed to finish zip: {}", e);
+            log::error!("Failed to finish zip: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     }
@@ -1786,7 +1786,7 @@ pub async fn download_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to download file {} without permission",
             auth.user_id,
             file_uuid
@@ -1906,7 +1906,7 @@ pub async fn download_file(
                     presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
                 }
 
-                tracing::debug!(
+                log::debug!(
                     "Redirecting file download to presigned URL: user={}, file={}",
                     auth.user_id,
                     file_uuid
@@ -1917,11 +1917,11 @@ pub async fn download_file(
             }
             Ok(None) => {
                 // Storage doesn't support presigned URLs, fallback to proxy
-                tracing::debug!("Storage doesn't support presigned URLs, using proxy");
+                log::debug!("Storage doesn't support presigned URLs, using proxy");
             }
             Err(e) => {
                 // Presigning failed, fallback to proxy
-                tracing::warn!(
+                log::warn!(
                     "Presigned URL generation failed, falling back to proxy: {}",
                     e
                 );
@@ -1935,7 +1935,7 @@ pub async fn download_file(
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
     // This blocks if too many transfers of this size class are in progress
     let transfer_permit = state.scheduler.acquire_download_permit(file_size).await;
-    tracing::debug!(
+    log::debug!(
         "Download permit acquired: file={}, size={}, class={}",
         file_uuid,
         file_size,
@@ -1948,7 +1948,7 @@ pub async fn download_file(
             .download_stream(&storage_path)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to open file stream: {}", e);
+                log::error!("Failed to open file stream: {}", e);
                 StatusCode::NOT_FOUND
             })?;
 
@@ -2040,7 +2040,7 @@ pub async fn preview_office_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to preview file {} without permission",
             auth.user_id,
             file_uuid
@@ -2063,7 +2063,7 @@ pub async fn preview_office_file(
 
     // Download file content
     let file_bytes = state.storage.download(&storage_path).await.map_err(|e| {
-        tracing::error!("Failed to download file for preview: {}", e);
+        log::error!("Failed to download file for preview: {}", e);
         StatusCode::NOT_FOUND
     })?;
 
@@ -2071,7 +2071,7 @@ pub async fn preview_office_file(
     if file_name_lower.ends_with(".xlsx") {
         let cursor = Cursor::new(&file_bytes);
         let mut workbook: Xlsx<_> = Xlsx::new(cursor).map_err(|e| {
-            tracing::error!("Failed to parse XLSX: {}", e);
+            log::error!("Failed to parse XLSX: {}", e);
             StatusCode::UNPROCESSABLE_ENTITY
         })?;
 
@@ -2101,7 +2101,7 @@ pub async fn preview_office_file(
     } else if file_name_lower.ends_with(".xls") {
         let cursor = Cursor::new(&file_bytes);
         let mut workbook: Xls<_> = Xls::new(cursor).map_err(|e| {
-            tracing::error!("Failed to parse XLS: {}", e);
+            log::error!("Failed to parse XLS: {}", e);
             StatusCode::UNPROCESSABLE_ENTITY
         })?;
 
@@ -2132,7 +2132,7 @@ pub async fn preview_office_file(
         // Parse PPTX (ZIP file) for metadata
         let cursor = Cursor::new(&file_bytes);
         let mut archive = zip::ZipArchive::new(cursor).map_err(|e| {
-            tracing::error!("Failed to open PPTX as ZIP: {}", e);
+            log::error!("Failed to open PPTX as ZIP: {}", e);
             StatusCode::UNPROCESSABLE_ENTITY
         })?;
 
@@ -2244,7 +2244,7 @@ pub async fn rename_file(
     if !is_admin {
         let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_id).await;
         if in_company_folder {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to rename file {} in company folder",
                 auth.user_id,
                 file_id
@@ -2264,7 +2264,7 @@ pub async fn rename_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to rename file {} without permission",
             auth.user_id,
             file_id
@@ -2318,7 +2318,7 @@ pub async fn rename_file(
         .rename(tenant_id, file_id, new_filename.clone())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update file metadata: {:?}", e);
+            log::error!("Failed to update file metadata: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -2353,11 +2353,11 @@ pub async fn rename_file(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update children parent_path: {:?}", e);
+                log::error!("Failed to update children parent_path: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-        tracing::info!(
+        log::info!(
             "Updated children paths for renamed folder: {} -> {}",
             old_folder_path,
             new_folder_path
@@ -2391,7 +2391,7 @@ pub async fn rename_file(
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -2411,7 +2411,7 @@ pub async fn delete_file(
 
     // Verify tenant access - SECURITY: prevent cross-tenant deletions
     if auth.role != "SuperAdmin" && auth.tenant_id != tenant_id {
-        tracing::warn!(
+        log::warn!(
             "Security: User {} from tenant {} attempted to delete from tenant {}",
             auth.user_id,
             auth.tenant_id,
@@ -2482,7 +2482,7 @@ pub async fn delete_file(
     if !is_admin {
         let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_id).await;
         if in_company_folder {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to delete file {} in company folder",
                 auth.user_id,
                 file_id
@@ -2524,7 +2524,7 @@ pub async fn delete_file(
         .soft_delete_file_and_children(tenant_id, file_id, is_directory, &folder_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to soft delete file: {:?}", e);
+            log::error!("Failed to soft delete file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -2559,7 +2559,7 @@ pub async fn delete_file(
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -2618,7 +2618,7 @@ pub async fn list_trash(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list trash from DB: {:?}", e);
+            log::error!("Failed to list trash from DB: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -2711,11 +2711,11 @@ pub async fn restore_file(
         .restore_file_and_children(tenant_id, file_id, is_directory, &folder_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to restore file: {:?}", e);
+            log::error!("Failed to restore file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!(
+    log::info!(
         "Restored file: {} (total restored items: {})",
         file_id,
         restored_count
@@ -2725,7 +2725,7 @@ pub async fn restore_file(
     if let Some(ref cache) = state.cache {
         let pattern = format!("clovalink:files:{}:*", tenant_id);
         if let Err(e) = cache.delete_pattern(&pattern).await {
-            tracing::warn!("Failed to invalidate file cache: {}", e);
+            log::warn!("Failed to invalidate file cache: {}", e);
         }
     }
 
@@ -2815,7 +2815,7 @@ pub async fn permanent_delete(
                 .unwrap_or(0);
 
             if ref_count > 0 {
-                tracing::info!(
+                log::info!(
                     "Skipping storage deletion for {}: {} other files reference content {}",
                     fid,
                     ref_count,
@@ -2841,7 +2841,7 @@ pub async fn permanent_delete(
         // Delete from S3 if no other references
         if should_delete_storage && !fstorage.is_empty() {
             if let Err(e) = state.storage.delete(fstorage).await {
-                tracing::warn!("Failed to delete {} from storage: {:?}", fstorage, e);
+                log::warn!("Failed to delete {} from storage: {:?}", fstorage, e);
             } else {
                 storage_deleted_count += 1;
 
@@ -2861,11 +2861,11 @@ pub async fn permanent_delete(
                         )
                         .await
                         {
-                            tracing::warn!(
+                            log::warn!(
                                 target: "replication",
-                                storage_path = %storage_key,
-                                error = %e,
-                                "Failed to enqueue replication delete job"
+                                "Failed to enqueue replication delete job (storage_path: {}, error: {})",
+                                storage_key,
+                                e
                             );
                         }
                     });
@@ -2874,7 +2874,7 @@ pub async fn permanent_delete(
         }
     }
 
-    tracing::info!(
+    log::info!(
         "Permanently deleted {} files, {} from storage",
         files_to_delete.len(),
         storage_deleted_count
@@ -2951,7 +2951,7 @@ pub async fn toggle_star(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to star file {} without permission",
             auth.user_id,
             file_uuid
@@ -3078,7 +3078,7 @@ pub async fn lock_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to lock file {} without permission",
             auth.user_id,
             file_uuid
@@ -3223,7 +3223,7 @@ pub async fn unlock_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to unlock file {} without permission",
             auth.user_id,
             file_uuid
@@ -3421,7 +3421,7 @@ pub async fn move_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to move file {} without permission",
             auth.user_id,
             file_uuid
@@ -3434,7 +3434,7 @@ pub async fn move_file(
     if !is_admin {
         let in_company_folder = is_file_in_company_folder(&state.store, tenant_id, file_uuid).await;
         if in_company_folder {
-            tracing::warn!(
+            log::warn!(
                 "User {} attempted to move file {} in company folder",
                 auth.user_id,
                 file_uuid
@@ -3560,7 +3560,7 @@ pub async fn move_file(
             let target_in_company_folder =
                 is_inside_company_folder(&state.store, tenant_id, Some(target_path)).await;
             if target_in_company_folder || target_is_company {
-                tracing::warn!(
+                log::warn!(
                     "User {} attempted to move file {} into company folder",
                     auth.user_id,
                     file_uuid
@@ -3714,7 +3714,7 @@ pub async fn copy_file(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to copy file {} without permission",
             auth.user_id,
             file_uuid
@@ -3835,7 +3835,7 @@ pub async fn copy_file(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to check for duplicate filename: {:?}", e);
+                log::error!("Failed to check for duplicate filename: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -3881,7 +3881,7 @@ pub async fn copy_file(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create file metadata for copy: {:?}", e);
+            log::error!("Failed to create file metadata for copy: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -3905,12 +3905,12 @@ pub async fn copy_file(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        original_file = %file_uuid,
-        new_file = %new_file_id,
-        copy_name = %copy_name,
-        "File copied successfully"
+    log::info!(
+        "File copied successfully (user_id: {}, original_file: {}, new_file: {}, copy_name: {})",
+        auth.user_id,
+        file_uuid,
+        new_file_id,
+        copy_name
     );
 
     // Copy AI summary if one exists for the original file (same content, no need to re-summarize)
@@ -3967,7 +3967,7 @@ pub async fn get_file_activity(
     )
     .await?
     {
-        tracing::warn!(
+        log::warn!(
             "Access denied: user {} attempted to view activity for file {} without permission",
             auth.user_id,
             file_uuid
@@ -3984,7 +3984,7 @@ pub async fn get_file_activity(
         .file_activity(tenant_id, file_uuid, limit)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch file activity: {:?}", e);
+            log::error!("Failed to fetch file activity: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -4092,7 +4092,7 @@ pub async fn export_files(
                 .download_stream(&storage_path)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to open file stream for export: {}", e);
+                    log::error!("Failed to open file stream for export: {}", e);
                     StatusCode::NOT_FOUND
                 })?;
 
@@ -4188,11 +4188,11 @@ pub async fn serve_upload(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
 ) -> Result<axum::response::Response<axum::body::Body>, StatusCode> {
-    tracing::debug!("Serving upload: {}", path);
+    log::debug!("Serving upload: {}", path);
 
     // Stream file from storage (works for both local and S3)
     let (stream, size) = state.storage.download_stream(&path).await.map_err(|e| {
-        tracing::warn!("Failed to serve upload {}: {:?}", path, e);
+        log::warn!("Failed to serve upload {}: {:?}", path, e);
         StatusCode::NOT_FOUND
     })?;
 
@@ -4313,7 +4313,7 @@ pub async fn create_file_share(
     // Check if file is inside a company folder - only admins can share
     if auth.role != "SuperAdmin" && auth.role != "Admin" {
         if is_file_in_company_folder(&state.store, tenant_id, file_uuid).await {
-            tracing::warn!(
+            log::warn!(
                 "Security: Non-admin user {} attempted to share file from company folder",
                 auth.user_id
             );
@@ -4334,7 +4334,7 @@ pub async fn create_file_share(
         let restrictions = ComplianceRestrictions::for_mode(&compliance_mode);
 
         if restrictions.public_sharing_blocked {
-            tracing::warn!(
+            log::warn!(
                 "Public sharing blocked by compliance mode: {}",
                 compliance_mode
             );
@@ -4371,10 +4371,10 @@ pub async fn create_file_share(
         )
         .await?
         {
-            tracing::warn!(
-                sharer = %auth.user_id,
-                recipient = %recipient_id,
-                "Share blocked - user not in accessible departments"
+            log::warn!(
+                "Share blocked - user not in accessible departments (sharer: {}, recipient: {})",
+                auth.user_id,
+                recipient_id
             );
             return Err(StatusCode::FORBIDDEN);
         }
@@ -4401,7 +4401,7 @@ pub async fn create_file_share(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create file share: {:?}", e);
+            log::error!("Failed to create file share: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -4644,7 +4644,7 @@ pub async fn download_shared_file(
                     let user_tenant = Uuid::parse_str(&claims.tenant_id)
                         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                     if user_tenant != tenant_id {
-                        tracing::warn!(
+                        log::warn!(
                             "Share access denied: user tenant {} != share tenant {}",
                             claims.tenant_id,
                             tenant_id
@@ -4668,7 +4668,7 @@ pub async fn download_shared_file(
                         )
                         .await?
                         {
-                            tracing::warn!(
+                            log::warn!(
                                 "Share access denied: user {} cannot access file {} (permissioned share)",
                                 claims.sub, file_id
                             );
@@ -4762,7 +4762,7 @@ pub async fn download_shared_file(
                     presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
                 }
 
-                tracing::debug!(
+                log::debug!(
                     "Redirecting shared file download to presigned URL: token={}, file_id={}",
                     token,
                     file_id
@@ -4778,11 +4778,11 @@ pub async fn download_shared_file(
             }
             Ok(None) => {
                 // Storage doesn't support presigned URLs, fallback to proxy
-                tracing::debug!("Storage doesn't support presigned URLs, using proxy for share");
+                log::debug!("Storage doesn't support presigned URLs, using proxy for share");
             }
             Err(e) => {
                 // Presigning failed, fallback to proxy
-                tracing::warn!(
+                log::warn!(
                     "Presigned URL generation failed for share, falling back to proxy: {}",
                     e
                 );
@@ -4794,7 +4794,7 @@ pub async fn download_shared_file(
 
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
     let transfer_permit = state.scheduler.acquire_download_permit(file_size).await;
-    tracing::debug!(
+    log::debug!(
         "Shared download permit acquired: token={}, size={}, class={}",
         token,
         file_size,
@@ -4806,7 +4806,7 @@ pub async fn download_shared_file(
         .download_stream(&storage_path)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to stream shared file: {:?}", e);
+            log::error!("Failed to stream shared file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -4850,7 +4850,7 @@ pub async fn migrate_content_hashes(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    tracing::info!("Starting content hash migration...");
+    log::info!("Starting content hash migration...");
 
     // Get all files without content_hash (excluding directories)
     let files_to_migrate = state
@@ -4859,7 +4859,7 @@ pub async fn migrate_content_hashes(
         .find_unhashed_files_for_migration(1000)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch files for migration: {:?}", e);
+            log::error!("Failed to fetch files for migration: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -4905,17 +4905,17 @@ pub async fn migrate_content_hashes(
                     Ok(_) => {
                         migrated += 1;
                         if migrated % 100 == 0 {
-                            tracing::info!("Migrated {} files...", migrated);
+                            log::info!("Migrated {} files...", migrated);
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to update file {}: {:?}", file_id, e);
+                        log::error!("Failed to update file {}: {:?}", file_id, e);
                         errors += 1;
                     }
                 }
             }
             Err(e) => {
-                tracing::warn!(
+                log::warn!(
                     "Could not download file {} (may be mock data): {:?}",
                     file_id,
                     e
@@ -4943,7 +4943,7 @@ pub async fn migrate_content_hashes(
         .await
         .unwrap_or(0);
 
-    tracing::info!(
+    log::info!(
         "Migration complete: {} migrated, {} errors, {} potential duplicates, {} remaining",
         migrated,
         errors,
@@ -5020,7 +5020,7 @@ pub async fn convert_file_to_markdown(
 
     // Download file content from storage
     let file_bytes = state.storage.download(&storage_path).await.map_err(|e| {
-        tracing::error!("Failed to download file {} for markdown conversion: {}", file_uuid, e);
+        log::error!("Failed to download file {} for markdown conversion: {}", file_uuid, e);
         not_found(format!("Failed to download file from storage: {}", e))
     })?;
 
@@ -5030,7 +5030,7 @@ pub async fn convert_file_to_markdown(
     let temp_path = temp_dir.join(&temp_file_name);
 
     tokio::fs::write(&temp_path, &file_bytes).await.map_err(|e| {
-        tracing::error!("Failed to write temp file {:?}: {}", temp_path, e);
+        log::error!("Failed to write temp file {:?}: {}", temp_path, e);
         internal_error(format!("Failed to write temp file: {}", e))
     })?;
 
@@ -5048,7 +5048,7 @@ pub async fn convert_file_to_markdown(
     let _ = tokio::fs::remove_file(&temp_path).await;
 
     let markdown_text = convert_res.map_err(|e| {
-        tracing::warn!("anydoc conversion failed for file '{}': {}", original_name, e);
+        log::warn!("anydoc conversion failed for file '{}': {}", original_name, e);
         bad_request(format!("文档转 Markdown 失败: {}", e))
     })?;
 
@@ -5119,7 +5119,7 @@ pub async fn convert_file_to_markdown(
         existing_path.clone()
     } else {
         state.storage.upload(&content_key, md_bytes).await.map_err(|e| {
-            tracing::error!("Failed to upload markdown to storage: {}", e);
+            log::error!("Failed to upload markdown to storage: {}", e);
             internal_error(format!("Failed to save markdown to storage: {}", e))
         })?;
         content_key
@@ -5148,7 +5148,7 @@ pub async fn convert_file_to_markdown(
         .create_file(create_params)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to save converted file record: {:?}", e);
+            log::error!("Failed to save converted file record: {:?}", e);
             internal_error(format!("Failed to save file metadata: {}", e))
         })?;
 
@@ -5307,7 +5307,7 @@ pub async fn update_file_content(
         existing_path.clone()
     } else {
         state.storage.upload(&content_key, md_bytes).await.map_err(|e| {
-            tracing::error!("Failed to upload markdown to storage: {}", e);
+            log::error!("Failed to upload markdown to storage: {}", e);
             internal_error(format!("Failed to save markdown to storage: {}", e))
         })?;
         content_key
@@ -5344,7 +5344,7 @@ pub async fn update_file_content(
             .create_file(create_params)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to save new file version: {:?}", e);
+                log::error!("Failed to save new file version: {:?}", e);
                 internal_error(format!("Failed to save new file version: {}", e))
             })?;
         (created.id, created.version, created.updated_at)
@@ -5361,7 +5361,7 @@ pub async fn update_file_content(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update file metadata: {:?}", e);
+                log::error!("Failed to update file metadata: {:?}", e);
                 internal_error(format!("Failed to update file metadata: {}", e))
             })?;
         (updated.id, updated.version, updated.updated_at)

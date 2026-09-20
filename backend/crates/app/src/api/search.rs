@@ -1,4 +1,4 @@
-use crate::AppState;
+﻿use crate::AppState;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -67,7 +67,7 @@ pub async fn global_search(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Search failed: {:?}", e);
+            log::error!("Search failed: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

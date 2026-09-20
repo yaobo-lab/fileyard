@@ -38,7 +38,7 @@ pub async fn get_dashboard_stats(
         .storage_distribution(auth.tenant_id, auth.role == "SuperAdmin")
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch storage distribution: {:?}", e);
+            log::error!("Failed to fetch storage distribution: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -82,7 +82,7 @@ pub async fn get_dashboard_stats(
         .active_requests(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch file requests: {:?}", e);
+            log::error!("Failed to fetch file requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -118,7 +118,7 @@ pub async fn get_dashboard_stats(
         .active_request_count(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to count file requests: {:?}", e);
+            log::error!("Failed to count file requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -203,7 +203,7 @@ pub async fn get_file_types(
         .file_types(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch file types: {:?}", e);
+            log::error!("Failed to fetch file types: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -296,7 +296,7 @@ pub async fn get_replication_status(
     let status = app_core::replication::get_status(&state.store, &state.replication_config)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get replication status: {:?}", e);
+            log::error!("Failed to get replication status: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -332,7 +332,7 @@ pub async fn get_replication_jobs(
         app_core::replication::get_pending_jobs(&state.store, status_filter, limit, offset)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to get replication jobs: {:?}", e);
+                log::error!("Failed to get replication jobs: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -358,11 +358,11 @@ pub async fn retry_failed_jobs(
     let count = app_core::replication::retry_failed_jobs(&state.store)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to retry failed jobs: {:?}", e);
+            log::error!("Failed to retry failed jobs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!(target: "replication", "Reset {} failed jobs for retry", count);
+    log::info!(target: "replication", "Reset {} failed jobs for retry", count);
 
     Ok(Json(json!({
         "message": "Failed jobs reset for retry",

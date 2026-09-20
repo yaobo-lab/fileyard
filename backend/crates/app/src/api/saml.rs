@@ -1,4 +1,4 @@
-﻿//! SAML 2.0 SSO Handlers
+//! SAML 2.0 SSO Handlers
 //!
 //! Provides endpoints for:
 //! - Tenant SAML provider management (CRUD, SuperAdmin only)
@@ -413,7 +413,7 @@ pub async fn saml_acs(
 
     // Step 3: Parse SAML Response
     let saml_response = saml_xml::parse_saml_response(&form.saml_response).map_err(|e| {
-        tracing::error!("Failed to parse SAML response: {}", e);
+        log::error!("Failed to parse SAML response: {}", e);
         (
             StatusCode::BAD_REQUEST,
             format!("Invalid SAML response: {}", e),
@@ -422,7 +422,7 @@ pub async fn saml_acs(
 
     // Step 4: Verify status
     if !saml_response.status_code.contains("Success") {
-        tracing::warn!("SAML response status: {}", saml_response.status_code);
+        log::warn!("SAML response status: {}", saml_response.status_code);
         return Ok(Redirect::temporary(&format!(
             "{}/login?error=saml_error&message={}",
             frontend_url,
@@ -446,7 +446,7 @@ pub async fn saml_acs(
         ) {
             Ok(true) => {}
             Ok(false) => {
-                tracing::error!("SAML signature verification returned false");
+                log::error!("SAML signature verification returned false");
                 return Err((
                     StatusCode::BAD_REQUEST,
                     "Signature verification failed".to_string(),
@@ -454,12 +454,12 @@ pub async fn saml_acs(
             }
             Err(saml_crypto::SamlCryptoError::NoSignature) => {
                 if provider.want_assertions_signed {
-                    tracing::error!("SAML assertion not signed but provider requires it");
+                    log::error!("SAML assertion not signed but provider requires it");
                     return Err((StatusCode::BAD_REQUEST, "Assertion not signed".to_string()));
                 }
             }
             Err(e) => {
-                tracing::error!("SAML signature error: {:?}", e);
+                log::error!("SAML signature error: {:?}", e);
                 return Err((StatusCode::BAD_REQUEST, format!("Signature error: {}", e)));
             }
         }
@@ -467,11 +467,11 @@ pub async fn saml_acs(
 
     // Step 6: Validate InResponseTo (REQUIRED — prevents response substitution attacks)
     let in_response_to = saml_response.in_response_to.as_deref().ok_or_else(|| {
-        tracing::error!("SAML Response missing required InResponseTo attribute");
+        log::error!("SAML Response missing required InResponseTo attribute");
         (StatusCode::BAD_REQUEST, "Missing InResponseTo".to_string())
     })?;
     if in_response_to != authn_request_id {
-        tracing::error!(
+        log::error!(
             "InResponseTo mismatch: expected {}, got {}",
             authn_request_id,
             in_response_to
@@ -485,7 +485,7 @@ pub async fn saml_acs(
 
     if let Some(not_before) = assertion.not_before {
         if now < not_before - skew {
-            tracing::error!("Assertion not yet valid: NotBefore={}", not_before);
+            log::error!("Assertion not yet valid: NotBefore={}", not_before);
             return Err((
                 StatusCode::BAD_REQUEST,
                 "Assertion not yet valid".to_string(),
@@ -494,7 +494,7 @@ pub async fn saml_acs(
     }
     if let Some(not_on_or_after) = assertion.not_on_or_after {
         if now >= not_on_or_after + skew {
-            tracing::error!("Assertion expired: NotOnOrAfter={}", not_on_or_after);
+            log::error!("Assertion expired: NotOnOrAfter={}", not_on_or_after);
             return Err((StatusCode::BAD_REQUEST, "Assertion expired".to_string()));
         }
     }
@@ -502,7 +502,7 @@ pub async fn saml_acs(
     // Step 8: Validate audience
     if let Some(ref audience) = assertion.audience {
         if audience != &provider.sp_entity_id {
-            tracing::error!(
+            log::error!(
                 "Audience mismatch: expected {}, got {}",
                 provider.sp_entity_id,
                 audience
@@ -523,7 +523,7 @@ pub async fn saml_acs(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
 
     if !inserted {
-        tracing::error!(
+        log::error!(
             "Replay detected: assertion {} already consumed",
             assertion.id
         );
@@ -586,7 +586,7 @@ pub async fn saml_acs(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to link SAML identity: {:?}", e);
+                log::error!("Failed to link SAML identity: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to link identity".to_string())
             })?;
 
@@ -599,7 +599,7 @@ pub async fn saml_acs(
                 .await;
         }
 
-        tracing::info!(user_id = %user.id, provider = %provider.name, "SAML identity linked");
+        log::info!("SAML identity linked (user_id: {}, provider: {})", user.id, provider.name);
         return Ok(Redirect::temporary(&format!(
             "{}/profile?saml=linked",
             frontend_url,
@@ -608,7 +608,7 @@ pub async fn saml_acs(
 
     // SECURITY: Validate assertion issuer matches configured IdP entity ID
     if assertion.issuer != provider.idp_entity_id {
-        tracing::error!(
+        log::error!(
             "Assertion issuer mismatch: expected {}, got {}",
             provider.idp_entity_id,
             assertion.issuer
@@ -796,7 +796,7 @@ pub async fn create_provider(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create SAML provider: {:?}", e);
+            log::error!("Failed to create SAML provider: {:?}", e);
             if e.to_string().contains("duplicate") || e.to_string().contains("unique") {
                 (
                     StatusCode::CONFLICT,
@@ -891,7 +891,7 @@ pub async fn update_provider(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update SAML provider: {:?}", e);
+            log::error!("Failed to update SAML provider: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Failed to update SAML provider"})),
@@ -1003,11 +1003,11 @@ pub async fn test_provider(
             }
             Ok(resp) => {
                 metadata_valid = Some(false);
-                tracing::warn!("Metadata URL returned status {}", resp.status());
+                log::warn!("Metadata URL returned status {}", resp.status());
             }
             Err(e) => {
                 metadata_valid = Some(false);
-                tracing::warn!("Failed to fetch metadata URL: {:?}", e);
+                log::warn!("Failed to fetch metadata URL: {:?}", e);
             }
         }
     }

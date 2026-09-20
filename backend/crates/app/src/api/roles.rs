@@ -70,7 +70,7 @@ pub async fn list_roles(
     match roles {
         Ok(roles) => Ok(Json(json!(roles))),
         Err(e) => {
-            tracing::error!("Failed to list roles: {:?}", e);
+            log::error!("Failed to list roles: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -123,7 +123,7 @@ pub async fn create_role(
         )
         .await;
     if let Err(e) = &role {
-        tracing::error!("Failed to create role: {:?}", e);
+        log::error!("Failed to create role: {:?}", e);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -163,7 +163,7 @@ pub async fn get_role(
         .accessible(role_id, auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch role: {:?}", e);
+            log::error!("Failed to fetch role: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -239,7 +239,7 @@ pub async fn update_role(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update role: {:?}", e);
+            log::error!("Failed to update role: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -302,7 +302,7 @@ pub async fn delete_role(
 
     // Delete the role (cascade will delete permissions)
     state.store.roles().delete(role_id).await.map_err(|e| {
-        tracing::error!("Failed to delete role: {:?}", e);
+        log::error!("Failed to delete role: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -401,7 +401,7 @@ pub async fn update_role_permissions(
             .upsert_permissions(role_id, &[(perm.permission.clone(), perm.granted)])
             .await
             .map_err(|e| {
-                tracing::error!("Failed to update permission: {:?}", e);
+                log::error!("Failed to update permission: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
     }
@@ -435,11 +435,11 @@ pub async fn update_role_permissions(
         for user_id in users_with_role {
             let cache_key = app_core::cache::keys::user(user_id);
             if let Err(e) = cache.delete(&cache_key).await {
-                tracing::warn!("Failed to invalidate cache for user {}: {}", user_id, e);
+                log::warn!("Failed to invalidate cache for user {}: {}", user_id, e);
             }
         }
 
-        tracing::info!("Invalidated cache for users with role '{}'", role.name);
+        log::info!("Invalidated cache for users with role '{}'", role.name);
     }
 
     // Return updated permissions
@@ -475,7 +475,7 @@ async fn get_role_permissions(
 
     // Get custom permissions for this specific role
     let custom_perms = store.roles().permissions(role_id).await.map_err(|e| {
-        tracing::error!("Failed to fetch role permissions: {:?}", e);
+        log::error!("Failed to fetch role permissions: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 

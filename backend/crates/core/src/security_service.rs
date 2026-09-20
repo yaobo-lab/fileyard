@@ -124,7 +124,7 @@ pub async fn create_alert(
         })
         .await?;
 
-    tracing::info!(
+    log::info!(
         "Security alert created: type={}, severity={}, tenant={:?}, user={:?}",
         alert_type.as_str(),
         severity.as_str(),
@@ -205,7 +205,7 @@ pub async fn create_alert(
                     )
                     .await
                     {
-                        tracing::error!("Failed to send security alert notification: {:?}", e);
+                        log::error!("Failed to send security alert notification: {:?}", e);
                     }
                 });
             }

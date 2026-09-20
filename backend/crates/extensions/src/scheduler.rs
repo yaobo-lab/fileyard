@@ -81,13 +81,13 @@ impl Scheduler {
     pub async fn start(&self) {
         let mut running = self.running.write().await;
         if *running {
-            tracing::warn!("Scheduler already running");
+            log::warn!("Scheduler already running");
             return;
         }
         *running = true;
         drop(running);
 
-        tracing::info!("Starting automation scheduler");
+        log::info!("Starting automation scheduler");
 
         loop {
             {
@@ -98,14 +98,14 @@ impl Scheduler {
             }
 
             if let Err(e) = self.poll_and_execute().await {
-                tracing::error!("Scheduler poll error: {:?}", e);
+                log::error!("Scheduler poll error: {:?}", e);
             }
 
             // Sleep before next poll
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
 
-        tracing::info!("Scheduler stopped");
+        log::info!("Scheduler stopped");
     }
 
     /// Stop the scheduler
@@ -137,10 +137,10 @@ impl Scheduler {
 
             match self.execute_job(&job).await {
                 Ok(_) => {
-                    tracing::info!("Successfully executed automation job: {}", job.id);
+                    log::info!("Successfully executed automation job: {}", job.id);
                 }
                 Err(e) => {
-                    tracing::error!("Failed to execute automation job {}: {:?}", job.id, e);
+                    log::error!("Failed to execute automation job {}: {:?}", job.id, e);
                     // Update job with error status
                     let _ = self
                         .update_job_status(&job.id, "failed", Some(&e.to_string()))

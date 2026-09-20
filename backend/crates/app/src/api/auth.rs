@@ -65,7 +65,7 @@ pub async fn login(
         .active_user_by_email(&input.email)
         .await
         .map_err(|e| {
-            tracing::error!("Database error: {:?}", e);
+            log::error!("Database error: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -133,7 +133,7 @@ pub async fn login(
     let argon2 = get_argon2();
     let parsed_hash =
         PasswordHash::new(user.password_hash.as_deref().unwrap_or("")).map_err(|e| {
-            tracing::error!("Failed to parse password hash: {:?}", e);
+            log::error!("Failed to parse password hash: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -195,7 +195,7 @@ pub async fn login(
             // User has access to another active tenant - use that instead
             active_tenant = fb_tenant;
             switched_tenant = true;
-            tracing::info!(
+            log::info!(
                 "User {} primary tenant {} is suspended, switching to fallback tenant {}",
                 user.id,
                 user.tenant_id,
@@ -295,7 +295,7 @@ pub async fn login(
         Some(fingerprint_hash.clone()),
     )
     .map_err(|e| {
-        tracing::error!("Token generation error: {:?}", e);
+        log::error!("Token generation error: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -321,7 +321,7 @@ pub async fn login(
         .await;
 
     if let Err(e) = session_result {
-        tracing::warn!("Failed to create/update session record: {:?}", e);
+        log::warn!("Failed to create/update session record: {:?}", e);
         // Don't fail login if session tracking fails
     }
 
@@ -588,7 +588,7 @@ pub async fn register(
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
         .map_err(|e| {
-            tracing::error!("Failed to hash password: {:?}", e);
+            log::error!("Failed to hash password: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .to_string();
@@ -614,7 +614,7 @@ pub async fn register(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create user: {:?}", e);
+            log::error!("Failed to create user: {:?}", e);
             // Check if it's a unique constraint violation (duplicate email)
             if e.to_string().contains("unique") {
                 StatusCode::CONFLICT
@@ -680,7 +680,7 @@ async fn get_user_permissions(
         .role_permissions(tenant_id, role_name)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch role: {:?}", e);
+            log::error!("Failed to fetch role: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -688,7 +688,7 @@ async fn get_user_permissions(
         Some(r) => r,
         None => {
             // No role found - use role_name as base_role for backwards compatibility
-            tracing::warn!(
+            log::warn!(
                 "Role '{}' not found in roles table, using as base role",
                 role_name
             );
@@ -798,7 +798,7 @@ pub async fn me(
     // Cache the result
     if let Some(ref cache) = state.cache {
         if let Err(e) = cache.set(&cache_key, &response, ttl::USER).await {
-            tracing::warn!("Failed to cache user me response: {}", e);
+            log::warn!("Failed to cache user me response: {}", e);
         }
     }
 

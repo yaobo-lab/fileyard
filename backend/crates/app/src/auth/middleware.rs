@@ -197,7 +197,7 @@ pub async fn auth_middleware_with_db(
                 .map(|q| q.contains("token="))
                 .unwrap_or(false)
             {
-                tracing::warn!(
+                log::warn!(
                     "Rejected token-in-URL authentication attempt for path: {}",
                     req.uri().path()
                 );
@@ -207,7 +207,7 @@ pub async fn auth_middleware_with_db(
 
     // Decode and validate token using centralized logic
     let claims = verify_token(token).map_err(|e| {
-        tracing::warn!("JWT decode error: {:?}", e);
+        log::warn!("JWT decode error: {:?}", e);
         StatusCode::UNAUTHORIZED
     })?;
 
@@ -221,7 +221,7 @@ pub async fn auth_middleware_with_db(
     // SECURITY: Check if user is suspended or inactive in database
     // This ensures suspended users are kicked out immediately, not just on next login
     let user_status = state.store.auth().user_status(user_id).await.map_err(|e| {
-        tracing::error!("Database error checking user status: {:?}", e);
+        log::error!("Database error checking user status: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -229,12 +229,12 @@ pub async fn auth_middleware_with_db(
         Some(user) => {
             // Check if user is active
             if user.status != "active" {
-                tracing::warn!("Rejected request from inactive user: {}", user_id);
+                log::warn!("Rejected request from inactive user: {}", user_id);
                 return Err(StatusCode::UNAUTHORIZED);
             }
             // Check if user is suspended
             if user.suspended {
-                tracing::warn!("Rejected request from suspended user: {}", user_id);
+                log::warn!("Rejected request from suspended user: {}", user_id);
                 // Create security alert for suspended user access attempt
                 let _ = state
                     .store
@@ -252,7 +252,7 @@ pub async fn auth_middleware_with_db(
         }
         None => {
             // User doesn't exist
-            tracing::warn!("Rejected request from non-existent user: {}", user_id);
+            log::warn!("Rejected request from non-existent user: {}", user_id);
             return Err(StatusCode::UNAUTHORIZED);
         }
     }
@@ -272,14 +272,14 @@ pub async fn auth_middleware_with_db(
         .session_is_revoked(&token_hash, user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error checking session status: {:?}", e);
+            log::error!("Database error checking session status: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     match session_status {
         Some(true) => {
             // Session has been revoked
-            tracing::warn!(
+            log::warn!(
                 "Rejected request from revoked session for user: {}",
                 user_id
             );
@@ -288,7 +288,7 @@ pub async fn auth_middleware_with_db(
         None => {
             // Session not found or expired - this can happen for older tokens
             // before session tracking was implemented, so we allow it
-            tracing::debug!("Session not found in database for user: {}", user_id);
+            log::debug!("Session not found in database for user: {}", user_id);
         }
         Some(_) => {
             // Session is valid, continue
@@ -303,7 +303,7 @@ pub async fn auth_middleware_with_db(
         if &current_fingerprint != expected_fingerprint {
             // Log at debug level to avoid log spam - fingerprint can vary due to
             // browser updates, extension changes, or network changes
-            tracing::debug!(
+            log::debug!(
                 "Fingerprint mismatch for user {}: expected {}, got {}",
                 user_id,
                 &expected_fingerprint[..8], // Log only first 8 chars for privacy
@@ -329,7 +329,7 @@ pub async fn auth_middleware_with_db(
             .tenant_ip_restrictions(tenant_id)
             .await
             .map_err(|e| {
-                tracing::error!("Database error checking IP restrictions: {:?}", e);
+                log::error!("Database error checking IP restrictions: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -357,7 +357,7 @@ pub async fn auth_middleware_with_db(
             };
 
             if is_blocked {
-                tracing::warn!(
+                log::warn!(
                     "IP {} blocked by tenant {} restrictions (mode: {})",
                     client_ip,
                     tenant_id,
@@ -407,7 +407,7 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, S
                 .map(|q| q.contains("token="))
                 .unwrap_or(false)
             {
-                tracing::warn!(
+                log::warn!(
                     "Rejected token-in-URL authentication attempt for path: {}",
                     req.uri().path()
                 );
@@ -416,7 +416,7 @@ pub async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, S
         })?;
 
     let claims = verify_token(token).map_err(|e| {
-        tracing::warn!("JWT decode error: {:?}", e);
+        log::warn!("JWT decode error: {:?}", e);
         StatusCode::UNAUTHORIZED
     })?;
 

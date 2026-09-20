@@ -1,4 +1,4 @@
-//! JWT Token Generation and Verification
+﻿//! JWT Token Generation and Verification
 //!
 //! Security features:
 //! - No hardcoded fallback secrets
@@ -37,14 +37,14 @@ fn get_jwt_config() -> &'static JwtConfig {
         let secret = source.jwt_secret.clone();
         assert!(!secret.is_empty(), "auth.jwt_secret must be configured");
         if secret.len() < 32 {
-            tracing::warn!("auth.jwt_secret is less than 32 characters");
+            log::warn!("auth.jwt_secret is less than 32 characters");
         }
         let secret_secondary = source
             .jwt_secret_secondary
             .clone()
             .filter(|s| !s.is_empty());
         if secret_secondary.is_some() {
-            tracing::info!("JWT key rotation enabled: secondary secret configured");
+            log::info!("JWT key rotation enabled: secondary secret configured");
         }
 
         // Issuer and audience for token validation
@@ -52,7 +52,7 @@ fn get_jwt_config() -> &'static JwtConfig {
         let audience = source.jwt_audience.clone();
         let expiry_secs = source.jwt_expiry_secs;
 
-        tracing::info!(
+        log::info!(
             "JWT configured: issuer={}, audience={}, expiry={}s",
             issuer,
             audience,
@@ -169,7 +169,7 @@ pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
                     &validation,
                 ) {
                     Ok(token_data) => {
-                        tracing::debug!("Token validated with secondary secret (key rotation)");
+                        log::debug!("Token validated with secondary secret (key rotation)");
                         return Ok(token_data.claims);
                     }
                     Err(_) => {

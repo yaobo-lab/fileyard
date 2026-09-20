@@ -93,7 +93,7 @@ pub async fn list_activity_logs(
         .query_activity_logs(auth.tenant_id, &filter)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list audit logs: {:?}", e);
+            log::error!("Failed to list audit logs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -138,7 +138,7 @@ pub async fn export_activity_logs(
         .query_activity_logs(auth.tenant_id, &filter)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to export audit logs: {:?}", e);
+            log::error!("Failed to export audit logs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -243,7 +243,7 @@ pub async fn get_audit_settings(
         .get_settings(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch audit settings: {:?}", e);
+            log::error!("Failed to fetch audit settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -363,7 +363,7 @@ pub async fn update_audit_settings(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update audit settings: {:?}", e);
+            log::error!("Failed to update audit settings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -418,7 +418,7 @@ pub async fn get_action_types(
         .distinct_actions(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch action types: {:?}", e);
+            log::error!("Failed to fetch action types: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -437,7 +437,7 @@ pub async fn get_resource_types(
         .distinct_resource_types(auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch resource types: {:?}", e);
+            log::error!("Failed to fetch resource types: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -462,7 +462,7 @@ pub async fn get_user_activity_logs(
         .user_exists_in_tenant(user_id, auth.tenant_id, auth.role == "SuperAdmin")
         .await
         .map_err(|e| {
-            tracing::error!("Failed to verify user: {:?}", e);
+            log::error!("Failed to verify user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -489,7 +489,7 @@ pub async fn get_user_activity_logs(
         .query_user_activity_logs(user_id, &filter)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list user audit logs: {:?}", e);
+            log::error!("Failed to list user audit logs: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

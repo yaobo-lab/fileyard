@@ -41,7 +41,7 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
         let trust_all = source.trust_all_proxies;
 
         if trust_all {
-            tracing::warn!(
+            log::warn!(
                 "TRUST_ALL_PROXIES is enabled - X-Forwarded-For will be trusted from any source. \
                 This is dangerous in production!"
             );
@@ -58,7 +58,7 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
                 match trimmed.parse::<IpAddr>() {
                     Ok(ip) => Some(ip),
                     Err(_) => {
-                        tracing::warn!("Invalid IP in TRUSTED_PROXY_IPS: {}", trimmed);
+                        log::warn!("Invalid IP in TRUSTED_PROXY_IPS: {}", trimmed);
                         None
                     }
                 }
@@ -66,7 +66,7 @@ fn get_trusted_proxy_config() -> &'static TrustedProxyConfig {
             .collect();
 
         if !trusted_ips.is_empty() {
-            tracing::info!("Trusted proxy IPs configured: {:?}", trusted_ips);
+            log::info!("Trusted proxy IPs configured: {:?}", trusted_ips);
         }
 
         TrustedProxyConfig {
@@ -264,7 +264,7 @@ pub async fn rate_limit_login(
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "Rate limit exceeded for login from IP: {} (count: {})",
                         ip,
                         count
@@ -273,7 +273,7 @@ pub async fn rate_limit_login(
                 }
             }
             Err(e) => {
-                tracing::error!("Rate limit check failed: {}", e);
+                log::error!("Rate limit check failed: {}", e);
                 // Allow request on error (fail open for availability)
             }
         }
@@ -296,7 +296,7 @@ pub async fn rate_limit_upload(
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "Upload rate limit exceeded for user: {} (count: {})",
                         auth.user_id,
                         count
@@ -305,7 +305,7 @@ pub async fn rate_limit_upload(
                 }
             }
             Err(e) => {
-                tracing::error!("Rate limit check failed: {}", e);
+                log::error!("Rate limit check failed: {}", e);
             }
         }
     }
@@ -327,7 +327,7 @@ pub async fn rate_limit_api(
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "API rate limit exceeded for user: {} (count: {})",
                         auth.user_id,
                         count
@@ -336,7 +336,7 @@ pub async fn rate_limit_api(
                 }
             }
             Err(e) => {
-                tracing::error!("Rate limit check failed: {}", e);
+                log::error!("Rate limit check failed: {}", e);
             }
         }
     }
@@ -361,7 +361,7 @@ pub async fn rate_limit_public(
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "Public rate limit exceeded for IP: {} (count: {})",
                         ip,
                         count
@@ -370,7 +370,7 @@ pub async fn rate_limit_public(
                 }
             }
             Err(e) => {
-                tracing::error!("Rate limit check failed: {}", e);
+                log::error!("Rate limit check failed: {}", e);
             }
         }
     }
@@ -407,7 +407,7 @@ pub async fn rate_limit_global(
         match check_rate_limit_atomic(cache, &key, &config).await {
             Ok((allowed, count, remaining)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "Global rate limit exceeded for IP: {} ({}req/s, limit: {}/s, burst: {})",
                         ip,
                         count,
@@ -419,7 +419,7 @@ pub async fn rate_limit_global(
             }
             Err(e) => {
                 // Log but don't block - fail open for availability
-                tracing::debug!("Global rate limit check failed (allowing request): {}", e);
+                log::debug!("Global rate limit check failed (allowing request): {}", e);
             }
         }
     }

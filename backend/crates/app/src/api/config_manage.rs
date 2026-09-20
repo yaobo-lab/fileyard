@@ -1,4 +1,4 @@
-//! 通用配置管理 API 模块 (app_config)
+﻿//! 通用配置管理 API 模块 (app_config)
 
 use crate::AppState;
 use app_entity::entities::app_config;
@@ -85,12 +85,12 @@ pub async fn page_configs(
         .paginate(state.store.db(), page_size);
 
     let total = paginator.num_items().await.map_err(|e| {
-        tracing::error!("Failed to count configs: {:?}", e);
+        log::error!("Failed to count configs: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     let items = paginator.fetch_page(page.saturating_sub(1)).await.map_err(|e| {
-        tracing::error!("Failed to fetch config page: {:?}", e);
+        log::error!("Failed to fetch config page: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -116,7 +116,7 @@ pub async fn get_config(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get config: {:?}", e);
+            log::error!("Failed to get config: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -142,7 +142,7 @@ pub async fn save_config(
                 .one(state.store.db())
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to find config {}: {:?}", id, e);
+                    log::error!("Failed to find config {}: {:?}", id, e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?
                 .ok_or(StatusCode::NOT_FOUND)?;
@@ -158,7 +158,7 @@ pub async fn save_config(
             }
 
             let saved = active.update(state.store.db()).await.map_err(|e| {
-                tracing::error!("Failed to update config {}: {:?}", id, e);
+                log::error!("Failed to update config {}: {:?}", id, e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -187,7 +187,7 @@ pub async fn save_config(
     };
 
     let saved = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to insert config: {:?}", e);
+        log::error!("Failed to insert config: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -207,7 +207,7 @@ pub async fn delete_config(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to find config for delete {}: {:?}", params.id, e);
+            log::error!("Failed to find config for delete {}: {:?}", params.id, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -215,7 +215,7 @@ pub async fn delete_config(
     let mut active: app_config::ActiveModel = existing.into();
     active.is_del = Set(1);
     active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to soft delete config: {:?}", e);
+        log::error!("Failed to soft delete config: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 

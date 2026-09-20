@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Link, useSearchParams, useLocation } from 'react-router-dom';
+import { Link, useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import {
     Folder, FileText, Image as ImageIcon, MoreVertical, Download,
     Trash2, Eye, EyeOff, Upload, Grid, List, Search, Plus, Star, Clock,
@@ -103,11 +103,18 @@ interface FileBrowserProps {
 
 export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const t = useTranslations('Explorer');
+    const rawFirmwareTitle = t('firmwareFiles');
+    const firmwareTitle = rawFirmwareTitle && !rawFirmwareTitle.startsWith('Explorer.') ? rawFirmwareTitle : '固件文件';
+    const rawAllFilesTitle = t('allFiles');
+    const allFilesTitle = rawAllFilesTitle && !rawAllFilesTitle.startsWith('Explorer.') ? rawAllFilesTitle : '部门文件';
+    const rawPrivateFilesTitle = t('myPrivateFiles');
+    const privateFilesTitle = rawPrivateFilesTitle && !rawPrivateFilesTitle.startsWith('Explorer.') ? rawPrivateFilesTitle : '个人文件';
     const tCommon = useTranslations('Common');
     const tProps = useTranslations('Properties');
     const tContextMenu = useTranslations('ContextMenu');
     const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { user } = useAuth();
+    const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const urlPath = searchParams.get('path');
@@ -239,6 +246,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         }
         setSelectedDepartment(null);
     }, [location.pathname, initialMode, isPrivatePath, isFirmwarePath]);
+
+    // 防止在部门文件等非固件页面误入系统专用的固件文件目录，自动引导至独立固件文件页面
+    useEffect(() => {
+        if (!isFirmwarePath && currentPath.length > 1 && currentPath[1] === '固件文件') {
+            const subPath = currentPath.slice(1).join('/');
+            navigate(`/firmware-files?path=${encodeURIComponent(subPath)}`, { replace: true });
+        }
+    }, [isFirmwarePath, currentPath, navigate]);
 
     // File Groups
     const [groups, setGroups] = useState<FileGroup[]>([]);
@@ -635,7 +650,15 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 setStarredFiles(starredData.starred || []);
 
                 // Merge starred status and map types
-                const mergedFiles = filesData.map((f: any) => {
+                const mergedFiles = filesData
+                    .filter((f: any) => {
+                        // 固件文件属于独立的固件文件管理体系，不在部门文件根目录中展示
+                        if (!isFirmwarePath && currentPath.length === 1 && f.name === '固件文件') {
+                            return false;
+                        }
+                        return true;
+                    })
+                    .map((f: any) => {
                     const extension = f.name.split('.').pop()?.toLowerCase();
                     // Backend already returns correct 'type' field ('folder' for folders)
                     let type = f.type || 'document';
@@ -700,6 +723,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
 
     const handleCreateFolder = async (folderName: string) => {
+        if (!isFirmwarePath && currentPath.length === 1 && folderName.trim() === '固件文件') {
+            await modalAlert({
+                title: '无法创建',
+                description: '“固件文件”为系统专用的独立管理栏目，请使用其他文件夹名称。',
+                variant: 'destructive',
+            });
+            return;
+        }
         try {
             const parentPath = currentPath.slice(1).join('/');
             const response = await authFetch(`/api/folders/${companyId}`, {
@@ -2280,7 +2311,13 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
 
     const filteredFiles = files
-        .filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        .filter(f => {
+            // 固件文件属于独立的固件文件管理体系，不在部门文件根目录中展示
+            if (!isFirmwarePath && currentPath.length === 1 && f.name === '固件文件') {
+                return false;
+            }
+            return f.name.toLowerCase().includes(searchQuery.toLowerCase());
+        })
         .sort((a, b) => {
             // Always show folders first
             const aIsFolder = a.type === 'folder';
@@ -2536,8 +2573,8 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                                         }}
                                     >
                                         {folder === 'Home'
-                                            ? (fileViewMode === 'private' ? t('myPrivateFiles') : t('allFiles'))
-                                            : (isFirmwarePath && sliceIndex === 0 ? (t('firmwareFiles') || '固件文件') : folder)}
+                                            ? (fileViewMode === 'private' ? privateFilesTitle : allFilesTitle)
+                                            : (isFirmwarePath && sliceIndex === 0 ? firmwareTitle : folder)}
                                     </span>
                                 </div>
                             )
@@ -2547,7 +2584,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                     <div className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-300 overflow-x-auto py-0.5 scrollbar-hide flex-shrink-0">
                         <div className="flex items-center flex-shrink-0">
                             <span className="font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-xs">
-                                {t('firmwareFiles') || '固件文件'}
+                                {firmwareTitle}
                             </span>
                         </div>
                     </div>

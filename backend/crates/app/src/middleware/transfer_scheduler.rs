@@ -1,4 +1,4 @@
-//! Transfer Scheduling System
+﻿//! Transfer Scheduling System
 //!
 //! Implements production-grade download/upload scheduling with:
 //! - Small file prioritization for responsiveness
@@ -125,7 +125,7 @@ impl TransferScheduler {
 
     /// Create a new transfer scheduler with custom configuration
     pub fn with_config(config: TransferSchedulerConfig) -> Self {
-        tracing::info!(
+        log::info!(
             "Initializing TransferScheduler: small={}, medium={}, large={}, bandwidth={}MB/s",
             config.small_concurrent,
             config.medium_concurrent,
@@ -166,7 +166,7 @@ impl TransferScheduler {
         let size_class = self.classify_size(size);
         let permit = self.acquire_permit_for_class(size_class).await;
 
-        tracing::debug!(
+        log::debug!(
             "Acquired {} download permit (size={}bytes)",
             size_class.name(),
             size
@@ -187,7 +187,7 @@ impl TransferScheduler {
 
         let permit = self.acquire_permit_for_class(size_class).await;
 
-        tracing::debug!(
+        log::debug!(
             "Acquired {} upload permit (estimated_size={:?})",
             size_class.name(),
             estimated_size

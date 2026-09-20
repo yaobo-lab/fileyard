@@ -1,4 +1,4 @@
-﻿//! Shared SSO Logic
+//! Shared SSO Logic
 //!
 //! Common functions used by both OIDC and SAML SSO handlers:
 //! - Account resolution (identity lookup, email matching, auto-provisioning)
@@ -176,13 +176,13 @@ pub async fn resolve_sso_user(
 
     if let Some(user) = email_match {
         // SECURITY: Log auto-linking events for audit trail
-        tracing::info!(
-            user_id = %user.id,
-            email = %email,
-            protocol = %identity.protocol,
-            provider_id = %identity.provider_id,
-            sso_subject = %identity.subject,
-            "SSO identity auto-linked by email match"
+        log::info!(
+            "SSO identity auto-linked by email match (user_id: {}, email: {}, protocol: {}, provider_id: {}, sso_subject: {})",
+            user.id,
+            email,
+            identity.protocol,
+            identity.provider_id,
+            identity.subject
         );
         link_sso_identity(store, identity, user.id).await;
 
@@ -226,7 +226,7 @@ pub async fn resolve_sso_user(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to auto-provision user: {:?}", e);
+            log::error!("Failed to auto-provision user: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to create user".to_string(),
@@ -236,13 +236,13 @@ pub async fn resolve_sso_user(
     // Link identity
     link_sso_identity(store, &identity, new_user.id).await;
 
-    tracing::info!(
-        user_id = %new_user.id,
-        email = %email,
-        provider = %config.provider_name,
-        protocol = %identity.protocol,
-        role = %base_role,
-        "Auto-provisioned SSO user"
+    log::info!(
+        "Auto-provisioned SSO user (user_id: {}, email: {}, provider: {}, protocol: {}, role: {})",
+        new_user.id,
+        email,
+        config.provider_name,
+        identity.protocol,
+        base_role
     );
 
     Ok(SsoUserResolution::NewUser(new_user))
@@ -360,7 +360,7 @@ pub async fn create_sso_session(
         Some(fingerprint_hash.clone()),
     )
     .map_err(|e| {
-        tracing::error!("Token generation error: {:?}", e);
+        log::error!("Token generation error: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Token generation failed".to_string(),
@@ -396,11 +396,11 @@ pub async fn create_sso_session(
     )
     .await;
 
-    tracing::info!(
-        user_id = %user.id,
-        email = %user.email,
-        provider = %config.provider_name,
-        "SSO login successful"
+    log::info!(
+        "SSO login successful (user_id: {}, email: {}, provider: {})",
+        user.id,
+        user.email,
+        config.provider_name
     );
 
     Ok(SsoSessionResult::Token(token))

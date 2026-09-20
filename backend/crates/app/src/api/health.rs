@@ -1,4 +1,4 @@
-﻿use axum::{extract::State, http::StatusCode, Extension, Json};
+use axum::{extract::State, http::StatusCode, Extension, Json};
 use crate::auth::AuthUser;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -40,7 +40,7 @@ pub async fn readiness(State(state): State<Arc<AppState>>) -> Result<Json<Value>
     let db_healthy = match state.store.system().ping().await {
         Ok(_) => true,
         Err(e) => {
-            tracing::error!("Database health check failed: {:?}", e);
+            log::error!("Database health check failed: {:?}", e);
             false
         }
     };
@@ -235,7 +235,7 @@ pub async fn detailed_health(
     let (storage_connected, storage_latency) = match state.storage.health_check().await {
         Ok(latency) => (true, Some(latency)),
         Err(e) => {
-            tracing::warn!("Storage health check failed: {}", e);
+            log::warn!("Storage health check failed: {}", e);
             all_healthy = false;
             (false, None)
         }
@@ -609,14 +609,14 @@ pub async fn sync_storage(
         .active_storage_files()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query files for sync: {:?}", e);
+            log::error!("Failed to query files for sync: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        file_count = files.len(),
-        "Starting storage sync"
+    log::info!(
+        "Starting storage sync (user_id: {}, file_count: {})",
+        auth.user_id,
+        files.len()
     );
 
     for file in files {
@@ -637,11 +637,11 @@ pub async fn sync_storage(
                 match state.store.system().mark_file_deleted(file_id).await {
                     Ok(_) => {
                         cleaned += 1;
-                        tracing::info!(
-                            file_id = %file_id,
-                            file_name = %file_name,
-                            storage_path = %storage_path,
-                            "Marked orphaned file as deleted"
+                        log::info!(
+                            "Marked orphaned file as deleted (file_id: {}, file_name: {}, storage_path: {})",
+                            file_id,
+                            file_name,
+                            storage_path
                         );
                     }
                     Err(e) => {
@@ -677,13 +677,13 @@ pub async fn sync_storage(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        scanned = scanned,
-        orphaned = orphaned,
-        cleaned = cleaned,
-        duration_ms = duration_ms,
-        "Storage sync completed"
+    log::info!(
+        "Storage sync completed (user_id: {}, scanned: {}, orphaned: {}, cleaned: {}, duration_ms: {})",
+        auth.user_id,
+        scanned,
+        orphaned,
+        cleaned,
+        duration_ms
     );
 
     Ok(Json(StorageSyncResult {

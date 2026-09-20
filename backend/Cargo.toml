@@ -57,8 +57,7 @@ app-migration = { path = "crates/migration" }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-# Tracing & Logging
-tracing = "0.1"
+# Logging & Toolkit
 toolkit-rs = { version = "1.0.31", features = [
     "logger",
     "panic_handle",
@@ -69,7 +68,6 @@ toolkit-rs = { version = "1.0.31", features = [
 thiserror = "2"
 anyhow = "1"
 log = "0.4"
-config = "0.15"
 colored = "3"
 moka-cache = "1.1.2"
 
@@ -78,7 +76,12 @@ reqwest = { version = "0.12", features = [
     "json",
     "rustls-tls",
 ], default-features = false }
-gitlab = { version = "0.1706", default-features = false, features = ["client_api", "rustls"] }
+
+# gitlab
+gitlab = { version = "0.1706", default-features = false, features = [
+    "client_api",
+    "rustls",
+] }
 
 # Auth & Crypto
 jsonwebtoken = "9"

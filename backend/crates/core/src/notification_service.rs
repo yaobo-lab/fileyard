@@ -328,7 +328,7 @@ pub async fn create_notification(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to send notification email: {:?}", e);
+                    log::error!("Failed to send notification email: {:?}", e);
                 }
             }
         }
@@ -980,7 +980,7 @@ pub async fn notify_security_alert(
     let admins = get_tenant_admins(store, tenant.id).await?;
 
     if admins.is_empty() {
-        tracing::warn!(
+        log::warn!(
             "No admins found for tenant {} to notify about security alert",
             tenant.id
         );
@@ -1050,13 +1050,13 @@ pub async fn notify_security_alert(
                 mailer::send_email(tenant, &admin_email, &rendered.subject, &rendered.body_html)
                     .await
             {
-                tracing::error!(
+                log::error!(
                     "Failed to send security alert email to {}: {:?}",
                     admin_email,
                     e
                 );
             } else {
-                tracing::info!(
+                log::info!(
                     "Sent security alert email to {} for {} alert",
                     admin_email,
                     severity
@@ -1082,7 +1082,7 @@ pub async fn notify_security_alert(
             );
 
             if let Err(e) = mailer::send_email(tenant, &admin_email, &subject, &body).await {
-                tracing::error!(
+                log::error!(
                     "Failed to send fallback security alert email to {}: {:?}",
                     admin_email,
                     e
@@ -1241,7 +1241,7 @@ pub async fn notify_malware_detection(
             )
             .await
             {
-                tracing::error!(
+                log::error!(
                     "Failed to notify admin {} about malware detection: {:?}",
                     admin_email,
                     e
@@ -1266,7 +1266,7 @@ pub async fn notify_malware_detection(
             )
             .await
             {
-                tracing::error!(
+                log::error!(
                     "Failed to notify uploader {} about malware detection: {:?}",
                     email,
                     e

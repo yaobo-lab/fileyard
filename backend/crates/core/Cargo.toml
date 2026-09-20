@@ -12,7 +12,7 @@ thiserror = { workspace = true }
 lettre = { workspace = true }
 redis = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 async-trait = { workspace = true }
 types = { workspace = true }
 app-entity = { workspace = true }

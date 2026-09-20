@@ -195,10 +195,10 @@ pub async fn update_compliance(
         let compliance_key = cache_keys::compliance(auth.tenant_id);
         let settings_key = cache_keys::tenant_settings(auth.tenant_id);
         if let Err(e) = cache.delete(&compliance_key).await {
-            tracing::warn!("Failed to invalidate compliance cache: {}", e);
+            log::warn!("Failed to invalidate compliance cache: {}", e);
         }
         if let Err(e) = cache.delete(&settings_key).await {
-            tracing::warn!("Failed to invalidate tenant settings cache: {}", e);
+            log::warn!("Failed to invalidate tenant settings cache: {}", e);
         }
     }
 

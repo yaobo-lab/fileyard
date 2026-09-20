@@ -1,4 +1,4 @@
-use crate::middleware::rate_limit::{check_rate_limit_atomic, RateLimitConfig};
+﻿use crate::middleware::rate_limit::{check_rate_limit_atomic, RateLimitConfig};
 use crate::password::get_argon2;
 use crate::AppState;
 use argon2::{
@@ -75,7 +75,7 @@ pub async fn list_users(
             .departments(auth.user_id)
             .await
             .map_err(|e| {
-                tracing::error!("Failed to get manager departments: {:?}", e);
+                log::error!("Failed to get manager departments: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -156,7 +156,7 @@ pub async fn list_users(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list users: {:?}", e);
+            log::error!("Failed to list users: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -212,7 +212,7 @@ pub async fn create_user(
             None
         } else {
             let password = input.password.as_deref().ok_or_else(|| {
-                tracing::error!("Password required for local/hybrid auth");
+                log::error!("Password required for local/hybrid auth");
                 (StatusCode::BAD_REQUEST, Json(json!({"error": "Password required", "message": "Password is required"})))
             })?;
 
@@ -225,7 +225,7 @@ pub async fn create_user(
                 argon2
                     .hash_password(password.as_bytes(), &salt)
                     .map_err(|e| {
-                        tracing::error!("Failed to hash password: {:?}", e);
+                        log::error!("Failed to hash password: {:?}", e);
                         (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"})))
                     })?
                     .to_string(),
@@ -254,7 +254,7 @@ pub async fn create_user(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create user: {:?}", e);
+            log::error!("Failed to create user: {:?}", e);
             if e.to_string().contains("unique") {
                 (StatusCode::CONFLICT, Json(json!({"error": "Conflict", "message": "A user with this email already exists"})))
             } else {
@@ -348,7 +348,7 @@ pub async fn update_user(
         get_argon2()
             .verify_password(confirm_password.as_bytes(), &parsed_hash)
             .map_err(|_| {
-                tracing::warn!(
+                log::warn!(
                     "Role change password verification failed for admin {}",
                     auth.user_id
                 );
@@ -399,7 +399,7 @@ pub async fn update_user(
         use app_core::cache::keys;
         let cache_key = keys::user(id);
         if let Err(e) = cache.delete(&cache_key).await {
-            tracing::warn!("Failed to invalidate user cache: {}", e);
+            log::warn!("Failed to invalidate user cache: {}", e);
         }
     }
 
@@ -538,7 +538,7 @@ pub async fn permanent_delete_user(
         .permanently_delete(id, &target_email, &target_name)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to delete user: {:?}", e);
+            log::error!("Failed to delete user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -579,7 +579,7 @@ pub async fn export_data(
         match check_rate_limit_atomic(cache, &rate_key, &config).await {
             Ok((allowed, count, _)) => {
                 if !allowed {
-                    tracing::warn!(
+                    log::warn!(
                         "Export rate limit exceeded for user: {} (count: {})",
                         auth.user_id,
                         count
@@ -588,7 +588,7 @@ pub async fn export_data(
                 }
             }
             Err(e) => {
-                tracing::error!("Export rate limit check failed: {}", e);
+                log::error!("Export rate limit check failed: {}", e);
                 // Allow request on error (fail open for availability)
             }
         }
@@ -709,7 +709,7 @@ pub async fn update_my_profile(
     Extension(auth): Extension<AuthUser>,
     Json(input): Json<UpdateProfileInput>,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::debug!(
+    log::debug!(
         "update_my_profile called for user {} with input: {:?}",
         auth.user_id,
         input
@@ -729,7 +729,7 @@ pub async fn update_my_profile(
         if let Some(secret_str) = totp_secret {
             // 2FA is enabled, require verification
             let code = input.totp_code.as_ref().ok_or_else(|| {
-                tracing::warn!(
+                log::warn!(
                     "Email change attempted without 2FA code for user {}",
                     auth.user_id
                 );
@@ -752,16 +752,16 @@ pub async fn update_my_profile(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
             if !totp.check_current(code).unwrap_or(false) {
-                tracing::warn!("Invalid 2FA code for email change by user {}", auth.user_id);
+                log::warn!("Invalid 2FA code for email change by user {}", auth.user_id);
                 return Err(StatusCode::UNAUTHORIZED);
             }
 
-            tracing::info!("2FA verified for email change by user {}", auth.user_id);
+            log::info!("2FA verified for email change by user {}", auth.user_id);
         }
     }
 
     if input.name.is_none() && input.email.is_none() {
-        tracing::debug!("No profile changes to update for user {}", auth.user_id);
+        log::debug!("No profile changes to update for user {}", auth.user_id);
         return Ok(Json(json!({
             "message": "No changes to update"
         })));
@@ -773,7 +773,7 @@ pub async fn update_my_profile(
         .update_profile(auth.user_id, input.name, input.email)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update profile: {:?}", e);
+            log::error!("Failed to update profile: {:?}", e);
             if e.to_string().contains("unique") {
                 StatusCode::CONFLICT
             } else {
@@ -787,7 +787,7 @@ pub async fn update_my_profile(
         use app_core::cache::keys;
         let cache_key = keys::user(auth.user_id);
         if let Err(e) = cache.delete(&cache_key).await {
-            tracing::warn!("Failed to invalidate user cache: {}", e);
+            log::warn!("Failed to invalidate user cache: {}", e);
         }
     }
 
@@ -894,25 +894,25 @@ pub async fn upload_avatar(
     Extension(auth): Extension<AuthUser>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, StatusCode> {
-    tracing::debug!("upload_avatar called for user {}", auth.user_id);
+    log::debug!("upload_avatar called for user {}", auth.user_id);
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        tracing::error!("Failed to get multipart field: {:?}", e);
+        log::error!("Failed to get multipart field: {:?}", e);
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("").to_string();
-        tracing::debug!("Received multipart field: name={}", name);
+        log::debug!("Received multipart field: name={}", name);
 
         if name == "avatar" || name == "file" {
             let content_type = field
                 .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_string();
-            tracing::debug!("Avatar field content_type: {}", content_type);
+            log::debug!("Avatar field content_type: {}", content_type);
 
             // Validate it's an image
             if !content_type.starts_with("image/") {
-                tracing::warn!("Invalid avatar content type: {}", content_type);
+                log::warn!("Invalid avatar content type: {}", content_type);
                 return Err(StatusCode::BAD_REQUEST);
             }
 
@@ -938,7 +938,7 @@ pub async fn upload_avatar(
                 .upload(&filename, data.to_vec())
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to upload avatar: {:?}", e);
+                    log::error!("Failed to upload avatar: {:?}", e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -958,11 +958,11 @@ pub async fn upload_avatar(
                 "avatar_url": avatar_url
             })));
         } else {
-            tracing::debug!("Skipping multipart field with name: {}", name);
+            log::debug!("Skipping multipart field with name: {}", name);
         }
     }
 
-    tracing::warn!(
+    log::warn!(
         "No avatar field found in multipart request for user {}",
         auth.user_id
     );
@@ -1036,7 +1036,7 @@ pub async fn get_preferences(
         .preferences(auth.user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch user preferences: {:?}", e);
+            log::error!("Failed to fetch user preferences: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1063,7 +1063,7 @@ pub async fn update_preferences(
         .update_preferences(auth.user_id, input.settings)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update user preferences: {:?}", e);
+            log::error!("Failed to update user preferences: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1263,7 +1263,7 @@ pub async fn admin_reset_password(
 
     // Check role hierarchy
     if !can_reset_password(&auth.role, &target_role) {
-        tracing::warn!(
+        log::warn!(
             "User {} ({}) attempted to reset password for user {} ({})",
             auth.user_id,
             auth.role,
@@ -1284,7 +1284,7 @@ pub async fn admin_reset_password(
     let password_hash = argon2
         .hash_password(input.new_password.as_bytes(), &salt)
         .map_err(|e| {
-            tracing::error!("Failed to hash password: {:?}", e);
+            log::error!("Failed to hash password: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .to_string();
@@ -1317,7 +1317,7 @@ pub async fn admin_reset_password(
         .await
         .ok();
 
-    tracing::info!(
+    log::info!(
         "Admin {} ({}) reset password for user {} ({})",
         auth.user_id,
         auth.role,
@@ -1363,7 +1363,7 @@ pub async fn send_password_reset_email(
 
     // Check role hierarchy
     if !can_reset_password(&auth.role, &target_role) {
-        tracing::warn!(
+        log::warn!(
             "User {} ({}) attempted to send reset email to user {} ({})",
             auth.user_id,
             auth.role,
@@ -1382,7 +1382,7 @@ pub async fn send_password_reset_email(
     let token_hash = argon2
         .hash_password(token.as_bytes(), &salt)
         .map_err(|e| {
-            tracing::error!("Failed to hash reset token: {:?}", e);
+            log::error!("Failed to hash reset token: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .to_string();
@@ -1448,7 +1448,7 @@ pub async fn send_password_reset_email(
         .await
         .ok();
 
-    tracing::info!(
+    log::info!(
         "Admin {} ({}) sent password reset email to user {} (email_sent: {})",
         auth.user_id,
         auth.role,
@@ -1505,7 +1505,7 @@ pub async fn admin_change_email(
 
     // Check role hierarchy
     if !can_reset_password(&auth.role, &target_role) {
-        tracing::warn!(
+        log::warn!(
             "User {} ({}) attempted to change email for user {} ({})",
             auth.user_id,
             auth.role,
@@ -1560,7 +1560,7 @@ pub async fn admin_change_email(
         .await
         .ok();
 
-    tracing::info!(
+    log::info!(
         "Admin {} ({}) changed email for user {} from {} to {}",
         auth.user_id,
         auth.role,

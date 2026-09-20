@@ -1,9 +1,9 @@
-//! Text extraction from various document formats
+﻿//! Text extraction from various document formats
 //!
 //! Supports: PDF, DOCX, XLSX, PPTX, and plain text formats
 
 use std::io::{Cursor, Read};
-use tracing::warn;
+use log::warn;
 
 /// Error type for text extraction failures
 #[derive(Debug)]

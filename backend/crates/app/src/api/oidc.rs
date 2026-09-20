@@ -1,4 +1,4 @@
-﻿//! OIDC SSO Handlers
+//! OIDC SSO Handlers
 //!
 //! Provides endpoints for:
 //! - Tenant OIDC provider management (CRUD)
@@ -179,7 +179,7 @@ pub async fn discover_providers(
     }
 
     let providers = state.store.oidc().discover(domain).await.map_err(|e| {
-        tracing::error!("Failed to discover providers: {:?}", e);
+        log::error!("Failed to discover providers: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let oidc_providers: Vec<_> = providers
@@ -263,7 +263,7 @@ pub async fn start_oidc_auth(
 
     // Discover OIDC endpoints
     let issuer = IssuerUrl::new(provider.issuer_url.clone()).map_err(|e| {
-        tracing::error!("Invalid issuer URL: {:?}", e);
+        log::error!("Invalid issuer URL: {:?}", e);
         (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid provider issuer URL"})),
@@ -273,7 +273,7 @@ pub async fn start_oidc_auth(
     let metadata = CoreProviderMetadata::discover_async(issuer, &reqwest::Client::new())
         .await
         .map_err(|e| {
-            tracing::error!("OIDC discovery failed for {}: {:?}", provider.name, e);
+            log::error!("OIDC discovery failed for {}: {:?}", provider.name, e);
             (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({"error": "Failed to discover OIDC provider endpoints"})),
@@ -342,7 +342,7 @@ pub async fn oidc_callback(
     // Handle IdP errors
     if let Some(error) = params.error {
         let desc = params.error_description.unwrap_or_default();
-        tracing::warn!("OIDC auth error: {} - {}", error, desc);
+        log::warn!("OIDC auth error: {} - {}", error, desc);
         return Ok(Redirect::temporary(&format!(
             "{}/login?error=oidc_error&message={}",
             frontend_url,
@@ -415,7 +415,7 @@ pub async fn oidc_callback(
     let metadata = CoreProviderMetadata::discover_async(issuer, &reqwest::Client::new())
         .await
         .map_err(|e| {
-            tracing::error!("OIDC discovery failed: {:?}", e);
+            log::error!("OIDC discovery failed: {:?}", e);
             (StatusCode::BAD_GATEWAY, "OIDC discovery failed".to_string())
         })?;
 
@@ -436,7 +436,7 @@ pub async fn oidc_callback(
     let token_response = client
         .exchange_code(AuthorizationCode::new(code))
         .map_err(|e| {
-            tracing::error!("Token exchange config error: {:?}", e);
+            log::error!("Token exchange config error: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Token exchange config error".to_string(),
@@ -445,7 +445,7 @@ pub async fn oidc_callback(
         .request_async(&http_client)
         .await
         .map_err(|e| {
-            tracing::error!("Token exchange failed: {:?}", e);
+            log::error!("Token exchange failed: {:?}", e);
             (StatusCode::BAD_GATEWAY, "Token exchange failed".to_string())
         })?;
 
@@ -460,7 +460,7 @@ pub async fn oidc_callback(
     let nonce = Nonce::new(nonce_str);
     let id_token_verifier = client.id_token_verifier();
     let claims: &CoreIdTokenClaims = id_token.claims(&id_token_verifier, &nonce).map_err(|e| {
-        tracing::error!("ID token verification failed: {:?}", e);
+        log::error!("ID token verification failed: {:?}", e);
         (
             StatusCode::BAD_GATEWAY,
             "ID token verification failed".to_string(),
@@ -507,7 +507,7 @@ pub async fn oidc_callback(
             )
             .await
             .map_err(|e| {
-                tracing::error!("Failed to link OIDC identity: {:?}", e);
+                log::error!("Failed to link OIDC identity: {:?}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Failed to link identity".to_string(),
@@ -519,7 +519,7 @@ pub async fn oidc_callback(
             let _ = state.store.sso().set_hybrid(user.id).await;
         }
 
-        tracing::info!(user_id = %user.id, provider = %provider.name, "OIDC identity linked");
+        log::info!("OIDC identity linked (user_id: {}, provider: {})", user.id, provider.name);
         return Ok(Redirect::temporary(&format!(
             "{}/profile?oidc=linked",
             frontend_url
@@ -682,7 +682,7 @@ pub async fn create_provider(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create OIDC provider: {:?}", e);
+            log::error!("Failed to create OIDC provider: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .into();
@@ -724,7 +724,7 @@ pub async fn update_provider(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update OIDC provider: {:?}", e);
+            log::error!("Failed to update OIDC provider: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?

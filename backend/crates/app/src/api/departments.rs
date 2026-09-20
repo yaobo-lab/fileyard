@@ -34,7 +34,7 @@ pub async fn list_departments(
         .list(tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list departments: {:?}", e);
+            log::error!("Failed to list departments: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -67,7 +67,7 @@ pub async fn create_department(
         .create(tenant_id, input.name, input.description)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create department: {:?}", e);
+            log::error!("Failed to create department: {:?}", e);
             if e.to_string().contains("unique") {
                 StatusCode::CONFLICT
             } else {

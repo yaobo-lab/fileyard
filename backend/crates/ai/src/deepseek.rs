@@ -1,4 +1,4 @@
-//! DeepSeek Provider Implementation
+﻿//! DeepSeek Provider Implementation
 //!
 //! DeepSeek provides OpenAI-compatible API for chat completions (`deepseek-chat`, `deepseek-reasoner`).
 
@@ -194,7 +194,7 @@ impl DeepSeekProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            tracing::error!("DeepSeek chat error: {} - {}", status, error_text);
+            log::error!("DeepSeek chat error: {} - {}", status, error_text);
             return Err(AiError::ProviderError(format!(
                 "DeepSeek API error: {} - {}",
                 status, error_text

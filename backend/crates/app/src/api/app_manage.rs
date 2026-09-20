@@ -1,4 +1,4 @@
-//! 固件管理与部署环境、固件分类、项目成员及 GitLab 协同 API 模块
+﻿//! 固件管理与部署环境、固件分类、项目成员及 GitLab 协同 API 模块
 
 use crate::{api::gitlab::gitlab_api_request, auth::AuthUser, AppState};
 use app_entity::entities::{app, app_class, app_deploy, app_user};
@@ -196,7 +196,7 @@ pub async fn page_apps(
         .paginate(state.store.db(), page_size);
 
     let total = paginator.num_items().await.map_err(|e| {
-        tracing::error!("Failed to count apps: {:?}", e);
+        log::error!("Failed to count apps: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -204,7 +204,7 @@ pub async fn page_apps(
         .fetch_page(page.saturating_sub(1))
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch app page: {:?}", e);
+            log::error!("Failed to fetch app page: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -257,7 +257,7 @@ pub async fn create_app(
     };
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to insert app: {:?}", e);
+        log::error!("Failed to insert app: {:?}", e);
         eprintln!("Failed to insert app: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -267,7 +267,7 @@ pub async fn create_app(
     // 2. 固件目录：{inserted.name}
     // 3. 三个默认子目录：需求文档、bug记录、固件文件
     if let Err(err) = init_firmware_folders(&state, &auth, &inserted.name).await {
-        tracing::warn!("Failed to auto-create firmware folders for app {}: {:?}", inserted.name, err);
+        log::warn!("Failed to auto-create firmware folders for app {}: {:?}", inserted.name, err);
     }
 
     Ok(Json(json!({
@@ -287,20 +287,11 @@ async fn init_firmware_folders(
     let tenant_id = auth.tenant_id;
     let user_id = auth.user_id;
 
-    let department_id = state
-        .store
-        .users()
-        .user(user_id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|u| u.department_id);
 
     async fn ensure_single_folder(
         state: &Arc<AppState>,
         tenant_id: uuid::Uuid,
         user_id: uuid::Uuid,
-        department_id: Option<uuid::Uuid>,
         name: &str,
         parent_path: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -317,13 +308,13 @@ async fn init_firmware_folders(
         // 物理驱动存储目录
         let _ = state.storage.create_folder(&storage_key).await;
 
-        // 数据库元数据记录
+        // 数据库元数据记录（固件文件为独立的企业级文件体系，不局限于单一部门）
         let params = app_entity::repositories::CreateFolderParams {
             tenant_id,
             name,
             storage_path: &storage_key,
             owner_id: user_id,
-            department_id,
+            department_id: None,
             parent_path,
             visibility: "department",
             is_company_folder: false,
@@ -334,17 +325,17 @@ async fn init_firmware_folders(
     }
 
     // 1. 确保根目录“固件文件”存在
-    ensure_single_folder(state, tenant_id, user_id, department_id, "固件文件", None).await?;
+    ensure_single_folder(state, tenant_id, user_id, "固件文件", None).await?;
 
     // 2. 确保以固件名称命名的文件夹存在
     let root_firmware_dir = "固件文件";
-    ensure_single_folder(state, tenant_id, user_id, department_id, app_name, Some(root_firmware_dir)).await?;
+    ensure_single_folder(state, tenant_id, user_id, app_name, Some(root_firmware_dir)).await?;
 
     // 3. 在固件文件夹里创建默认子文件夹（需求文档、bug记录、固件文件、技术文档）
     let app_dir_path = format!("{}/{}", root_firmware_dir, app_name);
     let default_dirs = ["需求文档", "bug记录", "固件文件", "技术文档"];
     for dir_name in default_dirs {
-        ensure_single_folder(state, tenant_id, user_id, department_id, dir_name, Some(&app_dir_path)).await?;
+        ensure_single_folder(state, tenant_id, user_id, dir_name, Some(&app_dir_path)).await?;
     }
 
     // 4. 清除该租户的文件列表缓存
@@ -367,7 +358,7 @@ pub async fn get_app(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app {}: {:?}", appno, e);
+            log::error!("Failed to query app {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -391,7 +382,7 @@ pub async fn save_app_basic(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app {}: {:?}", appno, e);
+            log::error!("Failed to query app {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -423,7 +414,7 @@ pub async fn save_app_basic(
     active.lastupdate_time = Set(now);
 
     let updated = active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to update app {}: {:?}", appno, e);
+        log::error!("Failed to update app {}: {:?}", appno, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -446,7 +437,7 @@ pub async fn save_app_charge(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app {}: {:?}", appno, e);
+            log::error!("Failed to query app {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -458,7 +449,7 @@ pub async fn save_app_charge(
     active.lastupdate_time = Set(now);
 
     let updated = active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to update app charge {}: {:?}", appno, e);
+        log::error!("Failed to update app charge {}: {:?}", appno, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -479,7 +470,7 @@ pub async fn delete_app(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app for delete {}: {:?}", appno, e);
+            log::error!("Failed to query app for delete {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -487,7 +478,7 @@ pub async fn delete_app(
     let mut active: app::ActiveModel = found.into();
     active.is_del = Set(1);
     active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to delete app {}: {:?}", appno, e);
+        log::error!("Failed to delete app {}: {:?}", appno, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -521,7 +512,7 @@ pub async fn page_classes(
         .paginate(state.store.db(), page_size);
 
     let total = paginator.num_items().await.map_err(|e| {
-        tracing::error!("Failed to count app classes: {:?}", e);
+        log::error!("Failed to count app classes: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -529,7 +520,7 @@ pub async fn page_classes(
         .fetch_page(page.saturating_sub(1))
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch app classes: {:?}", e);
+            log::error!("Failed to fetch app classes: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -555,7 +546,7 @@ pub async fn get_class(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query class: {:?}", e);
+            log::error!("Failed to query class: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -578,7 +569,7 @@ pub async fn save_class(
                 .one(state.store.db())
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to query class {}: {:?}", id, e);
+                    log::error!("Failed to query class {}: {:?}", id, e);
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?
                 .ok_or(StatusCode::NOT_FOUND)?;
@@ -589,7 +580,7 @@ pub async fn save_class(
                 active.desc = Set(desc);
             }
             let updated = active.update(state.store.db()).await.map_err(|e| {
-                tracing::error!("Failed to update class: {:?}", e);
+                log::error!("Failed to update class: {:?}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
@@ -614,7 +605,7 @@ pub async fn save_class(
     };
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to insert class: {:?}", e);
+        log::error!("Failed to insert class: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -634,7 +625,7 @@ pub async fn delete_class(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to find class for delete: {:?}", e);
+            log::error!("Failed to find class for delete: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -642,7 +633,7 @@ pub async fn delete_class(
     let mut active: app_class::ActiveModel = found.into();
     active.is_del = Set(1);
     active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to soft delete class: {:?}", e);
+        log::error!("Failed to soft delete class: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -664,7 +655,7 @@ pub async fn get_app_users(
         .all(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app users for {}: {:?}", appno, e);
+            log::error!("Failed to query app users for {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -688,7 +679,7 @@ pub async fn create_app_user(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query existing app user: {:?}", e);
+            log::error!("Failed to query existing app user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -699,7 +690,7 @@ pub async fn create_app_user(
             active.key = Set(k);
         }
         let updated = active.update(state.store.db()).await.map_err(|e| {
-            tracing::error!("Failed to update app user: {:?}", e);
+            log::error!("Failed to update app user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -719,7 +710,7 @@ pub async fn create_app_user(
     };
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to insert app user: {:?}", e);
+        log::error!("Failed to insert app user: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -740,7 +731,7 @@ pub async fn delete_app_user(
         .exec(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to delete app user: {:?}", e);
+            log::error!("Failed to delete app user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -764,7 +755,7 @@ pub async fn get_app_deploys(
         .all(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query deploys for {}: {:?}", appno, e);
+            log::error!("Failed to query deploys for {}: {:?}", appno, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -797,7 +788,7 @@ pub async fn get_deploy(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query deploy: {:?}", e);
+            log::error!("Failed to query deploy: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -834,7 +825,7 @@ pub async fn create_deploy(
     };
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to insert deploy: {:?}", e);
+        log::error!("Failed to insert deploy: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -859,7 +850,7 @@ pub async fn save_deploy(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to find deploy {}: {:?}", id, e);
+            log::error!("Failed to find deploy {}: {:?}", id, e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -886,7 +877,7 @@ pub async fn save_deploy(
     }
 
     let updated = active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to update deploy {}: {:?}", id, e);
+        log::error!("Failed to update deploy {}: {:?}", id, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -909,7 +900,7 @@ pub async fn copy_deploy(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to find deploy for copy: {:?}", e);
+            log::error!("Failed to find deploy for copy: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -934,7 +925,7 @@ pub async fn copy_deploy(
     };
 
     let inserted = active.insert(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to copy deploy: {:?}", e);
+        log::error!("Failed to copy deploy: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -956,7 +947,7 @@ pub async fn delete_deploy(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to find deploy for delete: {:?}", e);
+            log::error!("Failed to find deploy for delete: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -964,7 +955,7 @@ pub async fn delete_deploy(
     let mut active: app_deploy::ActiveModel = found.into();
     active.is_del = Set(1);
     active.update(state.store.db()).await.map_err(|e| {
-        tracing::error!("Failed to soft delete deploy: {:?}", e);
+        log::error!("Failed to soft delete deploy: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -987,7 +978,7 @@ async fn get_gitlab_id_by_appno(
         .one(state.store.db())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to query app for gitlab: {:?}", e);
+            log::error!("Failed to query app for gitlab: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "db_error", "message": e.to_string() })),
@@ -1214,7 +1205,7 @@ pub async fn get_app_user_candidates(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list candidate users: {:?}", e);
+            log::error!("Failed to list candidate users: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

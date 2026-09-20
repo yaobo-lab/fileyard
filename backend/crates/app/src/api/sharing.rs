@@ -1,4 +1,4 @@
-﻿//! User-Specific File Sharing Handlers
+//! User-Specific File Sharing Handlers
 //!
 //! Provides endpoints for:
 //! - Listing shareable users (respecting tenant/department boundaries)
@@ -106,7 +106,7 @@ pub async fn list_shareable_users(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch shareable users: {:?}", e);
+            log::error!("Failed to fetch shareable users: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -133,7 +133,7 @@ pub async fn list_shared_with_me(
         .list_shared_with_me(auth.user_id, auth.tenant_id, per_page as u64, offset as u64)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch shared files: {:?}", e);
+            log::error!("Failed to fetch shared files: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -145,6 +145,65 @@ pub async fn list_shared_with_me(
         "page": page,
         "per_page": per_page,
         "total_pages": total_pages
+    })))
+}
+
+/// List files shared by the current user
+/// GET /api/my-shares
+pub async fn list_my_shares(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthUser>,
+    Query(query): Query<SharedWithMeQuery>,
+) -> Result<Json<Value>, StatusCode> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1) * per_page;
+
+    let (my_shares, total) = state
+        .store
+        .shares()
+        .list_my_shares(auth.user_id, auth.tenant_id, per_page as u64, offset as u64)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to fetch my shares: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let total_pages = (total as f64 / per_page as f64).ceil() as i64;
+
+    Ok(Json(json!({
+        "shares": my_shares,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages
+    })))
+}
+
+/// Delete / Revoke a share created by the current user
+/// DELETE /api/my-shares/{share_id}
+pub async fn delete_my_share(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthUser>,
+    Path(share_id): Path<Uuid>,
+) -> Result<Json<Value>, StatusCode> {
+    let deleted = state
+        .store
+        .shares()
+        .delete_my_share(share_id, auth.user_id, auth.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to delete my share {}: {:?}", share_id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if !deleted {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(Json(json!({
+        "success": true,
+        "message": "分享已取消"
     })))
 }
 
@@ -170,7 +229,7 @@ pub async fn copy_to_my_files(
         .get_user_share(&input.share_token, auth.user_id, auth.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch share: {:?}", e);
+            log::error!("Failed to fetch share: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -194,7 +253,7 @@ pub async fn copy_to_my_files(
         .by_tenant_id(share.tenant_id, share.file_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch file metadata: {:?}", e);
+            log::error!("Failed to fetch file metadata: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .filter(|f| !f.is_deleted)
@@ -226,7 +285,7 @@ pub async fn copy_to_my_files(
 
     // Download the original file
     let file_data = state.storage.download(&original.storage_path).await.map_err(|e| {
-        tracing::error!("Failed to download original file: {:?}", e);
+        log::error!("Failed to download original file: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -236,7 +295,7 @@ pub async fn copy_to_my_files(
         .upload(&new_storage_path, file_data)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to upload copied file: {:?}", e);
+            log::error!("Failed to upload copied file: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -260,7 +319,7 @@ pub async fn copy_to_my_files(
         )
         .await
         .map_err(|e| {
-            tracing::error!("Failed to create file metadata: {:?}", e);
+            log::error!("Failed to create file metadata: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -283,11 +342,11 @@ pub async fn copy_to_my_files(
         )
         .await;
 
-    tracing::info!(
-        user_id = %auth.user_id,
-        original_file = %share.file_id,
-        new_file = %new_file_id,
-        "File copied from share to private files"
+    log::info!(
+        "File copied from share to private files (user_id: {}, original_file: {}, new_file: {})",
+        auth.user_id,
+        share.file_id,
+        new_file_id
     );
 
     Ok(Json(serde_json::json!({
@@ -324,10 +383,10 @@ pub async fn can_share_with_user(
 
     // CRITICAL: Must be same tenant
     if recipient.tenant_id != sharer_tenant_id {
-        tracing::warn!(
-            sharer_id = %sharer_id,
-            recipient_id = %recipient_id,
-            "Cross-tenant share attempt blocked"
+        log::warn!(
+            "Cross-tenant share attempt blocked (sharer_id: {}, recipient_id: {})",
+            sharer_id,
+            recipient_id
         );
         return Ok(false);
     }

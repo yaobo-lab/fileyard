@@ -75,7 +75,7 @@ pub async fn get_usage_summary(
         .get_stats(from, to, params.tenant_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get usage summary: {:?}", e);
+            log::error!("Failed to get usage summary: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -120,7 +120,7 @@ pub async fn get_usage_by_tenant(
         .get_usage_by_tenant(from, to)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get usage by tenant: {:?}", e);
+            log::error!("Failed to get usage by tenant: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -197,7 +197,7 @@ pub async fn get_usage_by_user(
         .query_models::<UserUsage>(sql, values)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get usage by user: {:?}", e);
+            log::error!("Failed to get usage by user: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -272,7 +272,7 @@ pub async fn get_usage_by_endpoint(
         .query_models::<EndpointUsage>(sql, values)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get usage by endpoint: {:?}", e);
+            log::error!("Failed to get usage by endpoint: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -325,7 +325,7 @@ pub async fn get_slow_requests(
         .query_models::<SlowRequest>(sql, vec![from.into(), to.into()])
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get slow requests: {:?}", e);
+            log::error!("Failed to get slow requests: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -388,7 +388,7 @@ pub async fn get_usage_timeseries(
         .query_models::<TimeSeriesPoint>(&query, values)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get usage timeseries: {:?}", e);
+            log::error!("Failed to get usage timeseries: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -412,13 +412,13 @@ pub async fn aggregate_hourly_stats(
         .await
     {
         Ok(_) => {
-            tracing::info!("API usage hourly aggregation completed");
+            log::info!("API usage hourly aggregation completed");
             Ok(Json(
                 json!({ "success": true, "message": "Hourly aggregation completed" }),
             ))
         }
         Err(e) => {
-            tracing::error!("Failed to aggregate hourly stats: {:?}", e);
+            log::error!("Failed to aggregate hourly stats: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -441,13 +441,13 @@ pub async fn cleanup_old_usage(
         .await
     {
         Ok(_) => {
-            tracing::info!("API usage cleanup completed");
+            log::info!("API usage cleanup completed");
             Ok(Json(
                 json!({ "success": true, "message": "Cleanup completed" }),
             ))
         }
         Err(e) => {
-            tracing::error!("Failed to cleanup old usage: {:?}", e);
+            log::error!("Failed to cleanup old usage: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -544,7 +544,7 @@ pub async fn get_recent_errors(
         .query_one_model::<CountRow>(count_sql, count_vals)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get error count: {:?}", e);
+            log::error!("Failed to get error count: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .map(|r| r.count)
@@ -611,7 +611,7 @@ pub async fn get_recent_errors(
         .query_models::<ErrorDetail>(errors_sql, errors_vals)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get recent errors: {:?}", e);
+            log::error!("Failed to get recent errors: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -677,7 +677,7 @@ pub async fn get_error_summary(
         .query_models::<ErrorSummary>(sql, vec![from.into(), to.into()])
         .await
         .map_err(|e| {
-            tracing::error!("Failed to get error summary: {:?}", e);
+            log::error!("Failed to get error summary: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

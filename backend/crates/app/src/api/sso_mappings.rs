@@ -66,7 +66,7 @@ pub async fn list_mappings(
         .mappings(auth.tenant_id, &protocol, provider_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list mappings: {:?}", e);
+            log::error!("Failed to list mappings: {:?}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -119,7 +119,7 @@ pub async fn create_mapping(
     })
     .await
     .map_err(|e| {
-        tracing::error!("Failed to create mapping: {:?}", e);
+        log::error!("Failed to create mapping: {:?}", e);
         if e.to_string().contains("duplicate") {
             (
                 StatusCode::CONFLICT,
@@ -213,7 +213,7 @@ pub async fn update_mapping(
         .update_mapping(existing, patch)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update mapping: {:?}", e);
+            log::error!("Failed to update mapping: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "Failed to update mapping"})),

@@ -1,4 +1,4 @@
-﻿//! S3 Replication Module
+//! S3 Replication Module
 //!
 //! Provides async replication of uploaded files to a secondary S3-compatible bucket.
 //! This is an enterprise durability feature that runs entirely in the background
@@ -16,7 +16,7 @@ use aws_sdk_s3::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Replication errors
@@ -296,10 +296,8 @@ async fn enqueue_job(
 
     debug!(
         target: "replication",
-        job_id = %result,
-        storage_path = %storage_path,
-        operation = %operation_str,
-        "Enqueued replication job"
+        "Enqueued replication job: job_id={}, storage_path={}, operation={}",
+        result, storage_path, operation_str
     );
 
     Ok(result)
@@ -384,18 +382,15 @@ impl ReplicationWorker {
         if !self.config.enabled {
             info!(
                 target: "replication",
-                worker_id = self.worker_id,
-                "Replication worker disabled, exiting"
+                "Replication worker disabled, exiting (worker_id: {})", self.worker_id
             );
             return;
         }
 
         info!(
             target: "replication",
-            worker_id = self.worker_id,
-            mode = ?self.config.mode,
-            bucket = %self.config.bucket,
-            "Replication worker started"
+            "Replication worker started (worker_id: {}, mode: {:?}, bucket: {})",
+            self.worker_id, self.config.mode, self.config.bucket
         );
 
         loop {
@@ -411,9 +406,8 @@ impl ReplicationWorker {
                 Err(e) => {
                     error!(
                         target: "replication",
-                        worker_id = self.worker_id,
-                        error = %e,
-                        "Worker error, sleeping before retry"
+                        "Worker error, sleeping before retry (worker_id: {}, error: {})",
+                        self.worker_id, e
                     );
                     tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                 }
@@ -430,12 +424,8 @@ impl ReplicationWorker {
 
         info!(
             target: "replication",
-            worker_id = self.worker_id,
-            job_id = %job.id,
-            storage_path = %job.storage_path,
-            operation = %job.operation,
-            retry_count = job.retry_count.unwrap_or(0),
-            "Processing replication job"
+            "Processing replication job (worker_id: {}, job_id: {}, storage_path: {}, operation: {}, retry_count: {})",
+            self.worker_id, job.id, job.storage_path, job.operation, job.retry_count.unwrap_or(0)
         );
 
         let client = self
@@ -457,10 +447,8 @@ impl ReplicationWorker {
                 complete_job(&self.store, job.id).await?;
                 info!(
                     target: "replication",
-                    worker_id = self.worker_id,
-                    job_id = %job.id,
-                    storage_path = %job.storage_path,
-                    "Replication job completed successfully"
+                    "Replication job completed successfully (worker_id: {}, job_id: {}, storage_path: {})",
+                    self.worker_id, job.id, job.storage_path
                 );
             }
             Err(e) => {
@@ -475,21 +463,14 @@ impl ReplicationWorker {
                 if is_permanent {
                     error!(
                         target: "replication",
-                        worker_id = self.worker_id,
-                        job_id = %job.id,
-                        storage_path = %job.storage_path,
-                        error = %e,
-                        "Replication job permanently failed after max retries"
+                        "Replication job permanently failed after max retries (worker_id: {}, job_id: {}, storage_path: {}, error: {})",
+                        self.worker_id, job.id, job.storage_path, e
                     );
                 } else {
                     warn!(
                         target: "replication",
-                        worker_id = self.worker_id,
-                        job_id = %job.id,
-                        storage_path = %job.storage_path,
-                        error = %e,
-                        retry_count = job.retry_count.unwrap_or(0) + 1,
-                        "Replication job failed, will retry"
+                        "Replication job failed, will retry (worker_id: {}, job_id: {}, storage_path: {}, error: {}, retry_count: {})",
+                        self.worker_id, job.id, job.storage_path, e, job.retry_count.unwrap_or(0) + 1
                     );
                 }
             }
@@ -529,8 +510,7 @@ impl ReplicationWorker {
         if self.config.mode != ReplicationMode::Mirror {
             debug!(
                 target: "replication",
-                job_id = %job.id,
-                "Skipping delete job - not in mirror mode"
+                "Skipping delete job - not in mirror mode (job_id: {})", job.id
             );
             return Ok(());
         }

@@ -1,4 +1,4 @@
-use super::local::LocalStorage;
+﻿use super::local::LocalStorage;
 use super::traits::{FileMetadata, Storage, StorageByteStream};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -31,7 +31,7 @@ impl EncryptedLocalStorage {
     /// - `base_path`: 文件落盘基准路径
     /// - `key`: 32 字节主加密密钥 (256 bits)
     pub fn new(base_path: &str, key: &[u8; 32]) -> Self {
-        tracing::info!("Initializing encrypted local storage at: {}", base_path);
+        log::info!("Initializing encrypted local storage at: {}", base_path);
         Self {
             inner: LocalStorage::new(base_path),
             cipher: ChaCha20Poly1305::new(key.into()),
@@ -83,7 +83,7 @@ impl EncryptedLocalStorage {
     /// 解密带有 Nonce 前缀的密文数据，若解密失败则向后兼容直接回传原始数据
     fn decrypt(&self, data: &[u8]) -> Vec<u8> {
         if data.len() < NONCE_SIZE + 16 {
-            tracing::debug!("File too short to be encrypted, returning as plaintext");
+            log::debug!("File too short to be encrypted, returning as plaintext");
             return data.to_vec();
         }
 
@@ -92,11 +92,11 @@ impl EncryptedLocalStorage {
 
         match self.cipher.decrypt(nonce, ciphertext) {
             Ok(plaintext) => {
-                tracing::debug!("Successfully decrypted file ({} bytes)", plaintext.len());
+                log::debug!("Successfully decrypted file ({} bytes)", plaintext.len());
                 plaintext
             }
             Err(_) => {
-                tracing::debug!(
+                log::debug!(
                     "Decryption failed, assuming plaintext file (backwards compatibility)"
                 );
                 data.to_vec()
@@ -113,7 +113,7 @@ impl Storage for EncryptedLocalStorage {
         data: Vec<u8>,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let encrypted = self.encrypt(&data)?;
-        tracing::debug!(
+        log::debug!(
             "Encrypting upload: {} -> {} bytes (key: {})",
             data.len(),
             encrypted.len(),
@@ -129,7 +129,7 @@ impl Storage for EncryptedLocalStorage {
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let data = tokio::fs::read(path).await?;
         let encrypted = self.encrypt(&data)?;
-        tracing::debug!(
+        log::debug!(
             "Encrypting upload from path: {} -> {} bytes (key: {})",
             data.len(),
             encrypted.len(),
