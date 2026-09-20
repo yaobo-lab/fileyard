@@ -41,7 +41,7 @@ export function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
             permissions: isZh ? [
                 '管理所属企业成员及部门划分',
                 '创建与管理我的分享上传任务',
-                '查看企业内部全部文件资源',
+                '查看企业内部 部门文件资源',
                 '配置企业专属规则与合规模式',
                 '无法跨企业访问其他租户空间'
             ] : [

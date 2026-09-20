@@ -130,6 +130,7 @@ function App() {
                                                 
                                                 {/* All authenticated users */}
                                                 <Route path="files" element={<FileBrowser initialMode="department" />} />
+                                                <Route path="firmware-files" element={<FileBrowser initialMode="firmware" />} />
                                                 <Route path="private-files" element={<FileBrowser initialMode="private" />} />
                                                 <Route path="file-requests" element={<FileRequests />} />
                                                 <Route path="approvals" element={<Approvals />} />

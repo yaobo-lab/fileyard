@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthFetch } from '@/context/AuthContext';
 import { useModalDialog } from '@/context/ModalDialogContext';
 import { createAppService } from '@/services/appService';
@@ -43,6 +44,7 @@ import {
   FileText,
   GitFork,
   ExternalLink,
+  Folder,
 } from 'lucide-react';
 import { CreateAppModal } from '@/components/apps/CreateAppModal';
 import { AppBasicModal } from '@/components/apps/AppBasicModal';
@@ -52,6 +54,7 @@ import { AppClassModal } from '@/components/apps/AppClassModal';
 import { AppPipelineModal } from '@/components/apps/AppPipelineModal';
 
 export function AppsPage() {
+  const navigate = useNavigate();
   const authFetch = useAuthFetch();
   const { confirm: modalConfirm, alert: modalAlert } = useModalDialog();
   const appService = useMemo(() => createAppService(authFetch), [authFetch]);
@@ -386,6 +389,15 @@ export function AppsPage() {
                           >
                             <Pencil className="w-3.5 h-3.5" />
                             编辑基础信息
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="gap-2 text-xs cursor-pointer"
+                            onClick={() => {
+                              navigate(`/firmware-files?path=${encodeURIComponent(`固件文件/${app.name}`)}`);
+                            }}
+                          >
+                            <Folder className="w-3.5 h-3.5" />
+                            固件文件目录
                           </DropdownMenuItem>
                           {app.doc_path && (
                             <DropdownMenuItem asChild className="gap-2 text-xs cursor-pointer">

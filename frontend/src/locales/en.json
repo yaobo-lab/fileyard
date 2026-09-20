@@ -59,6 +59,7 @@
     "dashboard": "Dashboard",
     "allFiles": "All Files",
     "files": "Files",
+    "firmwareFiles": "Firmware Files",
     "myPrivateFiles": "Personal Files",
     "requests": "File Requests",
     "approvals": "Approvals",

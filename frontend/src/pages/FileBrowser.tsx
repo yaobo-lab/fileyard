@@ -98,7 +98,7 @@ interface UserPrefs {
 }
 
 interface FileBrowserProps {
-    initialMode?: 'department' | 'private';
+    initialMode?: 'department' | 'private' | 'firmware';
 }
 
 export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
@@ -109,15 +109,23 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const { alert: modalAlert, confirm: modalConfirm } = useModalDialog();
     const { user } = useAuth();
     const location = useLocation();
+    const [searchParams] = useSearchParams();
+    const urlPath = searchParams.get('path');
+    const isFirmwarePath = location.pathname.startsWith('/firmware-files') || initialMode === 'firmware';
     const isPrivatePath = location.pathname.startsWith('/private-files');
-    const defaultMode = initialMode || (isPrivatePath ? 'private' : 'department');
+    const defaultMode = isPrivatePath ? 'private' : 'department';
 
     const viewModeKey = `file-view-mode-${user?.id ?? 'default'}`;
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
         const saved = localStorage.getItem(`file-view-mode-${user?.id ?? 'default'}`);
         return saved === 'list' ? 'list' : 'grid';
     });
-    const [currentPath, setCurrentPath] = useState<string[]>(['Home']);
+    const [currentPath, setCurrentPath] = useState<string[]>(() => {
+        if (urlPath) {
+            return ['Home', ...urlPath.split('/').filter(Boolean)];
+        }
+        return isFirmwarePath ? ['Home', '固件文件'] : ['Home'];
+    });
     const [files, setFiles] = useState<FileItem[]>([]);
     const [starredFiles, setStarredFiles] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -132,18 +140,18 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [uploadFilesList, setUploadFilesList] = useState<UploadFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
-    
+
     // File view mode: 'department' or 'private'
     const [fileViewMode, setFileViewMode] = useState<'department' | 'private'>(defaultMode);
     const [isViewModeOpen, setIsViewModeOpen] = useState(false);
     const viewModeRef = useRef<HTMLDivElement>(null);
 
 
-    
+
     // Mobile overflow menu
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const mobileMenuRef = useRef<HTMLDivElement>(null);
-    
+
     // Sort menu dropdown
     const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
     const sortMenuRef = useRef<HTMLDivElement>(null);
@@ -159,7 +167,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         if (val === 10) return 30;
         return val === 25 ? 30 : val;
     });
-    
+
     // List view row styles (standard density)
     const ds = { cellPy: 'py-2.5', iconSize: 'h-8 w-8', textSize: 'text-sm', rowHeight: 45 };
 
@@ -216,16 +224,21 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
 
     // Department filtering for admins
-    const [departments, setDepartments] = useState<{id: string, name: string}[]>([]);
+    const [departments, setDepartments] = useState<{ id: string, name: string }[]>([]);
     const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
-    
+
     // 监听路由与模式切换
     useEffect(() => {
-        const targetMode = initialMode || (isPrivatePath ? 'private' : 'department');
+        if (urlPath) return;
+        const targetMode = isPrivatePath ? 'private' : 'department';
         setFileViewMode(targetMode);
-        setCurrentPath(['Home']);
+        if (isFirmwarePath) {
+            setCurrentPath(['Home', '固件文件']);
+        } else {
+            setCurrentPath(['Home']);
+        }
         setSelectedDepartment(null);
-    }, [location.pathname, initialMode, isPrivatePath]);
+    }, [location.pathname, initialMode, isPrivatePath, isFirmwarePath]);
 
     // File Groups
     const [groups, setGroups] = useState<FileGroup[]>([]);
@@ -244,35 +257,35 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
     const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
     const [activityFile, setActivityFile] = useState<FileItem | null>(null);
-    
+
     // Lock modals
     const [isLockModalOpen, setIsLockModalOpen] = useState(false);
     const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
     const [lockingFile, setLockingFile] = useState<FileItem | null>(null);
     const [isLocking, setIsLocking] = useState(false);
-    
+
     // Move modal
     const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
     const [movingFile, setMovingFile] = useState<FileItem | null>(null);
     const [isMoving, setIsMoving] = useState(false);
-    
+
     // Properties modal
     const [isPropertiesModalOpen, setIsPropertiesModalOpen] = useState(false);
     const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
-    
+
     // Share modal
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
     const [shareFile, setShareFile] = useState<FileItem | null>(null);
-    
+
     // AI modals
     const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
     const [isAiQuestionModalOpen, setIsAiQuestionModalOpen] = useState(false);
     const [aiFile, setAiFile] = useState<FileItem | null>(null);
     const [aiStatus, setAiStatus] = useState<{ enabled: boolean; hasAccess: boolean }>({ enabled: false, hasAccess: false });
-    
+
     // Drop target state for move
     const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-    
+
     // Bulk selection state
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -335,8 +348,6 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const { currentCompany } = useTenant();
     const { formatDateTime } = useGlobalSettings();
     const companyId = currentCompany?.id;
-    const [searchParams] = useSearchParams();
-    const urlPath = searchParams.get('path');
 
     // Initialize path from URL query parameter (for search result navigation)
     useEffect(() => {
@@ -366,7 +377,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                         ].filter(Boolean);
                         const filtered = data.filter((d: { id: string }) => userDepts.includes(d.id));
                         setDepartments(filtered);
-                        
+
                         // Auto-select user's department if they have one
                         if (user?.department_id && filtered.length > 0) {
                             setSelectedDepartment(user.department_id);
@@ -376,7 +387,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 .catch(() => setDepartments([]));
         }
     }, [companyId, user?.role, user?.department_id, user?.allowed_department_ids]);
-    
+
     // Fetch AI status for the tenant
     useEffect(() => {
         const url = companyId ? `/api/ai/status?tenant_id=${companyId}` : '/api/ai/status';
@@ -464,22 +475,22 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     // Bulk move handler
     const handleBulkMove = async (targetParentId: string | null, targetDepartmentId: string | null, targetVisibility: string = 'department', _newName?: string) => {
         if (selectedFiles.size === 0 || !companyId) return { success: false, error: 'No files selected' };
-        
+
         // Get only files user has permission to move
         const filesToMove = getSelectedFilesForAction('move');
-        
+
         if (filesToMove.length === 0) {
             setIsBulkMoveModalOpen(false);
             return { success: false, error: 'Cannot move any of the selected files. Locked files cannot be moved.' };
         }
-        
+
         setIsBulkMoving(true);
-        
+
         try {
             let successCount = 0;
             let errorCount = 0;
             let duplicateCount = 0;
-            
+
             for (const file of filesToMove) {
                 try {
                     const response = await authFetch(`/api/files/${companyId}/${file.id}/move`, {
@@ -490,7 +501,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                             target_visibility: targetVisibility
                         })
                     });
-                    
+
                     const result = await response.json();
                     if (response.ok && !result.error) {
                         successCount++;
@@ -503,7 +514,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                     errorCount++;
                 }
             }
-            
+
             const skippedCount = selectedFiles.size - filesToMove.length;
             if (errorCount > 0 || skippedCount > 0 || duplicateCount > 0) {
                 let message = `Moved ${successCount} file(s).`;
@@ -512,7 +523,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 if (skippedCount > 0) message += ` ${skippedCount} skipped (locked).`;
                 return { success: successCount > 0, error: message };
             }
-            
+
             fetchFiles();
             clearSelection();
             setIsBulkMoveModalOpen(false);
@@ -527,10 +538,10 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     // Bulk delete handler
     const handleBulkDelete = async () => {
         if (selectedFiles.size === 0 || !companyId) return;
-        
+
         // Get only files user has permission to delete
         const filesToDelete = getSelectedFilesForAction('delete');
-        
+
         if (filesToDelete.length === 0) {
             modalAlert({
                 title: tCommon('errorTitle'),
@@ -539,13 +550,13 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             });
             return;
         }
-        
+
         const skippedCount = selectedFiles.size - filesToDelete.length;
         let confirmMessage = `Are you sure you want to move ${filesToDelete.length} item(s) to the Recycle Bin?`;
         if (skippedCount > 0) {
             confirmMessage += `\n\n${skippedCount} item(s) will be skipped (locked or no permission).`;
         }
-        
+
         const confirmed = await modalConfirm({
             title: tCommon('deleteConfirmTitle'),
             description: confirmMessage,
@@ -556,19 +567,19 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         if (!confirmed) {
             return;
         }
-        
+
         let successCount = 0;
-        
+
         for (const file of filesToDelete) {
             const currentPathStr = currentPath.slice(1).join('/');
             const fullPath = currentPathStr ? `${currentPathStr}/${file.name}` : file.name;
-            
+
             try {
                 const response = await authFetch(`/api/files/${companyId}/delete`, {
                     method: 'POST',
                     body: JSON.stringify({ path: fullPath })
                 });
-                
+
                 if (response.ok) {
                     successCount++;
                 }
@@ -576,7 +587,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 // Continue with other files
             }
         }
-        
+
         fetchFiles();
         clearSelection();
     };
@@ -650,12 +661,12 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 if (selectedDepartment) groupParams.set('department_id', selectedDepartment);
                 groupParams.set('parent_path', path); // Empty string = root
                 groupParams.set('visibility', fileViewMode); // Filter by current view mode
-                
+
                 const groupsRes = await authFetch(`/api/groups/${companyId}?${groupParams.toString()}`);
                 if (groupsRes.ok) {
                     const groupsData: FileGroup[] = await groupsRes.json();
                     setGroups(groupsData);
-                    
+
                     // Convert groups to FileItem format and prepend to files
                     // Groups can also be starred (use same starred array)
                     const groupItems: FileItem[] = groupsData.map(g => ({
@@ -741,7 +752,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         fetchFiles();
         return groupId;
     };
-    
+
     // Handler for "Create Group..." context menu option
     const handleCreateGroupFromFile = (file: FileItem) => {
         setPendingGroupFile(file);
@@ -772,12 +783,12 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             updated_at: group.modified || '',
             visibility: 'department', // Default visibility
         };
-        
+
         setViewingGroup(fullGroup);
         setIsGroupViewerOpen(true);
         setGroupFiles([]); // Clear previous files
         setIsLoadingGroupFiles(true);
-        
+
         // Fetch files in this group
         try {
             const res = await authFetch(`/api/groups/${companyId}/${group.id}/files`);
@@ -824,7 +835,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             cancelText: tCommon('cancel')
         });
         if (!confirmed) return;
-        
+
         try {
             const res = await authFetch(`/api/groups/${companyId}/${group.id}`, {
                 method: 'DELETE',
@@ -867,7 +878,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const handleRenameGroup = async (group: FileItem) => {
         const newName = prompt('Enter new group name:', group.name);
         if (!newName || newName === group.name) return;
-        
+
         try {
             const res = await authFetch(`/api/groups/${companyId}/${group.id}`, {
                 method: 'PUT',
@@ -904,23 +915,23 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
 
     const handleMoveGroupConfirm = async (
-        targetParentId: string | null, 
-        _targetDepartmentId: string | null, 
-        _targetVisibility: string, 
+        targetParentId: string | null,
+        _targetDepartmentId: string | null,
+        _targetVisibility: string,
         _newName?: string
     ): Promise<{ success: boolean; error?: string; duplicate?: boolean; conflicting_name?: string; suggested_name?: string }> => {
         if (!groupToMove) return { success: false, error: 'No group selected' };
-        
+
         // Use the group's current visibility, not the modal's selection
         // Groups are locked to their visibility, so we must use their current one
         const groupVisibility = groupToMove.visibility || 'department';
-        
+
         console.log('Moving group:', groupToMove.id, 'to folder:', targetParentId, 'visibility:', groupVisibility);
-        
+
         try {
             const response = await authFetch(`/api/groups/${companyId}/${groupToMove.id}/move`, {
                 method: 'PUT',
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     target_folder_id: targetParentId,
                     target_visibility: groupVisibility,  // Use group's visibility, not modal's
                 }),
@@ -928,7 +939,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
             const result = await response.json();
             console.log('Move group response:', response.status, result);
-            
+
             // Handle visibility locked error with a user-friendly message
             if (result.visibility_locked) {
                 modalAlert({
@@ -938,7 +949,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 });
                 return { success: false, error: result.error };
             }
-            
+
             if (!response.ok || result.error) {
                 return { success: false, error: result.error || result.message || 'Failed to move group' };
             }
@@ -996,14 +1007,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const handleGroupViewerPreview = (file: any) => {
         // Minimize group viewer and set up preview
         setIsGroupViewerMinimized(true);
-        
+
         // Convert MIME type to category type expected by FilePreviewModal
         let fileType: 'image' | 'document' | 'video' | 'audio' | 'folder' = 'document';
         const contentType = file.content_type || '';
         if (contentType.startsWith('image/')) fileType = 'image';
         else if (contentType.startsWith('video/')) fileType = 'video';
         else if (contentType.startsWith('audio/')) fileType = 'audio';
-        
+
         setPreviewFile({
             id: file.id,
             companyId: companyId,
@@ -1189,7 +1200,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
     const handleRename = async (newName: string) => {
         if (!fileToRename) return;
-        
+
         // Check if file is locked
         if (fileToRename.is_locked) {
             modalAlert({
@@ -1199,12 +1210,12 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             });
             return;
         }
-        
+
         try {
             const response = await authFetch(`/api/files/${companyId}/rename`, {
                 method: 'POST',
-                body: JSON.stringify({ 
-                    old_name: fileToRename.name, 
+                body: JSON.stringify({
+                    old_name: fileToRename.name,
                     new_name: newName,
                     parent_path: currentPath.slice(1).join('/') // Remove "Home", join rest
                 }),
@@ -1258,14 +1269,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
         try {
             // Groups use a different endpoint since they're not in files_metadata
-            const endpoint = file.type === 'group' 
+            const endpoint = file.type === 'group'
                 ? `/api/groups/${companyId}/${file.id}/star`
                 : `/api/files/${companyId}/${file.id}/star`;
-            
+
             const response = await authFetch(endpoint, {
                 method: 'POST',
             });
-            
+
             if (!response.ok) {
                 // Revert optimistic update on failure
                 setStarredFiles(wasStarred ? [...starredFiles] : starredFiles.filter(id => id !== file.id));
@@ -1283,7 +1294,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         if (!file.is_locked) return true;
         const isOwner = user?.id === file.owner_id;
         const isLocker = user?.id === file.locked_by;
-        
+
         // Role hierarchy check - must meet or exceed the required role level
         const roleLevel = (role: string) => {
             switch (role) {
@@ -1294,11 +1305,11 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 default: return 20;
             }
         };
-        
+
         const userLevel = roleLevel(user?.role || '');
         const requiredLevel = file.lock_requires_role ? roleLevel(file.lock_requires_role) : 100;
         const hasRequiredRole = userLevel >= requiredLevel;
-        
+
         return isLocker || isOwner || hasRequiredRole;
     };
 
@@ -1307,7 +1318,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         if (!group.is_locked) return true;
         const isOwner = user?.id === group.owner_id;
         const isLocker = user?.id === group.locked_by;
-        
+
         // Role hierarchy check - must meet or exceed the required role level
         const roleLevel = (role: string) => {
             switch (role) {
@@ -1318,11 +1329,11 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 default: return 20;
             }
         };
-        
+
         const userLevel = roleLevel(user?.role || '');
         const requiredLevel = group.lock_requires_role ? roleLevel(group.lock_requires_role) : 100;
         const hasRequiredRole = userLevel >= requiredLevel;
-        
+
         return isLocker || isOwner || hasRequiredRole;
     };
 
@@ -1349,14 +1360,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         setIsShareModalOpen(true);
         setActiveMenu(null);
     };
-    
+
     // AI handlers
     const handleAiSummarize = (file: FileItem) => {
         setAiFile(file);
         setIsAiSummaryModalOpen(true);
         setActiveMenu(null);
     };
-    
+
     const handleAiQuestion = (file: FileItem) => {
         setAiFile(file);
         setIsAiQuestionModalOpen(true);
@@ -1365,13 +1376,13 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
     const handleDownload = async (file: FileItem) => {
         if (!companyId) return;
-        
+
         // SECURITY: Check if user can access locked file before download
         if (!canAccessLockedFile(file)) {
             console.warn('Cannot download locked file - access denied');
             return;
         }
-        
+
         try {
             // SECURITY: Use header-based auth instead of token-in-URL
             // Folders are automatically downloaded as zip archives
@@ -1505,14 +1516,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             });
 
             const result = await response.json();
-            
+
             if (response.ok && !result.error) {
                 fetchFiles();
                 setIsUnlockModalOpen(false);
                 setLockingFile(null);
                 return {};
             } else {
-                return { 
+                return {
                     error: result.error || `Failed to unlock ${lockingFile.type === 'group' ? 'group' : 'file'}`,
                     requires_password: result.requires_password
                 };
@@ -1537,7 +1548,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             });
 
             const result = await response.json();
-            
+
             if (!response.ok || result.error) {
                 // Return structured result for duplicate handling
                 return {
@@ -1548,11 +1559,11 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                     suggested_name: result.suggested_name
                 };
             }
-            
+
             fetchFiles();
             setIsMoveModalOpen(false);
             setMovingFile(null);
-            
+
             // If group viewer is open, refresh group files
             if (isGroupViewerOpen && viewingGroup) {
                 try {
@@ -1565,7 +1576,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                     console.error('Error refreshing group files:', e);
                 }
             }
-            
+
             return { success: true };
         } catch (err) {
             return { success: false, error: 'Failed to move file' };
@@ -1606,7 +1617,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const handleMoveFileDrop = async (e: React.DragEvent, targetParentId: string | null) => {
         e.preventDefault();
         setDropTargetId(null);
-        
+
         if (!draggedFile || !companyId) {
             setDraggedFile(null);
             return;
@@ -1627,14 +1638,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 console.log('Moving group to root:', { groupId: draggedFileBackup.id });
                 const response = await authFetch(`/api/groups/${companyId}/${draggedFileBackup.id}/move`, {
                     method: 'PUT',
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         target_path: '', // Empty string = move to root
                     }),
                 });
 
                 const result = await response.json();
                 console.log('Group move to root response:', response.status, result);
-                
+
                 if (!response.ok || result.error) {
                     modalAlert({
                         title: tCommon('errorTitle'),
@@ -1655,7 +1666,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 });
 
                 const result = await response.json();
-                
+
                 if (!response.ok || result.error) {
                     modalAlert({
                         title: tCommon('errorTitle'),
@@ -1722,12 +1733,12 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     // Paste file from clipboard to current location
     const handlePaste = async () => {
         if (!companyId || !clipboardFile) return;
-        
+
         setIsPasting(true);
         try {
             // Get current path (excluding "Home")
             const currentParentPath = currentPath.length > 1 ? currentPath.slice(1).join('/') : null;
-            
+
             const response = await authFetch(`/api/files/${companyId}/${clipboardFile.id}/copy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1737,7 +1748,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                     target_visibility: fileViewMode,
                 }),
             });
-            
+
             if (response.ok) {
                 // Clear clipboard after successful paste
                 setClipboardFile(null);
@@ -1756,12 +1767,12 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
     const handleToggleCompanyFolder = async (file: FileItem) => {
         if (!companyId || file.type !== 'folder') return;
-        
+
         try {
             const response = await authFetch(`/api/files/${companyId}/${file.id}/company-folder`, {
                 method: 'PUT',
             });
-            
+
             if (response.ok) {
                 // Refresh file list to get updated state
                 fetchFiles();
@@ -1778,45 +1789,45 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     const canLockFiles = user?.role === 'SuperAdmin' || user?.role === 'Admin' || user?.role === 'Manager';
     const canViewActivity = user?.role === 'SuperAdmin' || user?.role === 'Admin';
     const isAdminOrHigher = user?.role === 'SuperAdmin' || user?.role === 'Admin';
-    
+
     // Track if we're inside a company folder (for restricting actions)
     const [isInsideCompanyFolder, setIsInsideCompanyFolder] = useState(false);
-    
+
     // Helper to navigate into a folder and track company folder status
     const navigateToFolder = (folder: FileItem) => {
         // Update path
         setCurrentPath([...currentPath, folder.name]);
-        
+
         // Track company folder status - once inside a company folder, stay in that mode
         // until navigating back out to root or a non-company folder
         if (folder.is_company_folder || isInsideCompanyFolder) {
             setIsInsideCompanyFolder(true);
         }
     };
-    
+
     // Reset company folder status when navigating back (via breadcrumb)
     // This will be handled in the breadcrumb click handler
-    
+
     // File-level permission checks
     const canDeleteFile = (file: FileItem) => {
         if (file.is_locked) return false;
         if (isAdminOrHigher) return true;
         return file.owner_id === user?.id;
     };
-    
+
     // Share permission: owner, manager, or admin can share
     const canShareFile = (file: FileItem) => {
         if (isAdminOrHigher) return true;
         if (user?.role === 'Manager') return true;
         return file.owner_id === user?.id;
     };
-    
+
     const canMoveFile = (file: FileItem) => {
         if (file.is_locked) return false;
         // All users can move unlocked files within their access scope
         return true;
     };
-    
+
     // Get files that can be deleted/moved from selection
     const getSelectedFilesForAction = (action: 'delete' | 'move') => {
         const selectedFilesList = files.filter(f => selectedFiles.has(f.id));
@@ -1825,26 +1836,26 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         }
         return selectedFilesList.filter(canMoveFile);
     };
-    
+
     const deletableSelectedFiles = getSelectedFilesForAction('delete');
     const movableSelectedFiles = getSelectedFilesForAction('move');
 
     const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified'>('modified');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [searchQuery, setSearchQuery] = useState('');
-    
+
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
 
     // Check if any modal is open (disable shortcuts when modals are open)
-    const isAnyModalOpen = isRenameOpen || isNewFolderOpen || isActivityModalOpen || 
-        isLockModalOpen || isUnlockModalOpen || isMoveModalOpen || 
-        isPropertiesModalOpen || isShareModalOpen || isRequestModalOpen || 
+    const isAnyModalOpen = isRenameOpen || isNewFolderOpen || isActivityModalOpen ||
+        isLockModalOpen || isUnlockModalOpen || isMoveModalOpen ||
+        isPropertiesModalOpen || isShareModalOpen || isRequestModalOpen ||
         isUploadModalOpen || isBulkMoveModalOpen || previewFile !== null;
 
     // Keyboard shortcuts for file operations - read from preset context
     const { getResolvedBinding } = useKeyboardShortcutsContext();
-    
+
     // Helper to get binding from current preset
     const getBinding = useCallback((actionId: ShortcutActionId) => {
         const binding = getResolvedBinding(actionId);
@@ -1853,7 +1864,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
     const fileShortcuts: Shortcut[] = useMemo(() => {
         const shortcuts: Shortcut[] = [];
-        
+
         // Upload files
         const uploadBinding = getBinding('file.upload');
         if (uploadBinding) {
@@ -1871,7 +1882,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: uploadBinding.isSequence,
             });
         }
-        
+
         // New folder
         const newFolderBinding = getBinding('file.newFolder');
         if (newFolderBinding) {
@@ -1889,7 +1900,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: newFolderBinding.isSequence,
             });
         }
-        
+
         // Delete selected
         const deleteBinding = getBinding('file.delete');
         if (deleteBinding) {
@@ -1907,7 +1918,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: deleteBinding.isSequence,
             });
         }
-        
+
         // Rename selected file
         const renameBinding = getBinding('file.rename');
         if (renameBinding) {
@@ -1930,7 +1941,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: renameBinding.isSequence,
             });
         }
-        
+
         // Move selected files
         const moveBinding = getBinding('file.move');
         if (moveBinding) {
@@ -1948,7 +1959,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: moveBinding.isSequence,
             });
         }
-        
+
         // Open/enter
         const openBinding = getBinding('file.open');
         if (openBinding) {
@@ -1975,7 +1986,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: openBinding.isSequence,
             });
         }
-        
+
         // Download
         const downloadBinding = getBinding('file.download');
         if (downloadBinding) {
@@ -1996,7 +2007,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: downloadBinding.isSequence,
             });
         }
-        
+
         // Preview
         const previewBinding = getBinding('file.preview');
         if (previewBinding) {
@@ -2017,7 +2028,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: previewBinding.isSequence,
             });
         }
-        
+
         // Select all
         const selectAllBinding = getBinding('select.all');
         if (selectAllBinding) {
@@ -2036,7 +2047,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: selectAllBinding.isSequence,
             });
         }
-        
+
         // Toggle selection
         const toggleBinding = getBinding('select.toggle');
         if (toggleBinding) {
@@ -2058,7 +2069,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: toggleBinding.isSequence,
             });
         }
-        
+
         // Navigate up
         const upBinding = getBinding('select.up');
         if (upBinding) {
@@ -2080,7 +2091,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: upBinding.isSequence,
             });
         }
-        
+
         // Navigate down
         const downBinding = getBinding('select.down');
         if (downBinding) {
@@ -2101,7 +2112,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: downBinding.isSequence,
             });
         }
-        
+
         // Navigate left
         const leftBinding = getBinding('select.left');
         if (leftBinding) {
@@ -2123,7 +2134,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: leftBinding.isSequence,
             });
         }
-        
+
         // Navigate right
         const rightBinding = getBinding('select.right');
         if (rightBinding) {
@@ -2144,7 +2155,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 isSequence: rightBinding.isSequence,
             });
         }
-        
+
         return shortcuts;
     }, [isAnyModalOpen, selectedFiles, files, focusedFileIndex, movableSelectedFiles, viewMode, currentPath, getBinding]);
 
@@ -2276,7 +2287,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             const bIsFolder = b.type === 'folder';
             if (aIsFolder && !bIsFolder) return -1;
             if (!aIsFolder && bIsFolder) return 1;
-            
+
             // Then apply normal sort criteria
             let comparison = 0;
             if (sortBy === 'name') {
@@ -2386,10 +2397,10 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
         e.stopPropagation();
         e.currentTarget.classList.remove('bg-primary-100', 'border-primary-500');
 
-        console.log('Folder drop triggered:', { 
-            draggedFile: draggedFile?.name, 
+        console.log('Folder drop triggered:', {
+            draggedFile: draggedFile?.name,
             draggedType: draggedFile?.type,
-            targetFolder: folder.name 
+            targetFolder: folder.name
         });
 
         if (!draggedFile || draggedFile.id === folder.id || draggedFile.is_locked) {
@@ -2408,14 +2419,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 console.log('Moving group to folder:', { groupId: draggedFileBackup.id, folderId: folder.id });
                 const response = await authFetch(`/api/groups/${companyId}/${draggedFileBackup.id}/move`, {
                     method: 'PUT',
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         target_folder_id: folder.id,
                     }),
                 });
 
                 const result = await response.json();
                 console.log('Group move response:', response.status, result);
-                
+
                 if (!response.ok || result.error) {
                     modalAlert({
                         title: tCommon('errorTitle'),
@@ -2432,14 +2443,14 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                 // Use the move API endpoint for regular files
                 const response = await authFetch(`/api/files/${companyId}/${draggedFileBackup.id}/move`, {
                     method: 'PUT',
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         target_parent_id: folder.id,
                         target_department_id: null
                     }),
                 });
 
                 const result = await response.json();
-                
+
                 if (!response.ok || result.error) {
                     modalAlert({
                         title: tCommon('errorTitle'),
@@ -2464,15 +2475,18 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
             <FileSystemIconSpriteSheet />
             {/* Unified Header Toolbar: Operations */}
             <div className="flex items-center justify-between gap-2 mb-1 py-0.5 relative z-30">
-                {/* Left: Breadcrumbs only shown when inside subfolders */}
-                {currentPath.length > 1 ? (
+                {/* Left: Breadcrumbs only shown when inside subfolders or in firmware mode */}
+                {(isFirmwarePath ? currentPath.length > 2 : currentPath.length > 1) ? (
                     <div className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-300 overflow-x-auto py-0.5 scrollbar-hide flex-shrink-0">
                         <button
                             onClick={() => {
-                                const newPath = currentPath.slice(0, -1);
-                                setCurrentPath(newPath);
-                                if (newPath.length <= 1) {
-                                    setIsInsideCompanyFolder(false);
+                                const minLen = isFirmwarePath ? 2 : 1;
+                                if (currentPath.length > minLen) {
+                                    const newPath = currentPath.slice(0, -1);
+                                    setCurrentPath(newPath);
+                                    if (newPath.length <= minLen) {
+                                        setIsInsideCompanyFolder(false);
+                                    }
                                 }
                             }}
                             className="flex items-center gap-0.5 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 font-medium px-2 py-1 rounded-md bg-primary-50 dark:bg-primary-900/20 mr-1 transition-colors"
@@ -2481,46 +2495,61 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                             <ChevronLeft className="w-3.5 h-3.5" />
                             <span>返回</span>
                         </button>
-                        {currentPath.map((folder, index) => (
-                            <div key={index} className="flex items-center flex-shrink-0">
-                                {index > 0 && <span className="mx-1 text-gray-400">/</span>}
-                                <span
-                                    className={clsx(
-                                        "hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer px-1.5 py-0.5 rounded text-xs transition-colors", 
-                                        index === currentPath.length - 1 
-                                            ? "font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700" 
-                                            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800",
-                                        index === 0 && dropTargetId === 'home' && "bg-primary-100 dark:bg-primary-900/30 ring-2 ring-primary-400"
-                                    )}
-                                    onClick={() => {
-                                        if (index === 0 && currentGroup) {
-                                            handleExitGroup();
-                                            setIsInsideCompanyFolder(false);
-                                        } else {
-                                            const newPath = currentPath.slice(0, index + 1);
-                                            setCurrentPath(newPath);
-                                            if (index === 0) {
+                        {(isFirmwarePath ? currentPath.slice(1) : currentPath).map((folder, sliceIndex) => {
+                            const actualIndex = isFirmwarePath ? sliceIndex + 1 : sliceIndex;
+                            const isLast = actualIndex === currentPath.length - 1;
+                            const isRoot = sliceIndex === 0;
+                            return (
+                                <div key={actualIndex} className="flex items-center flex-shrink-0">
+                                    {sliceIndex > 0 && <span className="mx-1 text-gray-400">/</span>}
+                                    <span
+                                        className={clsx(
+                                            "hover:text-primary-600 dark:hover:text-primary-400 cursor-pointer px-1.5 py-0.5 rounded text-xs transition-colors",
+                                            isLast
+                                                ? "font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700"
+                                                : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800",
+                                            isRoot && dropTargetId === 'home' && "bg-primary-100 dark:bg-primary-900/30 ring-2 ring-primary-400"
+                                        )}
+                                        onClick={() => {
+                                            if (isRoot && currentGroup) {
+                                                handleExitGroup();
                                                 setIsInsideCompanyFolder(false);
+                                            } else {
+                                                const newPath = currentPath.slice(0, actualIndex + 1);
+                                                setCurrentPath(newPath);
+                                                if (isRoot) {
+                                                    setIsInsideCompanyFolder(false);
+                                                }
                                             }
-                                        }
-                                    }}
-                                    onDragOver={(e) => {
-                                        if (index === 0 && draggedFile) {
-                                            e.preventDefault();
-                                            handleDragOver(e, 'home');
-                                        }
-                                    }}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={(e) => {
-                                        if (index === 0 && draggedFile) {
-                                            handleMoveFileDrop(e, null);
-                                        }
-                                    }}
-                                >
-                                    {folder === 'Home' ? (fileViewMode === 'private' ? t('myPrivateFiles') : t('allFiles')) : folder}
-                                </span>
-                            </div>
-                        ))}
+                                        }}
+                                        onDragOver={(e) => {
+                                            if (isRoot && draggedFile) {
+                                                e.preventDefault();
+                                                handleDragOver(e, 'home');
+                                            }
+                                        }}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={(e) => {
+                                            if (isRoot && draggedFile) {
+                                                handleMoveFileDrop(e, null);
+                                            }
+                                        }}
+                                    >
+                                        {folder === 'Home'
+                                            ? (fileViewMode === 'private' ? t('myPrivateFiles') : t('allFiles'))
+                                            : (isFirmwarePath && sliceIndex === 0 ? (t('firmwareFiles') || '固件文件') : folder)}
+                                    </span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                ) : isFirmwarePath ? (
+                    <div className="flex items-center space-x-1 text-xs text-gray-600 dark:text-gray-300 overflow-x-auto py-0.5 scrollbar-hide flex-shrink-0">
+                        <div className="flex items-center flex-shrink-0">
+                            <span className="font-semibold text-gray-900 dark:text-white bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-xs">
+                                {t('firmwareFiles') || '固件文件'}
+                            </span>
+                        </div>
                     </div>
                 ) : (
                     <div />
@@ -2652,69 +2681,69 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
 
                     <div className="border-l border-gray-300 dark:border-gray-700 h-5 hidden sm:block mx-0.5" />
 
-                    {/* View Mode Switcher (All Departments) - 仅在部门/全部文件视图下显示，且不混入私有文件 */}
-                    {fileViewMode !== 'private' && (
-                    <div className="relative" ref={viewModeRef}>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setIsViewModeOpen(!isViewModeOpen); }}
-                            className="flex items-center px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
-                        >
-                            {selectedDepartment ? (
-                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || t('myDepartment')}</>
-                            ) : (user?.role === 'SuperAdmin' || user?.role === 'Admin') ? (
-                                <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />{t('filterAllDepartments')}</>
-                            ) : departments.length === 1 ? (
-                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments[0].name}</>
-                            ) : (
-                                <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{t('myDepartment')}</>
+                    {/* View Mode Switcher (All Departments) - 仅在部门/ 部门文件视图下显示，且不混入私有文件 */}
+                    {!isFirmwarePath && fileViewMode !== 'private' && (
+                        <div className="relative" ref={viewModeRef}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setIsViewModeOpen(!isViewModeOpen); }}
+                                className="flex items-center px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm"
+                            >
+                                {selectedDepartment ? (
+                                    <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments.find(d => d.id === selectedDepartment)?.name || t('myDepartment')}</>
+                                ) : (user?.role === 'SuperAdmin' || user?.role === 'Admin') ? (
+                                    <><Users className="w-3.5 h-3.5 mr-1.5 text-blue-500" />{t('filterAllDepartments')}</>
+                                ) : departments.length === 1 ? (
+                                    <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{departments[0].name}</>
+                                ) : (
+                                    <><Building2 className="w-3.5 h-3.5 mr-1.5 text-green-500" />{t('myDepartment')}</>
+                                )}
+                                <ChevronDown className="w-3 h-3 ml-1 text-gray-400" />
+                            </button>
+                            {isViewModeOpen && (
+                                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
+                                    {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
+                                        <button
+                                            onClick={() => { setFileViewMode('department'); setSelectedDepartment(null); setIsViewModeOpen(false); }}
+                                            className={clsx(
+                                                "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
+                                                fileViewMode === 'department' && !selectedDepartment && "bg-gray-50 dark:bg-gray-700 font-medium"
+                                            )}
+                                        >
+                                            <Users className="w-3.5 h-3.5 mr-2 text-blue-500" />
+                                            {t('filterAllDepartments')}
+                                            {fileViewMode === 'department' && !selectedDepartment && <span className="ml-auto text-primary-500">✓</span>}
+                                        </button>
+                                    )}
+
+                                    {departments.length > 0 && (
+                                        <>
+                                            {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
+                                                <>
+                                                    <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+                                                    <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                        {t('filterByDepartment')}
+                                                    </div>
+                                                </>
+                                            )}
+                                            {departments.map((dept) => (
+                                                <button
+                                                    key={dept.id}
+                                                    onClick={() => { setFileViewMode('department'); setSelectedDepartment(dept.id); setIsViewModeOpen(false); }}
+                                                    className={clsx(
+                                                        "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
+                                                        fileViewMode === 'department' && selectedDepartment === dept.id && "bg-gray-50 dark:bg-gray-700 font-medium"
+                                                    )}
+                                                >
+                                                    <Building2 className="w-3.5 h-3.5 mr-2 text-green-500" />
+                                                    {dept.name}
+                                                    {fileViewMode === 'department' && selectedDepartment === dept.id && <span className="ml-auto text-primary-500">✓</span>}
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
                             )}
-                            <ChevronDown className="w-3 h-3 ml-1 text-gray-400" />
-                        </button>
-                        {isViewModeOpen && (
-                            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-50 border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
-                                {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
-                                    <button
-                                        onClick={() => { setFileViewMode('department'); setSelectedDepartment(null); setIsViewModeOpen(false); }}
-                                        className={clsx(
-                                            "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
-                                            fileViewMode === 'department' && !selectedDepartment && "bg-gray-50 dark:bg-gray-700 font-medium"
-                                        )}
-                                    >
-                                        <Users className="w-3.5 h-3.5 mr-2 text-blue-500" />
-                                        {t('filterAllDepartments')}
-                                        {fileViewMode === 'department' && !selectedDepartment && <span className="ml-auto text-primary-500">✓</span>}
-                                    </button>
-                                )}
-                                
-                                {departments.length > 0 && (
-                                    <>
-                                        {(user?.role === 'SuperAdmin' || user?.role === 'Admin') && (
-                                            <>
-                                                <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
-                                                <div className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                                                    {t('filterByDepartment')}
-                                                </div>
-                                            </>
-                                        )}
-                                        {departments.map((dept) => (
-                                            <button
-                                                key={dept.id}
-                                                onClick={() => { setFileViewMode('department'); setSelectedDepartment(dept.id); setIsViewModeOpen(false); }}
-                                                className={clsx(
-                                                    "flex items-center w-full px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700",
-                                                    fileViewMode === 'department' && selectedDepartment === dept.id && "bg-gray-50 dark:bg-gray-700 font-medium"
-                                                )}
-                                            >
-                                                <Building2 className="w-3.5 h-3.5 mr-2 text-green-500" />
-                                                {dept.name}
-                                                {fileViewMode === 'department' && selectedDepartment === dept.id && <span className="ml-auto text-primary-500">✓</span>}
-                                            </button>
-                                        ))}
-                                    </>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                        </div>
                     )}
 
                     {/* Desktop: Action buttons */}
@@ -2730,8 +2759,8 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                             title={isSelectionMode ? t('cancelSelection') : t('selectFiles')}
                             className={clsx(
                                 "p-1.5 border rounded-lg shadow-sm transition-colors",
-                                isSelectionMode 
-                                    ? "bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300" 
+                                isSelectionMode
+                                    ? "bg-primary-50 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300"
                                     : "bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
                             )}
                         >
@@ -2770,7 +2799,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                             </button>
                         )}
                     </div>
-                    
+
                     {/* Mobile: Overflow menu */}
                     <div className="sm:hidden relative" ref={mobileMenuRef}>
                         <button
@@ -2826,7 +2855,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                             </div>
                         )}
                     </div>
-                    
+
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -2945,8 +2974,8 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                                             <div className="p-2">
                                                 <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">{t('moreStarredItems')}</p>
                                                 {overflowStarred.map(file => (
-                                                    <div 
-                                                        key={`overflow-${file.id}`} 
+                                                    <div
+                                                        key={`overflow-${file.id}`}
                                                         className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
                                                         onClick={() => {
                                                             setShowMoreStarred(false);
@@ -2988,9 +3017,9 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             {visibleStarred.map(file => (
-                                <div 
-                                    key={`quick-${file.id}`} 
-                                    className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center space-x-3 group" 
+                                <div
+                                    key={`quick-${file.id}`}
+                                    className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center space-x-3 group"
                                     onClick={() => {
                                         if (file.type === 'group') {
                                             handleGroupClick(file);
@@ -3236,7 +3265,7 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
                                 {searchQuery ? t('noFilesFound') : t('noFilesYet')}
                             </h3>
                             <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md">
-                                {searchQuery 
+                                {searchQuery
                                     ? t('noFilesMatch', { query: searchQuery })
                                     : t('getStartedPrompt')}
                             </p>

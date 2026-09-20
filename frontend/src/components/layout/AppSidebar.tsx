@@ -17,6 +17,7 @@ import {
   Boxes,
   Sliders,
   Lock,
+  Cpu,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -126,6 +127,12 @@ export function AppSidebar({
       url: '/apps',
       icon: Boxes,
       visible: true,
+    },
+    {
+      title: t('firmwareFiles'),
+      url: '/firmware-files',
+      icon: Cpu,
+      visible: hasPermission('files.view'),
     },
   ]
 

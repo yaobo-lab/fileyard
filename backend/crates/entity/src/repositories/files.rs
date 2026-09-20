@@ -904,6 +904,27 @@ impl<'a> FileRepository<'a> {
         Ok(row.and_then(|r| r.is_company_folder).unwrap_or(false))
     }
 
+    pub async fn find_folder(
+        &self,
+        tenant_id: Uuid,
+        name: &str,
+        parent_path: Option<&str>,
+    ) -> DataResult<Option<files_metadata::Model>> {
+        let mut query = files_metadata::Entity::find()
+            .filter(files_metadata::Column::TenantId.eq(tenant_id))
+            .filter(files_metadata::Column::Name.eq(name))
+            .filter(files_metadata::Column::IsDirectory.eq(true))
+            .filter(files_metadata::Column::IsDeleted.eq(false));
+
+        if let Some(pp) = parent_path {
+            query = query.filter(files_metadata::Column::ParentPath.eq(pp));
+        } else {
+            query = query.filter(files_metadata::Column::ParentPath.is_null());
+        }
+
+        Ok(query.one(self.db).await?)
+    }
+
     pub async fn find_descendant_files(
         &self,
         tenant_id: Uuid,

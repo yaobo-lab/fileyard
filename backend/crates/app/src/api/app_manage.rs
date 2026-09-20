@@ -249,7 +249,7 @@ pub async fn create_app(
         gitlab_id: Set(payload.gitlab_id.unwrap_or_default()),
         git_url: Set(payload.git_url.unwrap_or_default()),
         is_del: Set(0),
-        createby_name: Set(auth.email),
+        createby_name: Set(auth.email.clone()),
         createby_id: Set(auth.user_id.to_string()),
 
         lastupdate_time: Set(now),
@@ -262,11 +262,98 @@ pub async fn create_app(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // 自动在“固件文件”栏目下初始化固件文件目录体系：
+    // 1. 根目录：固件文件
+    // 2. 固件目录：{inserted.name}
+    // 3. 三个默认子目录：需求文档、bug记录、固件文件
+    if let Err(err) = init_firmware_folders(&state, &auth, &inserted.name).await {
+        tracing::warn!("Failed to auto-create firmware folders for app {}: {:?}", inserted.name, err);
+    }
+
     Ok(Json(json!({
         "code": 200,
         "message": "创建成功",
         "data": inserted
     })))
+}
+
+/// 创建固件时，自动在“固件文件”栏目下创建对应的文件夹结构：
+/// 固件文件 -> {固件名称} -> [需求文档, bug记录, 固件文件]
+async fn init_firmware_folders(
+    state: &Arc<AppState>,
+    auth: &AuthUser,
+    app_name: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let tenant_id = auth.tenant_id;
+    let user_id = auth.user_id;
+
+    let department_id = state
+        .store
+        .users()
+        .user(user_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|u| u.department_id);
+
+    async fn ensure_single_folder(
+        state: &Arc<AppState>,
+        tenant_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        department_id: Option<uuid::Uuid>,
+        name: &str,
+        parent_path: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // 先查是否已存在同名目录
+        if let Ok(Some(_)) = state.store.files().find_folder(tenant_id, name, parent_path).await {
+            return Ok(());
+        }
+
+        let storage_key = match parent_path {
+            Some(pp) if !pp.is_empty() => format!("{}/{}/{}", tenant_id, pp, name),
+            _ => format!("{}/{}", tenant_id, name),
+        };
+
+        // 物理驱动存储目录
+        let _ = state.storage.create_folder(&storage_key).await;
+
+        // 数据库元数据记录
+        let params = app_entity::repositories::CreateFolderParams {
+            tenant_id,
+            name,
+            storage_path: &storage_key,
+            owner_id: user_id,
+            department_id,
+            parent_path,
+            visibility: "department",
+            is_company_folder: false,
+        };
+
+        let _ = state.store.files().create_folder(params).await?;
+        Ok(())
+    }
+
+    // 1. 确保根目录“固件文件”存在
+    ensure_single_folder(state, tenant_id, user_id, department_id, "固件文件", None).await?;
+
+    // 2. 确保以固件名称命名的文件夹存在
+    let root_firmware_dir = "固件文件";
+    ensure_single_folder(state, tenant_id, user_id, department_id, app_name, Some(root_firmware_dir)).await?;
+
+    // 3. 在固件文件夹里创建默认子文件夹（需求文档、bug记录、固件文件、技术文档）
+    let app_dir_path = format!("{}/{}", root_firmware_dir, app_name);
+    let default_dirs = ["需求文档", "bug记录", "固件文件", "技术文档"];
+    for dir_name in default_dirs {
+        ensure_single_folder(state, tenant_id, user_id, department_id, dir_name, Some(&app_dir_path)).await?;
+    }
+
+    // 4. 清除该租户的文件列表缓存
+    if let Some(ref cache) = state.cache {
+        let pattern = format!("clovalink:files:{}:*", tenant_id);
+        let _ = cache.delete_pattern(&pattern).await;
+    }
+
+    Ok(())
 }
 
 /// GET /api/app/{appno}
