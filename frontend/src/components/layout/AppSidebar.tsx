@@ -18,6 +18,7 @@ import {
   Sliders,
   Lock,
   Cpu,
+  Radio,
   Send,
 } from 'lucide-react'
 import {
@@ -139,6 +140,12 @@ export function AppSidebar({
       title: t('firmwareFiles'),
       url: '/firmware-files',
       icon: Cpu,
+      visible: hasPermission('files.view'),
+    },
+    {
+      title: t('mqttClients'),
+      url: '/mqtt-clients',
+      icon: Radio,
       visible: hasPermission('files.view'),
     },
   ]

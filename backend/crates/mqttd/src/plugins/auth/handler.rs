@@ -1,6 +1,6 @@
 use super::super::PublishParams;
 use super::config::PluginConfig;
-use super::{log_prefix, utils::aes128_cbc_decrypt};
+use super::log_prefix;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytestring::ByteString;
@@ -64,41 +64,16 @@ impl AuthHandler {
     // 失败返回Err
     fn _verify_login(
         pwd: &bytes::Bytes,
-        ipaddr_str: &str,
-        aes_cbc_secret_key: &str,
-        aes_cbc_iv_val: &str,
+        _ipaddr_str: &str,
+        _aes_cbc_secret_key: &str,
+        _aes_cbc_iv_val: &str,
     ) -> anyhow::Result<(String, bool)> {
         let pwd = ByteString::try_from(pwd.clone());
         if let Err(e) = pwd {
             return Err(anyhow!("{log_prefix}::passwd decode err: {}", e));
         }
-        let pwd = pwd.unwrap_or_default();
-
-        let passwd_decode = aes128_cbc_decrypt(&pwd, aes_cbc_secret_key, aes_cbc_iv_val);
-        if let Err(e) = passwd_decode {
-            return Err(anyhow!("{log_prefix} aes128_cbc_decrypt err: {}", e));
-        }
-        let passwd_decode = passwd_decode.unwrap_or_default();
-
-        let passwd: Vec<&str> = passwd_decode.split("|").collect();
-        if passwd.len() != 4 {
-            return Err(anyhow!(
-                "{log_prefix} passwd_decode: {} passwd.len() != 4",
-                passwd_decode,
-            ));
-        }
-
-        if passwd[0] != ipaddr_str {
-            return Err(anyhow!(
-                "{log_prefix} passwd[0] != ipaddr_str  passwd[0]:{} ipaddr_str:{ipaddr_str}",
-                passwd[0]
-            ));
-        }
-
-        let sku_id = passwd[2].to_owned();
-        //判断是否超级用户
-        let superuser = passwd[0] == "127.0.0.1";
-        Ok((sku_id, superuser))
+        let _pwd = pwd.unwrap_or_default();
+        Ok(("".into(), true))
     }
 }
 
@@ -249,7 +224,7 @@ impl Handler for AuthHandler {
                 let Some(usr_name) = v.username() else {
                     return auth_fail_result("username is empty".into());
                 };
-                let Some(pwd) = v.password() else {
+                let Some(_pwd) = v.password() else {
                     return auth_fail_result("pwd is empty".into());
                 };
                 let Some(ipaddr) = v.ipaddress() else {
@@ -260,39 +235,8 @@ impl Handler for AuthHandler {
                 };
                 let ipaddr_str = ipaddr.ip().to_string();
 
-                let cfg = self.cfg.clone();
-
-                let info = if !cfg.unverify_login {
-                    let v = match Self::_verify_login(
-                        &pwd,
-                        &ipaddr_str,
-                        &cfg.aes_cbc_secret_key,
-                        &cfg.aes_cbc_iv_val,
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return auth_fail_result(format!(
-                                "verify login error: {}",
-                                e.to_string()
-                            ));
-                        }
-                    };
-                    (v.0, v.1)
-                } else {
-                    ("".to_string(), true)
-                };
-
                 //判断是否超级用户
-                let superuser = info.1
-                    || cfg
-                        .superuser_devices_start_with_str
-                        .iter()
-                        .any(|t| usr_name.starts_with(t));
-
-                //获取 endpoint_id 与 版本号
-                let mut endpoint_id: Option<ByteString> = None;
-                let mut version: Option<ByteString> = None;
-                let mut class_id: Option<ByteString> = None;
+                let superuser = true;
 
                 match v {
                     ConnectInfo::V3(_, _) => {
@@ -304,39 +248,26 @@ impl Handler for AuthHandler {
                         return auth_fail_result(s);
                     }
                     ConnectInfo::V5(_, c) => {
-                        for (key, v) in c.user_properties.iter() {
+                        for (key, _v) in c.user_properties.iter() {
                             if key == "EndpointId" {
-                                endpoint_id = Some(v.clone());
+                                println!("");
                             }
                             if key == "Version" {
-                                version = Some(v.clone());
+                                println!("");
                             }
                             if key == "ClassId" {
-                                class_id = Some(v.clone());
+                                println!("");
                             }
                         }
                     }
                 }
 
                 log::debug!(
-                    "{log_prefix} auth usr_name:{},clientid:{}  is superuser: {} EndpointId:{:?},Version:{:?} ClassId:{:?}",
+                    "{log_prefix} auth usr_name:{},clientid:{}  is superuser: {}",
                     usr_name,
                     v.client_id(),
                     superuser,
-                    endpoint_id,
-                    version,
-                    class_id,
                 );
-
-                //子设备必须要有版本号，与 端点id 与分类
-                if !superuser {
-                    if endpoint_id.is_none() || version.is_none() || class_id.is_none() {
-                        return auth_fail_result(format!(
-                            "You're not a superuser some params is empty: EndpointId: {:?}, Version: {:?}, ClassId: {:?} ",
-                            endpoint_id, version, class_id
-                        ));
-                    }
-                }
 
                 let usr = AuthInfo {
                     superuser,
@@ -355,11 +286,7 @@ impl Handler for AuthHandler {
                     "clientid": v.client_id().to_string(),
                     "username": v.username().map(|u| u.to_string()),
                     "keep_alive_period": v.keep_alive(),
-                    "endpoint_id":endpoint_id.unwrap_or("".into()),
-                    "version":version.unwrap_or("".into()),
-                    "class_id":class_id.unwrap_or("".into()),
                     "time": now_time,
-                    "sku_id": info.0,
                 })
                 .to_string();
 
