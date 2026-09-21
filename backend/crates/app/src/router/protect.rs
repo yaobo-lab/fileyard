@@ -48,6 +48,10 @@ use std::sync::Arc;
 /// - OIDC 与 SAML 身份提供商企业级管理与属性映射
 pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
     Router::new()
+        .route(
+            "/api/mqtt/database-clients",
+            get(crate::api::mqtt::list_database_clients).post(crate::api::mqtt::create_database_client),
+        )
         .route("/api/mqtt", axum::routing::any(crate::api::mqtt::dispatch))
         .route("/api/mqtt/", axum::routing::any(crate::api::mqtt::dispatch))
         .route(

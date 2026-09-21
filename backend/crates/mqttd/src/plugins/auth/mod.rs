@@ -65,6 +65,14 @@ impl Plugin for AuthPlugin {
                 Box::new(AuthHandler::new(self.cfg.clone(), self.scx.clone())),
             )
             .await;
+
+        self.register
+            .add_priority(
+                Type::ClientDisconnected,
+                priority,
+                Box::new(AuthHandler::new(self.cfg.clone(), self.scx.clone())),
+            )
+            .await;
         Ok(())
     }
 

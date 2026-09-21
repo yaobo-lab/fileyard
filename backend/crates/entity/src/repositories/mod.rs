@@ -29,8 +29,10 @@ mod system;
 mod tenants;
 mod users;
 mod virus_scan;
+mod mqtt_clients;
 
 pub use ai::{AiRepository, AiSettingsPatch, AiUsagePage, NewAiUsage};
+pub use mqtt_clients::MqttClientRepository;
 pub use api_usage::{ApiMetricItem, ApiUsageRepository, TenantUsageRow, UsageStatsRaw};
 pub use approvals::{
     ApprovalHistoryRow, ApprovalRepository, MyPendingApprovalRow, PendingApprovalRow,

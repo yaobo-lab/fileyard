@@ -294,6 +294,20 @@ impl Handler for AuthHandler {
                     log::error!("{log_prefix}: message publish err: {e:?}");
                 }
 
+                // 登记客户端连接事件
+                crate::events::notify_client_connected(crate::events::MqttClientConnectedEvent {
+                    username: usr_name.to_string(),
+                    client_id: v.client_id().to_string(),
+                    ip_address: Some(ipaddr_str.clone()),
+                    port: Some(ipaddr.port() as i32),
+                    proto_ver: match v {
+                        ConnectInfo::V3(_, _) => Some(4),
+                        ConnectInfo::V5(_, _) => Some(5),
+                    },
+                    keepalive: Some(v.keep_alive() as i32),
+                    clean_start: Some(v.clean_start()),
+                });
+
                 return (
                     false,
                     Some(HookResult::AuthResult(AuthResult::Allow(
@@ -302,6 +316,23 @@ impl Handler for AuthHandler {
                     ))),
                 );
             }
+
+            // 客户端断开连接
+            Parameter::ClientDisconnected(session, reason) => {
+                let u = session.id.username_ref();
+                let username = if u.is_empty() { None } else { Some(u.to_string()) };
+                let client_id = session.id.client_id.to_string();
+                let reason_str = reason.to_string();
+
+                crate::events::notify_client_disconnected(crate::events::MqttClientDisconnectedEvent {
+                    username,
+                    client_id: Some(client_id),
+                    reason: Some(reason_str),
+                });
+
+                return (false, None);
+            }
+
             _ => {
                 log::error!("{log_prefix} unimplemented, {param:?}")
             }

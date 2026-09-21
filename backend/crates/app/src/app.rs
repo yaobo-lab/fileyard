@@ -437,6 +437,64 @@ pub async fn run() {
         }
     }
 
+    // 监听 MQTT 客户端连接/断开事件并登记到数据库表 mqtt_clients
+    let store_for_mqtt = app_state.store.clone();
+    mqttd::events::set_on_client_connected({
+        let store = store_for_mqtt.clone();
+        move |event| {
+            let store = store.clone();
+            tokio::spawn(async move {
+                log::info!(
+                    "登记 MQTT 客户端连接: username={}, client_id={}, ip={:?}",
+                    event.username,
+                    event.client_id,
+                    event.ip_address
+                );
+                if let Err(e) = store
+                    .mqtt_clients()
+                    .upsert_connected(
+                        &event.username,
+                        &event.client_id,
+                        event.ip_address.as_deref(),
+                        event.port,
+                        event.proto_ver,
+                        event.keepalive,
+                        event.clean_start,
+                    )
+                    .await
+                {
+                    log::error!("登记 MQTT 客户端连接失败: {e}");
+                }
+            });
+        }
+    });
+
+    mqttd::events::set_on_client_disconnected({
+        let store = store_for_mqtt;
+        move |event| {
+            let store = store.clone();
+            tokio::spawn(async move {
+                log::info!(
+                    "标记 MQTT 客户端断开: username={:?}, client_id={:?}, reason={:?}",
+                    event.username,
+                    event.client_id,
+                    event.reason
+                );
+                if let Err(e) = store
+                    .mqtt_clients()
+                    .mark_disconnected(
+                        event.username.as_deref(),
+                        event.client_id.as_deref(),
+                        event.reason.as_deref(),
+                    )
+                    .await
+                {
+                    log::error!("标记 MQTT 客户端断开失败: {e}");
+                }
+            });
+        }
+    });
+
     let mqtt_api = mqttd::plugins::restapi::EmbeddedApi::default();
     // 启动 MQTT 服务器（如果启用）
     if config.mqtt.enabled {

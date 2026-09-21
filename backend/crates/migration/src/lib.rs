@@ -79,6 +79,11 @@ sql_migration!(
     "009_smart_home_classes",
     "../../../migrations/009_smart_home_classes.sql"
 );
+sql_migration!(
+    m010_mqtt_clients,
+    "010_mqtt_clients",
+    "../../../migrations/010_mqtt_clients.sql"
+);
 
 pub struct Migrator;
 
@@ -95,6 +100,7 @@ impl MigratorTrait for Migrator {
             Box::new(m007_app_and_config::Migration),
             Box::new(m008_expand_varchar_lengths::Migration),
             Box::new(m009_smart_home_classes::Migration),
+            Box::new(m010_mqtt_clients::Migration),
         ]
     }
 }

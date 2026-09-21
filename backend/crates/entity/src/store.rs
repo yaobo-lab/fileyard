@@ -3,7 +3,7 @@ use sea_orm::DatabaseConnection;
 use crate::repositories::{
     AiRepository, ApiUsageRepository, ApprovalRepository, AuditRepository, AuthRepository, BackupRepository, CommentRepository, ComplianceRepository, DashboardRepository, DepartmentRepository,
     DiscordRepository, EmailTemplateRepository, ExtensionPermissionRepository, ExtensionRuntimeRepository, FileRepository, FileRequestRepository,
-    GlobalSettingsRepository, GroupRepository, NotificationRepository, OidcRepository,
+    GlobalSettingsRepository, GroupRepository, MqttClientRepository, NotificationRepository, OidcRepository,
     ReplicationRepository, RoleRepository, SamlRepository, SearchRepository, SecurityRepository, ShareRepository, SsoRepository,
     SystemRepository, TenantRepository, UserRepository, VirusScanRepository,
 };
@@ -133,6 +133,10 @@ impl DataStore {
 
     pub fn users(&self) -> UserRepository<'_> {
         UserRepository::new(&self.db)
+    }
+
+    pub fn mqtt_clients(&self) -> MqttClientRepository<'_> {
+        MqttClientRepository::new(&self.db)
     }
 
     /// Access the underlying SeaORM database connection.

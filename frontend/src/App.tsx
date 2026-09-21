@@ -36,6 +36,7 @@ import Performance from './pages/Performance';
 import { AppsPage } from './pages/Apps';
 import { ConfigsPage } from './pages/Configs';
 import { MqttClientsPage } from './pages/MqttClients';
+import { CompilerRecordsPage } from './pages/CompilerRecords';
 
 // Settings pages
 import {
@@ -134,6 +135,7 @@ function App() {
                                                 <Route path="files" element={<FileBrowser initialMode="department" />} />
                                                 <Route path="firmware-files" element={<FileBrowser initialMode="firmware" />} />
                                                 <Route path="mqtt-clients" element={<MqttClientsPage />} />
+                                                <Route path="compiler-records" element={<CompilerRecordsPage />} />
                                                 <Route path="private-files" element={<FileBrowser initialMode="private" />} />
                                                 <Route path="file-requests" element={<FileRequests />} />
                                                 <Route path="approvals" element={<Approvals />} />

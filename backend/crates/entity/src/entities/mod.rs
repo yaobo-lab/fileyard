@@ -70,3 +70,4 @@ pub mod users;
 pub mod virus_scan_jobs;
 pub mod virus_scan_results;
 pub mod virus_scan_settings;
+pub mod mqtt_clients;

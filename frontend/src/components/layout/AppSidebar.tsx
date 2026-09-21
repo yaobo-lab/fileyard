@@ -19,6 +19,7 @@ import {
   Lock,
   Cpu,
   Radio,
+  History,
   Send,
 } from 'lucide-react'
 import {
@@ -146,6 +147,12 @@ export function AppSidebar({
       title: t('mqttClients'),
       url: '/mqtt-clients',
       icon: Radio,
+      visible: hasPermission('files.view'),
+    },
+    {
+      title: t('compilerRecords'),
+      url: '/compiler-records',
+      icon: History,
       visible: hasPermission('files.view'),
     },
   ]

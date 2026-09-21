@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Radio,
+  History,
   Search,
   RefreshCw,
   Copy,
   Check,
-  PowerOff,
   Info,
   AlertTriangle,
   Plus,
-  MoreHorizontal,
   X,
 } from 'lucide-react';
 import { useAuthFetch } from '../context/AuthContext';
@@ -32,44 +30,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
-export interface MqttClient {
-  node_id?: number;
-  clientid: string;
-  username?: string;
-  superuser?: boolean;
-  proto_ver?: number;
+export interface CompilerClientRecord {
+  id: string;
+  username: string;
+  client_id: string;
+  device_name?: string;
   ip_address?: string;
   port?: number;
-  connected: boolean;
-  connected_at?: string;
-  disconnected_at?: string;
-  disconnected_reason?: string;
+  proto_ver?: number;
   keepalive?: number;
   clean_start?: boolean;
-  session_present?: boolean;
-  expiry_interval?: number;
-  created_at?: string;
-  subscriptions_cnt?: number;
-  max_subscriptions?: number;
-  last_will?: any;
-  inflight?: number;
-  max_inflight?: number;
-  mqueue_len?: number;
-  max_mqueue?: number;
+  online: boolean;
+  connected_at: string;
+  disconnected_at?: string;
+  disconnected_reason?: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export function MqttClientsPage() {
+export function CompilerRecordsPage() {
   const t = useTranslations();
   const authFetch = useAuthFetch();
 
-  const [clients, setClients] = useState<MqttClient[]>([]);
+  const [records, setRecords] = useState<CompilerClientRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,15 +62,11 @@ export function MqttClientsPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
 
-  // Active detail modal client
-  const [detailClient, setDetailClient] = useState<MqttClient | null>(null);
-
-  // Kick client modal state
-  const [kickTarget, setKickTarget] = useState<MqttClient | null>(null);
-  const [kicking, setKicking] = useState<boolean>(false);
+  // Detail modal target
+  const [detailRecord, setDetailRecord] = useState<CompilerClientRecord | null>(null);
 
   // Copied indicator
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Add Compiler Modal state
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -106,11 +86,11 @@ export function MqttClientsPage() {
   const handleAddCompiler = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.username.trim()) {
-      setAddError(t('MqttClients.usernameRequired') || '请输入 MQTT 账号 (用户名)');
+      setAddError('请输入 MQTT 账号 (用户名)');
       return;
     }
     if (!addForm.clientId.trim()) {
-      setAddError(t('MqttClients.clientIdRequired') || '请输入 Client ID');
+      setAddError('请输入 Client ID');
       return;
     }
 
@@ -161,7 +141,7 @@ export function MqttClientsPage() {
         keepalive: '60',
         online: false,
       });
-      await fetchClients(true);
+      await fetchRecords(true);
     } catch (err: any) {
       setAddError(err.message || '添加编译机失败');
     } finally {
@@ -169,8 +149,8 @@ export function MqttClientsPage() {
     }
   };
 
-  const fetchClients = async (isManualRefresh = false) => {
-    if (isManualRefresh) {
+  const fetchRecords = async (isManual = false) => {
+    if (isManual) {
       setRefreshing(true);
     } else {
       setLoading(true);
@@ -178,47 +158,28 @@ export function MqttClientsPage() {
     setError(null);
 
     try {
-      const queryParams = new URLSearchParams();
+      const params = new URLSearchParams();
       if (statusFilter === 'online') {
-        queryParams.set('online', 'true');
+        params.set('online', 'true');
       } else if (statusFilter === 'offline') {
-        queryParams.set('online', 'false');
+        params.set('online', 'false');
       }
 
-      let res = await authFetch(`/api/mqtt/database-clients?${queryParams.toString()}`);
+      const res = await authFetch(`/api/mqtt/database-clients?${params.toString()}`);
       if (!res.ok) {
-        const brokerParams = new URLSearchParams();
-        brokerParams.set('_limit', '1000');
-        if (statusFilter === 'online') {
-          brokerParams.set('connected', 'true');
-        } else if (statusFilter === 'offline') {
-          brokerParams.set('connected', 'false');
-        }
-        res = await authFetch(`/api/mqtt/clients?${brokerParams.toString()}`);
-      }
-
-      if (!res.ok) {
-        if (res.status === 503) {
-          throw new Error('MQTT 服务未就绪或未启动');
-        }
-        throw new Error(`获取 MQTT 客户端列表失败 (${res.status})`);
+        throw new Error(`获取历史编译机记录失败 (${res.status})`);
       }
 
       const data = await res.json();
       if (Array.isArray(data)) {
-        const mapped: MqttClient[] = data.map((item: any) => ({
-          ...item,
-          clientid: item.client_id || item.clientid,
-          connected: item.online !== undefined ? item.online : Boolean(item.connected),
-        }));
-        setClients(mapped);
+        setRecords(data);
       } else {
-        setClients([]);
+        setRecords([]);
       }
     } catch (err: any) {
-      console.error('Failed to load MQTT clients:', err);
-      setError(err.message || '加载 MQTT 客户端时出错');
-      setClients([]);
+      console.error('Failed to load compiler records:', err);
+      setError(err.message || '加载历史编译机记录失败');
+      setRecords([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -226,50 +187,32 @@ export function MqttClientsPage() {
   };
 
   useEffect(() => {
-    fetchClients();
+    fetchRecords();
   }, [statusFilter]);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedId(text);
-    setTimeout(() => setCopiedId(null), 2000);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const handleKickClient = async () => {
-    if (!kickTarget) return;
-    setKicking(true);
-    try {
-      const res = await authFetch(`/api/mqtt/clients/${encodeURIComponent(kickTarget.clientid)}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        throw new Error(`断开客户端失败 (${res.status})`);
-      }
-      setKickTarget(null);
-      await fetchClients(true);
-    } catch (err: any) {
-      alert(err.message || '断开客户端失败');
-    } finally {
-      setKicking(false);
-    }
-  };
-
-  // Filter clients based on search query
-  const filteredClients = useMemo(() => {
-    let result = clients;
+  // Filter records based on search input
+  const filteredRecords = useMemo(() => {
+    let result = records;
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toLowerCase();
-      result = result.filter((client) => {
-        const idMatch = client.clientid?.toLowerCase().includes(query);
-        const userMatch = client.username?.toLowerCase().includes(query);
-        const ipMatch = client.ip_address?.toLowerCase().includes(query);
-        return idMatch || userMatch || ipMatch;
+      result = result.filter((item) => {
+        const idMatch = item.client_id?.toLowerCase().includes(query);
+        const userMatch = item.username?.toLowerCase().includes(query);
+        const nameMatch = item.device_name?.toLowerCase().includes(query);
+        const ipMatch = item.ip_address?.toLowerCase().includes(query);
+        return idMatch || userMatch || nameMatch || ipMatch;
       });
     }
     return result;
-  }, [clients, searchQuery]);
+  }, [records, searchQuery]);
 
-  const formatProtocolVersion = (ver?: number) => {
+  const formatProtocol = (ver?: number) => {
     switch (ver) {
       case 3:
         return 'MQTT 3.1';
@@ -282,17 +225,29 @@ export function MqttClientsPage() {
     }
   };
 
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleString('zh-CN', { hour12: false });
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* 头部导航区域 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
-            <Radio className="w-6 h-6 text-primary" />
-            {t('MqttClients.title') || '固件编译机'}
+            <History className="w-6 h-6 text-primary" />
+            {t('CompilerRecords.title') || '编译机记录'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {t('MqttClients.description') || '统一维护固件编译机、在线状态与连接档案'}
+            {t('CompilerRecords.description') ||
+              '统一维护所有历史固件编译设备档案及连接状态（每个账号对应唯一独立记录）'}
           </p>
         </div>
 
@@ -313,7 +268,7 @@ export function MqttClientsPage() {
       {/* 筛选与搜索工具栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card shadow-xs">
         <div className="flex flex-wrap items-center gap-3">
-          {/* 状态筛选下拉框 */}
+          {/* 状态筛选 */}
           <div className="w-32">
             <Select
               value={statusFilter}
@@ -330,11 +285,11 @@ export function MqttClientsPage() {
             </Select>
           </div>
 
-          {/* 关键字搜索框 */}
-          <div className="relative w-64">
+          {/* 关键字搜索 */}
+          <div className="relative w-72">
             <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder={t('MqttClients.searchPlaceholder') || '搜索 Client ID / 用户名 / IP'}
+              placeholder={t('CompilerRecords.searchPlaceholder') || '搜索设备名称 / 用户名 / IP'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8 h-9 text-sm"
@@ -353,12 +308,12 @@ export function MqttClientsPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => fetchClients(true)}
+          onClick={() => fetchRecords(true)}
           disabled={loading || refreshing}
           className="gap-1 text-muted-foreground"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          {t('MqttClients.refresh') || '刷新'}
+          {t('CompilerRecords.refresh') || '刷新'}
         </Button>
       </div>
 
@@ -369,11 +324,11 @@ export function MqttClientsPage() {
             <AlertTriangle className="w-6 h-6" />
           </div>
           <h3 className="text-base font-semibold text-foreground">{error}</h3>
-          <p className="mt-1.5 text-xs text-muted-foreground">请检查网络或后台 MQTT 服务状态</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">请检查网络或后端数据库状态</p>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => fetchClients(true)}
+            onClick={() => fetchRecords(true)}
             className="mt-4"
           >
             重试
@@ -385,14 +340,14 @@ export function MqttClientsPage() {
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead className="w-24">状态</TableHead>
-                <TableHead className="w-48">设备标识 (Client ID)</TableHead>
+                <TableHead className="w-44">设备标识 (Client ID)</TableHead>
                 <TableHead className="w-36">用户名</TableHead>
-                <TableHead className="w-36">IP 地址</TableHead>
+                <TableHead className="w-36">设备备注名称</TableHead>
+                <TableHead className="w-36">最近连接 IP</TableHead>
                 <TableHead className="w-28">协议版本</TableHead>
-                <TableHead className="w-24">心跳</TableHead>
-                <TableHead className="w-24">订阅数</TableHead>
-                <TableHead className="w-44">最后连接/离线时间</TableHead>
-                <TableHead className="w-32 text-right">操作</TableHead>
+                <TableHead className="w-40">首次登记时间</TableHead>
+                <TableHead className="w-40">最后活跃时间</TableHead>
+                <TableHead className="w-28 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -403,20 +358,20 @@ export function MqttClientsPage() {
                     加载中...
                   </TableCell>
                 </TableRow>
-              ) : filteredClients.length === 0 ? (
+              ) : filteredRecords.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                     {searchQuery
-                      ? `没有与 “${searchQuery}” 匹配的编译机数据`
-                      : '暂无匹配的编译机数据，请点击右上角新建编译机'}
+                      ? `没有与 “${searchQuery}” 匹配的编译机记录`
+                      : '暂无匹配的编译机档案，请点击右上角新建编译机'}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredClients.map((client) => (
-                  <TableRow key={client.clientid} className="hover:bg-muted/30 transition-colors">
+                filteredRecords.map((record) => (
+                  <TableRow key={record.id} className="hover:bg-muted/30 transition-colors">
                     {/* 状态 */}
                     <TableCell>
-                      {client.connected ? (
+                      {record.online ? (
                         <Badge
                           variant="outline"
                           className="border-green-500 text-green-600 bg-green-50 dark:bg-green-950/40"
@@ -431,15 +386,15 @@ export function MqttClientsPage() {
                     {/* Client ID */}
                     <TableCell className="font-mono text-xs font-semibold">
                       <div className="flex items-center gap-1.5 group">
-                        <span className="truncate max-w-[180px]" title={client.clientid}>
-                          {client.clientid}
+                        <span className="truncate max-w-[170px]" title={record.client_id}>
+                          {record.client_id}
                         </span>
                         <button
-                          onClick={() => handleCopy(client.clientid)}
+                          onClick={() => handleCopy(record.client_id)}
                           className="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                           title="复制 Client ID"
                         >
-                          {copiedId === client.clientid ? (
+                          {copiedText === record.client_id ? (
                             <Check className="w-3.5 h-3.5 text-green-600" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
@@ -449,16 +404,21 @@ export function MqttClientsPage() {
                     </TableCell>
 
                     {/* Username */}
-                    <TableCell className="text-sm font-medium">
-                      {client.username || '-'}
+                    <TableCell className="text-sm font-medium">{record.username}</TableCell>
+
+                    {/* Device Name */}
+                    <TableCell>
+                      <Badge variant="secondary" className="font-normal">
+                        {record.device_name || record.client_id}
+                      </Badge>
                     </TableCell>
 
                     {/* IP & Port */}
                     <TableCell className="text-xs font-mono text-muted-foreground">
-                      {client.ip_address ? (
+                      {record.ip_address ? (
                         <span>
-                          {client.ip_address}
-                          {client.port ? `:${client.port}` : ''}
+                          {record.ip_address}
+                          {record.port ? `:${record.port}` : ''}
                         </span>
                       ) : (
                         '-'
@@ -468,65 +428,33 @@ export function MqttClientsPage() {
                     {/* Protocol */}
                     <TableCell>
                       <Badge variant="secondary" className="font-normal font-mono text-[11px]">
-                        {formatProtocolVersion(client.proto_ver)}
+                        {formatProtocol(record.proto_ver)}
                       </Badge>
                     </TableCell>
 
-                    {/* Keepalive */}
-                    <TableCell className="text-xs text-muted-foreground font-mono">
-                      {client.keepalive !== undefined ? `${client.keepalive}s` : '-'}
-                    </TableCell>
-
-                    {/* Subscriptions */}
-                    <TableCell className="text-xs text-muted-foreground font-medium">
-                      {client.subscriptions_cnt ?? 0}
-                    </TableCell>
-
-                    {/* Connection Time */}
+                    {/* Created At */}
                     <TableCell className="text-xs text-muted-foreground">
-                      {client.connected ? (
-                        <span title={`建立时间: ${client.created_at || '-'}`}>
-                          {client.connected_at || '-'}
-                        </span>
-                      ) : (
-                        <span title={`断开原因: ${client.disconnected_reason || '-'}`}>
-                          {client.disconnected_at || '-'}
-                        </span>
-                      )}
+                      {formatDate(record.created_at)}
                     </TableCell>
 
-                    {/* Actions */}
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1 text-xs"
-                          onClick={() => setDetailClient(client)}
-                        >
-                          <Info className="w-3 h-3 text-primary" />
-                          {t('MqttClients.viewDetails') || '详情'}
-                        </Button>
+                    {/* Last Active */}
+                    <TableCell className="text-xs text-muted-foreground">
+                      {record.online
+                        ? formatDate(record.connected_at)
+                        : formatDate(record.disconnected_at || record.updated_at)}
+                    </TableCell>
 
-                        {client.connected && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => setKickTarget(client)}
-                                className="text-destructive focus:text-destructive gap-2 text-xs"
-                              >
-                                <PowerOff className="w-3.5 h-3.5" />
-                                {t('MqttClients.kick') || '断开连接'}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </div>
+                    {/* Action */}
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1 text-xs"
+                        onClick={() => setDetailRecord(record)}
+                      >
+                        <Info className="w-3 h-3 text-primary" />
+                        详情
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))
@@ -537,23 +465,23 @@ export function MqttClientsPage() {
       )}
 
       {/* 详情弹窗 */}
-      {detailClient && (
+      {detailRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-card text-card-foreground rounded-xl border border-border shadow-lg w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Radio className="w-5 h-5 text-primary" />
+                <History className="w-5 h-5 text-primary" />
                 <div>
                   <h2 className="text-base font-semibold">
-                    {t('MqttClients.clientDetails') || '编译机连接详情'}
+                    {t('CompilerRecords.recordDetails') || '编译机档案详情'}
                   </h2>
                   <p className="text-xs text-muted-foreground font-mono truncate max-w-sm">
-                    {detailClient.clientid}
+                    {detailRecord.client_id}
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setDetailClient(null)}
+                onClick={() => setDetailRecord(null)}
                 className="p-1 rounded-md text-muted-foreground hover:text-foreground"
               >
                 <X className="w-4 h-4" />
@@ -565,7 +493,7 @@ export function MqttClientsPage() {
                 <div className="p-3 rounded-lg border border-border bg-muted/20">
                   <div className="text-muted-foreground mb-1">连接状态</div>
                   <div className="font-semibold">
-                    {detailClient.connected ? (
+                    {detailRecord.online ? (
                       <span className="text-green-600 flex items-center gap-1">正常 (在线)</span>
                     ) : (
                       <span className="text-muted-foreground flex items-center gap-1">已下线</span>
@@ -574,22 +502,27 @@ export function MqttClientsPage() {
                 </div>
 
                 <div className="p-3 rounded-lg border border-border bg-muted/20">
-                  <div className="text-muted-foreground mb-1">用户名</div>
-                  <div className="font-medium truncate">{detailClient.username || '-'}</div>
+                  <div className="text-muted-foreground mb-1">MQTT 账号</div>
+                  <div className="font-medium truncate">{detailRecord.username}</div>
+                </div>
+
+                <div className="p-3 rounded-lg border border-border bg-muted/20">
+                  <div className="text-muted-foreground mb-1">设备显示名称</div>
+                  <div className="font-medium truncate">
+                    {detailRecord.device_name || detailRecord.client_id}
+                  </div>
                 </div>
 
                 <div className="p-3 rounded-lg border border-border bg-muted/20">
                   <div className="text-muted-foreground mb-1">协议版本</div>
-                  <div className="font-medium font-mono">
-                    {formatProtocolVersion(detailClient.proto_ver)}
-                  </div>
+                  <div className="font-medium font-mono">{formatProtocol(detailRecord.proto_ver)}</div>
                 </div>
 
                 <div className="p-3 rounded-lg border border-border bg-muted/20">
                   <div className="text-muted-foreground mb-1">IP 与端口</div>
                   <div className="font-medium font-mono">
-                    {detailClient.ip_address
-                      ? `${detailClient.ip_address}:${detailClient.port || ''}`
+                    {detailRecord.ip_address
+                      ? `${detailRecord.ip_address}:${detailRecord.port || ''}`
                       : '-'}
                   </div>
                 </div>
@@ -597,37 +530,31 @@ export function MqttClientsPage() {
                 <div className="p-3 rounded-lg border border-border bg-muted/20">
                   <div className="text-muted-foreground mb-1">心跳间隔</div>
                   <div className="font-medium font-mono">
-                    {detailClient.keepalive !== undefined ? `${detailClient.keepalive}s` : '-'}
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-lg border border-border bg-muted/20">
-                  <div className="text-muted-foreground mb-1">订阅主题数</div>
-                  <div className="font-medium font-mono">
-                    {detailClient.subscriptions_cnt ?? 0}
+                    {detailRecord.keepalive !== undefined ? `${detailRecord.keepalive}s` : '-'}
                   </div>
                 </div>
               </div>
 
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-wider mb-2 text-muted-foreground">
-                  时间戳记录
+                  全生命周期时间戳
                 </h3>
                 <div className="p-3.5 rounded-lg border border-border bg-muted/20 space-y-2 font-mono">
                   <div className="flex justify-between py-1 border-b border-border/50">
-                    <span className="text-muted-foreground font-sans">会话建立时间</span>
-                    <span>{detailClient.created_at || '-'}</span>
+                    <span className="text-muted-foreground font-sans">首次登记时间</span>
+                    <span>{formatDate(detailRecord.created_at)}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-border/50">
-                    <span className="text-muted-foreground font-sans">最后连接时间</span>
-                    <span>{detailClient.connected_at || '-'}</span>
+                    <span className="text-muted-foreground font-sans">最后上线时间</span>
+                    <span>{formatDate(detailRecord.connected_at)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/50">
+                    <span className="text-muted-foreground font-sans">最后离线时间</span>
+                    <span>{formatDate(detailRecord.disconnected_at)}</span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-muted-foreground font-sans">断开时间及原因</span>
-                    <span>
-                      {detailClient.disconnected_at || '-'}
-                      {detailClient.disconnected_reason ? ` (${detailClient.disconnected_reason})` : ''}
-                    </span>
+                    <span className="text-muted-foreground font-sans">离线原因</span>
+                    <span>{detailRecord.disconnected_reason || '-'}</span>
                   </div>
                 </div>
               </div>
@@ -637,48 +564,10 @@ export function MqttClientsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setDetailClient(null)}
+                onClick={() => setDetailRecord(null)}
                 className="h-8 text-xs"
               >
                 关闭
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 断开确认弹窗 */}
-      {kickTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-card text-card-foreground rounded-xl border border-border shadow-lg w-full max-w-md overflow-hidden p-6">
-            <div className="w-10 h-10 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mb-4">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-semibold">
-              {t('MqttClients.kickConfirmTitle') || '断开客户端连接'}
-            </h3>
-            <p className="mt-2 text-xs text-muted-foreground">
-              确定要断开客户端 <span className="font-mono font-semibold text-foreground">{kickTarget.clientid}</span> 的连接吗？
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setKickTarget(null)}
-                disabled={kicking}
-                className="h-8 text-xs"
-              >
-                取消
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleKickClient}
-                disabled={kicking}
-                className="h-8 text-xs gap-1.5"
-              >
-                {kicking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PowerOff className="w-3.5 h-3.5" />}
-                <span>确认断开</span>
               </Button>
             </div>
           </div>
@@ -880,4 +769,4 @@ export function MqttClientsPage() {
   );
 }
 
-export default MqttClientsPage;
+export default CompilerRecordsPage;

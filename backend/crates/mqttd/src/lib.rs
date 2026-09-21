@@ -1,9 +1,9 @@
 pub mod plugins;
 pub mod server;
 pub mod plugin;
+pub mod events;
 
 pub use server::run_server;
-
 pub use plugins::*;
 use rmqtt::hook::Type;
 
