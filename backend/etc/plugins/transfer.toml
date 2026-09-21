@@ -1,0 +1,3 @@
+# 消息队列长度
+queue_capacity = 100 
+start_with_topics = ["/aam/sub/props/response/", "/aam/sub/event/response/"]

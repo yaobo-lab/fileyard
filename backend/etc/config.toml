@@ -126,7 +126,7 @@ style = "Line"
 dir = "./logs"
 # 是否打印到控制台
 console = true
-# 过滤的模块
+# 过滤的模块（提高到 Warn 级别，屏蔽 Debug/Info 刷屏）
 filters = [
     "h2",
     "ureq",
@@ -137,4 +137,22 @@ filters = [
     "hyper",
     "reqwest",
     "downloader-http-rs",
+    "sled",
+    "kv-storage",
+    "kv_storage",
+    "rmqtt",
+    "rmqtt_net",
+    "rmqtt_conf",
+    "mqttd",
+    "app::auth::middleware",
+    "app::middleware::api_usage",
 ]
+
+[mqtt]
+# 是否随主程序启动 MQTT 服务器
+enabled = true
+# MQTT 核心配置文件路径（相对于运行根目录或绝对路径）
+config_path = "etc/mqttd.toml"
+# MQTT 插件配置文件所在目录
+plugins_dir = "etc/plugins"
+

@@ -1,0 +1,12 @@
+ 
+storage.path = "./db/retainer"
+storage.cache_capacity = "1G"
+
+# 配置最大保留消息数量，0 表示无限制
+max_retained_messages = 0
+
+# 限制消息负载大小
+max_payload_size = "1MB"
+
+# 配置保留消息过期时间，"0m"表示不过期，如果未指定，则默认情况下将使用消息过期时间
+retained_message_ttl = "5m"

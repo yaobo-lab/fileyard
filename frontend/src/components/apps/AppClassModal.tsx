@@ -125,7 +125,7 @@ export function AppClassModal({
             <Label htmlFor="cname" className="text-xs font-medium">分类名称</Label>
             <Input
               id="cname"
-              placeholder="例如：基础服务"
+              placeholder="例如：照明类别、窗帘类别"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="h-8 text-sm"

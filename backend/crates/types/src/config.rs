@@ -24,8 +24,27 @@ pub struct Conf {
     pub wecom: WeComConf,
     #[serde(default)]
     pub gitlab: GitlabConf,
+    #[serde(default)]
+    pub mqtt: MqttConf,
     pub rate_limit: RateLimitConf,
     pub frontend_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MqttConf {
+    pub enabled: bool,
+    pub config_path: String,
+    pub plugins_dir: String,
+}
+
+impl Default for MqttConf {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            config_path: "etc/mqttd.toml".to_string(),
+            plugins_dir: "etc/plugins".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

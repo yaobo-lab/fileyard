@@ -11,6 +11,7 @@
 //! - Quarantine support for infected files
 
 use chrono::{DateTime, Utc};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -18,7 +19,6 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use log::{debug, error, info, warn};
 use uuid::Uuid;
 
 fn tenant_from_entity(m: app_entity::entities::tenants::Model) -> Tenant {

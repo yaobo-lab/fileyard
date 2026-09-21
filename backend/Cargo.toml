@@ -7,6 +7,7 @@ members = [
     "crates/ai",
     "crates/entity",
     "crates/migration",
+    "crates/mqttd",
 ]
 resolver = "2"
 
@@ -52,6 +53,7 @@ sea-orm-migration = { version = "1.1.19", default-features = false, features = [
 ] }
 app-entity = { path = "crates/entity" }
 app-migration = { path = "crates/migration" }
+mqttd = { path = "crates/mqttd" }
 
 # UUID & Time
 uuid = { version = "1", features = ["v4", "serde"] }

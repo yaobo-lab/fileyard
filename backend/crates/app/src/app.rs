@@ -1,4 +1,4 @@
-﻿use crate::storage::{EncryptedLocalStorage, LocalStorage, S3Storage, Storage};
+use crate::storage::{EncryptedLocalStorage, LocalStorage, S3Storage, Storage};
 use app_core::cache::Cache;
 use app_extensions::routes::ExtensionState;
 use sea_orm_migration::MigratorTrait;
@@ -435,6 +435,20 @@ pub async fn run() {
                 worker.run().await;
             });
         }
+    }
+
+    // 启动 MQTT 服务器（如果启用）
+    if config.mqtt.enabled {
+        let mqtt_config_path = config.mqtt.config_path.clone();
+        let mqtt_plugins_dir = config.mqtt.plugins_dir.clone();
+        tokio::spawn(async move {
+            log::info!("正在启动内置 MQTT 服务器 (配置: {}, 插件目录: {})...", mqtt_config_path, mqtt_plugins_dir);
+            if let Err(e) = mqttd::run_server(&mqtt_config_path, Some(&mqtt_plugins_dir)).await {
+                log::error!("内置 MQTT 服务器运行失败: {e}");
+            }
+        });
+    } else {
+        log::info!("内置 MQTT 服务器未启用 (config.mqtt.enabled = false)");
     }
 
     // 构建完整的 Axum 路由器与全局中间件（参考 docs/web/router 模块化设计）

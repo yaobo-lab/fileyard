@@ -1,4 +1,4 @@
-﻿//! 固件管理与部署环境、固件分类、项目成员及 GitLab 协同 API 模块
+//! 固件管理与部署环境、固件分类、项目成员及 GitLab 协同 API 模块
 
 use crate::{api::gitlab::gitlab_api_request, auth::AuthUser, AppState};
 use app_entity::entities::{app, app_class, app_deploy, app_user};
@@ -490,11 +490,96 @@ pub async fn delete_app(
 
 // ==================== 固件分类接口 ====================
 
+/// 智能家居专业产品固件分类定义
+const SMART_HOME_CLASSES: &[(&str, &str, &str)] = &[
+    ("CLS-LIGHTING", "照明类别", "智能调光驱动、智能开关、RGBW调色控制器、DALI/DMX驱动等照明控制系统"),
+    ("CLS-CURTAIN", "窗帘类别", "智能开合帘电机、电动卷帘、百叶帘控制器、智能推窗器等遮阳驱动系统"),
+    ("CLS-PANEL", "中控类别", "智能中控大屏、智慧语音面板、全屋场景开关、多功能触摸控制屏"),
+    ("CLS-GATEWAY", "网关类别", "多协议智能网关、KNX/Zigbee/Matter/RS485总线网关、边缘主机"),
+    ("CLS-HVAC", "暖通类别", "中央空调VRV网关、智能地暖温控器、新风系统控制器、环境温湿度控制"),
+    ("CLS-SECURITY", "安防类别", "人体存在探测器、门窗磁传感器、烟雾报警器、燃气报警器、水浸报警器"),
+    ("CLS-DOORLOCK", "门锁类别", "3D人脸识别视频锁、指纹密码锁、智能可视门铃、智能猫眼、门禁控制系统"),
+    ("CLS-SENSOR", "传感类别", "高精度温湿度传感器、环境照度传感器、空气质量PM2.5/CO2传感器、跌倒雷达"),
+    ("CLS-MEDIA", "影音类别", "背景音乐主机、分布式功放系统、家庭影院控制器、红外万能遥控转发模块"),
+    ("CLS-POWER", "电工类别", "智能墙面插座、导轨式微型断路器、智能计量电表、配电箱控制模块"),
+];
+
+/// 自动同步与清洗智能家居分类体系
+async fn ensure_smart_home_classes(store: &app_entity::DataStore) {
+    // 1. 软删除历史测试与非智能家居分类（如通用服务、电商微服务等）
+    if let Ok(obsolete) = app_class::Entity::find()
+        .filter(app_class::Column::IsDel.eq(0))
+        .all(store.db())
+        .await
+    {
+        for item in obsolete {
+            if item.name == "通用服务"
+                || item.name == "电商微服务"
+                || item.name.contains("微服务")
+                || item.name.contains("电商")
+            {
+                let mut active: app_class::ActiveModel = item.into();
+                active.is_del = Set(1);
+                let _ = active.update(store.db()).await;
+            }
+        }
+    }
+
+    // 2. 补全标准智能家居分类
+    for &(number, name, desc) in SMART_HOME_CLASSES {
+        let exists = app_class::Entity::find()
+            .filter(app_class::Column::Number.eq(number))
+            .one(store.db())
+            .await
+            .unwrap_or(None);
+
+        match exists {
+            Some(item) => {
+                if item.is_del == 1 || item.name != name {
+                    let mut active: app_class::ActiveModel = item.into();
+                    active.name = Set(name.to_string());
+                    active.desc = Set(desc.to_string());
+                    active.is_del = Set(0);
+                    let _ = active.update(store.db()).await;
+                }
+            }
+            None => {
+                let active = app_class::ActiveModel {
+                    number: Set(number.to_string()),
+                    name: Set(name.to_string()),
+                    desc: Set(desc.to_string()),
+                    is_del: Set(0),
+                    ..Default::default()
+                };
+                let _ = active.insert(store.db()).await;
+            }
+        }
+    }
+
+    // 3. 将原先使用“电商微服务”或“通用服务”的固件应用分类平滑迁移到“中控类别”
+    if let Ok(old_apps) = app::Entity::find().all(store.db()).await {
+        for item in old_apps {
+            if item.class_name == "通用服务"
+                || item.class_name == "电商微服务"
+                || item.class_name.contains("微服务")
+                || item.class_name.contains("电商")
+            {
+                let mut active: app::ActiveModel = item.into();
+                active.class_no = Set("CLS-PANEL".to_string());
+                active.class_name = Set("中控类别".to_string());
+                let _ = active.update(store.db()).await;
+            }
+        }
+    }
+}
+
 /// GET /api/app/class/pages
 pub async fn page_classes(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ClassPageQuery>,
 ) -> Result<Json<Value>, StatusCode> {
+    ensure_smart_home_classes(&state.store).await;
+
     let page = params.cur_page.or(params.page).unwrap_or(1);
     let page_size = params.page_size.or(params.limit).unwrap_or(100);
 

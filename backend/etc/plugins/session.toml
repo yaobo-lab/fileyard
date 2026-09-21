@@ -1,0 +1,2 @@
+storage.path = "./db/session"
+storage.cache_capacity = "1G"

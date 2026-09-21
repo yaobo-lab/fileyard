@@ -1,0 +1,8 @@
+ 
+path = "./db/message"
+cache_capacity = "1G"
+  
+# 批量清理消息数量  
+cleanup_count = 200
+# 消息队列最大长度
+queue_max_count=1000

@@ -1261,6 +1261,20 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     };
 
     const handleDelete = async (file: FileItem) => {
+        const isFirmwareFolder = file.type === 'folder' && (
+            isFirmwarePath || 
+            file.name === '固件文件' || 
+            (currentPath.length > 1 && currentPath[1] === '固件文件')
+        );
+        if (isFirmwareFolder) {
+            modalAlert({
+                title: tCommon('errorTitle') || '提示',
+                description: '固件文件目录下的文件夹不允许删除',
+                variant: 'destructive'
+            });
+            return;
+        }
+
         const confirmed = await modalConfirm({
             title: tCommon('deleteConfirmTitle'),
             description: `Are you sure you want to move "${file.name}" to the Recycle Bin?`,
@@ -1842,6 +1856,13 @@ export function FileBrowser({ initialMode }: FileBrowserProps = {}) {
     // File-level permission checks
     const canDeleteFile = (file: FileItem) => {
         if (file.is_locked) return false;
+        // 固件文件体系中的文件夹不允许删除，文件夹内的文件支持删除
+        const isFirmwareFolder = file.type === 'folder' && (
+            isFirmwarePath || 
+            file.name === '固件文件' || 
+            (currentPath.length > 1 && currentPath[1] === '固件文件')
+        );
+        if (isFirmwareFolder) return false;
         if (isAdminOrHigher) return true;
         return file.owner_id === user?.id;
     };

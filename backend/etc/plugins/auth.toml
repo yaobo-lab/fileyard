@@ -1,0 +1,35 @@
+# 如果订阅，发布没有权限的，是否断开连接
+disconnect_if_sub_pub_rejected = true
+
+# AES CBC 密钥
+aes_cbc_secret_key = "Yas9MIzk1Cj1cSGL"
+aes_cbc_iv_val = "3605146757424653"
+
+# 是否允许未认证用户登录,true:允许--并且这些都是管理员,false:不允许
+unverify_login = false
+
+# 子设备 username 前缀标记
+sub_devices_start_with_str = ["aam_sub_"]
+
+# 超管 username 前缀标记
+superuser_devices_start_with_str = ["aam_superuser_", "aam_admin_","aam_sub_admin_"]
+
+# 子设备 允许的订阅 清单 
+sub_devices_sub_topics = [
+    "/aam/sub/request/{skuid}/{uuid}", # 对子设备请求
+    "/aam/sub/upgrade/request/{skuid}/{uuid}", # 对子设备升级请求
+    "/aam/sub/upgrade/app/request/{skuid}/{uuid}",# 对子设备内的应用升级请求
+    "/aam/shop/info/response/{skuid}/{uuid}",     # 门店信息 包括令牌
+    "/aam/shop/sub/msg/#",         # 门店子设备消息
+    "/aam/shop/msg"                # 门店消息
+]
+
+# 子设备 允许的发布 清单  
+sub_devices_pub_topics = [ 
+"/aam/sub/props/response/{skuid}/{uuid}", # 子设备属性上报
+"/aam/sub/event/response/{skuid}/{uuid}",# 子设备事件上报
+"/aam/sub/upgrade/response/{skuid}/{uuid}",  # 子设备升级请求
+"/aam/sub/upgrade/response/result/{skuid}/{uuid}", # 子设备升级结果
+"/aam/shop/sub/props/response/{skuid}/{uuid}", # 子设备上报配置属性
+"/aam/shop/info/request/{skuid}/{uuid}",   # 门店信息请求，包括令牌
+]

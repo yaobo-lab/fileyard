@@ -1,0 +1,26 @@
+
+# https://github.com/rmqtt/rmqtt/blob/master/docs/zh_CN/web-hook.md
+
+# hook 消息队列长度
+queue_capacity = 300
+# 并发限制
+concurrency_limit = 10
+
+ 
+urls = ["file:///var/log/rmqtt/hook.log", "http://127.0.0.1:5656/mqtt/webhook"]
+ 
+
+## HTTP请求超时时间
+http_timeout = "8s"
+#此配置项设置最大重试失效时间，如果http请求失败，将在大约2、4、7、11、18或42秒后重试
+retry_max_elapsed_time = "60s"
+# 重试因子，默认: 2.5
+retry_multiplier = 2.5
+
+## 路由规则
+rule.client_connected = [{ action = "client_connected" }]
+rule.client_disconnected = [{ action = "client_disconnected" }]
+
+#只取子设备上报数据 才转发
+rule.message_publish = [{ action = "message_publish", topics = ["/aam/sub/+/+/response"] }]
+rule.message_dropped = [{ action = "message_dropped" }]

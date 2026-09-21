@@ -71,3 +71,4 @@ calamine = { workspace = true }
 quick-xml = { workspace = true }
 anydoc = { workspace = true }
 toolkit-rs = "1.0.31"
+mqttd = { workspace = true }

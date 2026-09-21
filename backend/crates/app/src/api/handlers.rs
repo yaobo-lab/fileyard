@@ -2474,6 +2474,25 @@ pub async fn delete_file(
         return Err(StatusCode::FORBIDDEN); // Cannot delete immutable files under SOX
     }
 
+    // 固件文件体系中的文件夹不允许删除，文件夹内的文件支持删除
+    let is_firmware_dir = is_directory && {
+        let is_root_firmware = file_name == "固件文件" && parent_path.as_deref().unwrap_or("").is_empty();
+        let is_under_firmware = parent_path
+            .as_deref()
+            .map(|p| p == "固件文件" || p.starts_with("固件文件/"))
+            .unwrap_or(false);
+        is_root_firmware || is_under_firmware
+    };
+    if is_firmware_dir {
+        log::warn!(
+            "User {} attempted to delete protected firmware directory: {}/{}",
+            auth.user_id,
+            parent_path.as_deref().unwrap_or(""),
+            file_name
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     // Check if user is allowed to delete
     let is_admin = auth.role == "SuperAdmin" || auth.role == "Admin";
     let is_owner = owner_id == Some(auth.user_id);
@@ -2772,6 +2791,19 @@ pub async fn permanent_delete(
     let is_directory = file.is_directory;
     let file_name = file.name;
     let parent_path = file.parent_path;
+
+    // 固件文件体系中的文件夹不允许删除，文件夹内的文件支持删除
+    let is_firmware_dir = is_directory && {
+        let is_root_firmware = file_name == "固件文件" && parent_path.as_deref().unwrap_or("").is_empty();
+        let is_under_firmware = parent_path
+            .as_deref()
+            .map(|p| p == "固件文件" || p.starts_with("固件文件/"))
+            .unwrap_or(false);
+        is_root_firmware || is_under_firmware
+    };
+    if is_firmware_dir {
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     // Collect all files to delete (including children if this is a folder)
     let mut files_to_delete: Vec<(Uuid, Option<String>, String)> =
