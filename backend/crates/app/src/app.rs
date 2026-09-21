@@ -437,13 +437,21 @@ pub async fn run() {
         }
     }
 
+    let mqtt_api = mqttd::plugins::restapi::EmbeddedApi::default();
     // 启动 MQTT 服务器（如果启用）
     if config.mqtt.enabled {
         let mqtt_config_path = config.mqtt.config_path.clone();
         let mqtt_plugins_dir = config.mqtt.plugins_dir.clone();
+        let mqtt_api = mqtt_api.clone();
         tokio::spawn(async move {
             log::info!("正在启动内置 MQTT 服务器 (配置: {}, 插件目录: {})...", mqtt_config_path, mqtt_plugins_dir);
-            if let Err(e) = mqttd::run_server(&mqtt_config_path, Some(&mqtt_plugins_dir)).await {
+            if let Err(e) = mqttd::server::run_server_with_api(
+                &mqtt_config_path,
+                Some(&mqtt_plugins_dir),
+                mqtt_api,
+            )
+            .await
+            {
                 log::error!("内置 MQTT 服务器运行失败: {e}");
             }
         });
@@ -457,7 +465,8 @@ pub async fn run() {
         &config,
         api_usage_writer,
         extension_state,
-    );
+    )
+    .layer(axum::Extension(mqtt_api));
 
     // Run server
     let listener = tokio::net::TcpListener::bind(config.web.into_addr())

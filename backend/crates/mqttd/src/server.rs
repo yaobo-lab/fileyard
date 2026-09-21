@@ -1,13 +1,13 @@
 use rmqtt::{
     args::CommandArgs,
     context::ServerContext,
-    net::{Builder, tls_provider},
+    net::{tls_provider, Builder},
     node::Node,
     server::MqttServer,
 };
-use rmqtt_conf::{Options, Settings, listener::Listener};
+use rmqtt_conf::{listener::Listener, Options, Settings};
 
-mod plugin;
+use crate::plugin;
 
 pub fn config_builder(cfg: &Listener) -> Builder {
     Builder::new()
@@ -59,6 +59,22 @@ pub fn config_args(cfg: &Settings) -> CommandArgs {
 
 /// 启动并运行 MQTT 服务器
 pub async fn run_server(config_path: &str, plugins_dir: Option<&str>) -> anyhow::Result<()> {
+    run_server_inner(config_path, plugins_dir, None).await
+}
+
+pub async fn run_server_with_api(
+    config_path: &str,
+    plugins_dir: Option<&str>,
+    api: crate::plugins::restapi::EmbeddedApi,
+) -> anyhow::Result<()> {
+    run_server_inner(config_path, plugins_dir, Some(api)).await
+}
+
+async fn run_server_inner(
+    config_path: &str,
+    plugins_dir: Option<&str>,
+    api: Option<crate::plugins::restapi::EmbeddedApi>,
+) -> anyhow::Result<()> {
     log::info!("正在启动 MQTT 服务器，配置文件: {}", config_path);
 
     let opts = Options {
@@ -98,10 +114,15 @@ pub async fn run_server(config_path: &str, plugins_dir: Option<&str>) -> anyhow:
         .await;
 
     // 注册插件
-    plugin::registers(&scx, conf.plugins.default_startups.clone())
+    plugin::registers_with_mode(&scx, conf.plugins.default_startups.clone(), api.is_some())
         .await
         .map_err(|e| anyhow::anyhow!("MQTT插件注册失败: {e}"))?;
 
+    let api_service = if api.is_some() {
+        Some(crate::plugins::restapi::EmbeddedApi::prepare(scx.clone())?)
+    } else {
+        None
+    };
     let mut mqtt_svr = MqttServer::new(scx);
 
     // 注册 TCP 监听器
@@ -126,6 +147,9 @@ pub async fn run_server(config_path: &str, plugins_dir: Option<&str>) -> anyhow:
         );
     }
 
+    let _active_api = api
+        .zip(api_service)
+        .map(|(api, service)| api.activate(service));
     log::info!("MQTT 服务器已成功初始化并开始监听！");
     mqtt_svr
         .build()

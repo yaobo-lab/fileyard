@@ -1,16 +1,13 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
 use super::config::PluginConfig;
 use crate::message::log_prefix;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::{
     channel::mpsc,
     {SinkExt, StreamExt},
 };
 use futures_time::{self, future::FutureExt};
-use r2d2::{HandleError, Pool};
-use r2d2_sqlite::SqliteConnectionManager;
+use kv_storage::{Map, StorageDB, StorageMap};
 use rmqtt::{
     message::MessageManager,
     retain::RetainTree,
@@ -21,66 +18,21 @@ use rmqtt::{
     },
     utils::timestamp_millis,
 };
-use rmqtt_storage::{StorageDB, Map, StorageMap};
 
-use rusqlite::{OptionalExtension, params};
 use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use std::collections::BTreeSet;
 use std::convert::From as _;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::{runtime::Handle, sync::RwLock, task::spawn_blocking, time::sleep};
+use tokio::{sync::RwLock, time::sleep};
 
 const FORWARDED_PREFIX: &[u8] = b"fwd_";
 
-#[derive(Debug)]
-struct CustomErrorHandler;
+const DATA: &[u8] = b"data";
 
-impl HandleError<rusqlite::Error> for CustomErrorHandler {
-    fn handle_error(&self, err: rusqlite::Error) {
-        log::error!("sqlite pool error: {}", err);
-    }
-}
-
-fn get_pool() -> &'static Pool<SqliteConnectionManager> {
-    static INSTANCE: OnceLock<Pool<SqliteConnectionManager>> = OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        let manager = SqliteConnectionManager::file("./message.db");
-        Pool::builder()
-            .error_handler(Box::new(CustomErrorHandler {}))
-            .connection_timeout(Duration::from_secs(3)) //连接超时3秒
-            .max_size(3) // 最多5个连接
-            .idle_timeout(Some(Duration::from_secs(60 * 60))) //空闲连接
-            .build(manager)
-            .unwrap_or_else(|err| {
-                panic!("sqlite pool create err:{}", err);
-            })
-    })
-}
-//建表语句
-fn table_sql() -> &'static str {
-    "CREATE TABLE IF NOT EXISTS message (
-        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-        topic TEXT NOT NULL,
-        msg blob NOT NULL,
-        qos integer NOT NULL,
-        expiry_time_at integer NOT NULL
-    );"
-}
-
-pub(super) fn setup() -> Result<()> {
-    let conn = get_pool().get()?;
-    //设备分类表
-    conn.execute_batch(table_sql())?;
-    log::info!("{log_prefix} sqlite setup ok");
-    Ok(())
-}
-
-// 订阅该主题的客户端
 type SubClientIds = Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>;
 
 //From 来源
@@ -100,11 +52,17 @@ impl StorageMessageManager {
     pub(super) async fn new(
         _node_id: NodeId,
         cfg: Arc<PluginConfig>,
+        storage_db: StorageDB,
     ) -> Result<StorageMessageManager> {
-        let messages_received_max = StorageMessageManagerInner::new_messages_counter()?;
-        let id_generater = StorageMessageManagerInner::new_msg_id_generater()?;
+        let messages_received_max = AtomicIsize::new(
+            storage_db
+                .counter_get("messages_received_max")
+                .await?
+                .unwrap_or_default(),
+        );
+        let id_generater = AtomicUsize::new(storage_db.get("id_generater").await?.unwrap_or(1));
 
-        let queue_max = 3000;
+        let queue_max = cfg.queue_max_count.max(1);
         let (exec, task_runner) = Builder::default().workers(100).queue_max(queue_max).build();
 
         tokio::spawn(async move {
@@ -119,12 +77,16 @@ impl StorageMessageManager {
             msg_tx,
             msg_queue_count,
             id_generater,
+            storage_db,
+            topic_tree: RwLock::new(RetainTree::default()),
+            topic_list: RwLock::new(BTreeSet::new()),
+            delivery_lock: tokio::sync::Mutex::new(()),
         });
         Ok(Self { inner, exec }.serve(cfg, msg_rx))
     }
 
-    fn serve(self, _cfg: Arc<PluginConfig>, mut msg_rx: mpsc::Receiver<Msg>) -> Self {
-        let msg_mgr = self.clone();
+    fn serve(self, cfg: Arc<PluginConfig>, mut msg_rx: mpsc::Receiver<Msg>) -> Self {
+        let msg_mgr = Arc::downgrade(&self.inner);
         let msg_queue_count1 = self.msg_queue_count.clone();
 
         // 消息 存储 处理 每 50 条消息存一次
@@ -159,7 +121,9 @@ impl StorageMessageManager {
                 }
 
                 let msg_fwds_count1 = msg_fwds_count.clone();
-                let msg_mgr = msg_mgr.clone();
+                let Some(msg_mgr) = msg_mgr.upgrade() else {
+                    break;
+                };
                 tokio::spawn(async move {
                     if let Err(e) = msg_mgr._batch_msg_insert(msgs).await {
                         log::warn!("{log_prefix} _batch_msg_insert err: {e:?}");
@@ -171,10 +135,14 @@ impl StorageMessageManager {
         });
 
         //清除过期消息
+        let inner = Arc::downgrade(&self.inner);
         tokio::spawn(async move {
-            sleep(Duration::from_secs(20)).await;
             loop {
                 sleep(Duration::from_secs(30)).await;
+                let Some(inner) = inner.upgrade() else { break };
+                if let Err(e) = inner.cleanup(cfg.cleanup_count.max(1)).await {
+                    log::warn!("{log_prefix} cleanup failed: {e:?}");
+                }
             }
         });
         self
@@ -194,53 +162,74 @@ pub(super) struct StorageMessageManagerInner {
     msg_tx: mpsc::Sender<Msg>,
     pub(super) msg_queue_count: Arc<AtomicIsize>,
     id_generater: AtomicUsize,
+    storage_db: StorageDB,
+    pub(super) topic_tree: RwLock<RetainTree<MsgID>>,
+    topic_list: RwLock<BTreeSet<(TimestampMillis, Topic)>>,
+    delivery_lock: tokio::sync::Mutex<()>,
 }
 
 //mesage id 处理
 impl StorageMessageManagerInner {
-    //存储取消息最大ID
-    #[inline]
-    async fn save_msg_id(&self) -> Result<()> {
-        // let curr_msg_id = self.id_generater.load(Ordering::SeqCst);
-        // self.storage_db.insert("id_generater", &curr_msg_id).await?;
+    pub(super) async fn restore_topic_tree(&self) -> Result<()> {
+        let mut db = self.storage_db.clone();
+        let mut maps = db.map_iter().await?;
+        while let Some(map) = maps.next().await {
+            let map = map?;
+            if let Some(msg) = map.get::<_, StoredMessage>(DATA).await? {
+                self.id_generater
+                    .fetch_max(msg.msg_id + 1, Ordering::SeqCst);
+                if msg.is_expiry() {
+                    self.storage_db.map_remove(map.name()).await?;
+                    continue;
+                }
+                let mut topic = Topic::from_str(&msg.publish.topic)?;
+                topic.push(Level::Normal(msg.msg_id.to_string()));
+                self.topic_tree.write().await.insert(&topic, msg.msg_id);
+                self.topic_list
+                    .write()
+                    .await
+                    .insert((msg.expiry_time_at, topic));
+            }
+        }
         Ok(())
     }
 
-    //初始化消息ID 值
-    #[inline]
-    fn new_msg_id_generater() -> Result<AtomicUsize> {
-        let conn = get_pool().get()?;
-        let mut stmt = conn.prepare("SELECT MAX(id) as id from message")?;
-        let v: Option<usize> = stmt.query_row(params![], |row| row.get(0)?).optional()?;
-        if let Some(curr_msg_id) = v {
-            Ok(AtomicUsize::new(curr_msg_id))
-        } else {
-            Ok(AtomicUsize::new(1))
+    async fn cleanup(&self, limit: usize) -> Result<()> {
+        let expired: Vec<_> = self
+            .topic_list
+            .read()
+            .await
+            .iter()
+            .take_while(|(at, _)| *at <= timestamp_millis())
+            .take(limit)
+            .cloned()
+            .collect();
+        for (at, topic) in expired {
+            let id = self
+                .topic_tree
+                .read()
+                .await
+                .matches(&topic)
+                .into_iter()
+                .map(|(_, id)| id)
+                .next();
+            if let Some(id) = id {
+                self.storage_db.map_remove(id.to_be_bytes()).await?;
+            }
+            self.topic_tree.write().await.remove(&topic);
+            self.topic_list.write().await.remove(&(at, topic));
         }
+        Ok(())
     }
 
-    //
-    #[inline]
     fn _next_msg_id(&self) -> usize {
         self.id_generater.fetch_add(1, Ordering::SeqCst)
     }
 
-    #[inline]
-    async fn messages_counter_add(&self, _v: isize) -> Result<()> {
-        // self.storage_db
-        //     .counter_incr("messages_received_max", vals)
-        //     .await?;
-        Ok(())
-    }
-
-    #[inline]
-    fn new_messages_counter() -> Result<AtomicIsize> {
-        // let max = storage_db
-        //     .counter_get("messages_received_max")
-        //     .await?
-        //     .unwrap_or_default();
-        //   Ok(AtomicIsize::new(max))
-        Ok(AtomicIsize::new(100))
+    async fn messages_counter_add(&self, v: isize) -> Result<()> {
+        self.storage_db
+            .counter_incr("messages_received_max", v)
+            .await
     }
 
     #[inline]
@@ -282,6 +271,7 @@ impl StorageMessageManagerInner {
 
             //
             let msg_key = msg_id.to_be_bytes();
+            let msg_store = self.storage_db.map(msg_key, None).await?;
 
             //存储smsg
             if let Err(e) = msg_store
@@ -311,6 +301,9 @@ impl StorageMessageManagerInner {
         }
 
         //
+        self.storage_db
+            .insert("id_generater", &self.id_generater.load(Ordering::SeqCst))
+            .await?;
         self.messages_received_count_add(count);
         if let Err(e) = self
             .messages_counter_add(count)
@@ -358,6 +351,7 @@ impl StorageMessageManagerInner {
         topic_str: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
+        let _delivery_guard = self.delivery_lock.lock().await;
         let inner = self;
 
         let mut topic = Topic::from_str(topic_str).map_err(|e| anyhow!(format!("{:?}", e)))?;
@@ -380,52 +374,25 @@ impl StorageMessageManagerInner {
             .map(|(_t, msg_id)| msg_id)
             .collect();
 
-        let messages = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
-            let msg_key = msg_id.to_be_bytes();
-
-            let msg_store_map = self.storage_db.map(msg_key, None).await;
-
-            match msg_store_map {
-                Ok(mut store) => {
-                    // Get the message
-                    let client_subs = self
-                        ._client_haveing_sub(&mut store, client_id, topic_str, group)
-                        .await
-                        .unwrap_or_default();
-
-                    if client_subs {
-                        None
-                    } else if let Ok(Some(msg)) = inner._get_message(&store).await {
-                        log::debug!(
-                            "{log_prefix} _get msg: {:?}, msg.is_expiry(): {}",
-                            msg,
-                            msg.is_expiry()
-                        );
-                        if msg.is_expiry() {
-                            None
-                        } else {
-                            let opts = group.map(|g| (TopicFilter::from(topic_str), g.clone()));
-                            if let Err(e) =
-                                store.insert(Self::make_client_key(client_id), &opts).await
-                            {
-                                log::warn!("{log_prefix} _get::insert error, {e:?}");
-                            }
-                            Some((msg_id, msg.from, msg.publish))
-                        }
-                    } else {
-                        None
-                    }
-                }
-                Err(e) => {
-                    log::warn!("{log_prefix} _get new map error, {e:?}");
-                    None
+        let mut messages = Vec::new();
+        for msg_id in matcheds {
+            let mut store = self.storage_db.map(msg_id.to_be_bytes(), None).await?;
+            if self
+                ._client_haveing_sub(&mut store, client_id, topic_str, group)
+                .await?
+            {
+                continue;
+            }
+            if let Some(msg) = self._get_message(&store).await? {
+                if !msg.is_expiry() {
+                    let opts = group.map(|g| (TopicFilter::from(topic_str), g.clone()));
+                    store
+                        .insert(Self::make_client_key(client_id), &opts)
+                        .await?;
+                    messages.push((msg_id, msg.from, msg.publish));
                 }
             }
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
+        }
 
         Ok(messages)
     }
@@ -499,6 +466,7 @@ impl MessageManager for StorageMessageManager {
             expiry_interval.as_secs()
         );
 
+        self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
         let res = self
             .msg_tx
             .clone()
@@ -508,15 +476,14 @@ impl MessageManager for StorageMessageManager {
             .map_err(|e| anyhow!(e));
 
         match res {
-            Ok(Ok(())) => {
-                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("{log_prefix} store error, {e:?}");
                 Err(anyhow!(e))
             }
             Err(e) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("{log_prefix} store timeout, {e:?}");
                 Err(anyhow!(e))
             }
@@ -601,5 +568,107 @@ impl MessageManager for StorageMessageManager {
     #[inline]
     fn should_merge_on_get(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmqtt::types::{CodecPublish, Id, QoS};
+
+    fn inner(db: StorageDB) -> StorageMessageManagerInner {
+        StorageMessageManagerInner {
+            storage_db: db,
+            messages_received_max: AtomicIsize::new(0),
+            msg_tx: mpsc::channel(1).0,
+            msg_queue_count: Arc::new(AtomicIsize::new(0)),
+            id_generater: AtomicUsize::new(1),
+            topic_tree: RwLock::new(RetainTree::default()),
+            topic_list: RwLock::new(BTreeSet::new()),
+            delivery_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    #[tokio::test]
+    async fn messages_survive_index_rebuild_and_expire() -> Result<()> {
+        let path = std::env::temp_dir().join(format!(
+            "mqttd-message-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let cfg = kv_storage::Config {
+            path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        {
+            let db = kv_storage::init_db(&cfg).await?;
+            let original = inner(db.clone());
+            let from = From::from_system(Id::new(1, 0, None, None, "publisher".into(), None));
+            let publish: Publish = CodecPublish {
+                dup: false,
+                retain: false,
+                qos: QoS::AtLeastOnce,
+                packet_id: None,
+                topic: "test/value".into(),
+                payload: bytes::Bytes::from_static(b"hello"),
+                properties: None,
+            }
+            .into();
+            original
+                ._batch_msg_insert(vec![(
+                    (from.clone(), publish.clone(), Duration::from_secs(60), 7),
+                    None,
+                )])
+                .await?;
+            let restored = inner(db.clone());
+            restored.restore_topic_tree().await?;
+            assert_eq!(restored._next_msg_id(), 8);
+            let messages = restored._get("client", "test/+", None).await?;
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].2.payload.as_ref(), b"hello");
+            assert!(restored._get("client", "test/+", None).await?.is_empty());
+            let group: SharedGroup = "workers".into();
+            assert_eq!(
+                restored
+                    ._get("worker1", "test/#", Some(&group))
+                    .await?
+                    .len(),
+                1
+            );
+            assert!(restored
+                ._get("worker2", "test/#", Some(&group))
+                .await?
+                .is_empty());
+            restored
+                ._batch_msg_insert(vec![((from, publish, Duration::ZERO, 9), None)])
+                .await?;
+            restored.cleanup(200).await?;
+            assert!(!db.map_contains_key(9usize.to_be_bytes()).await?);
+            assert_eq!(restored.topic_list.read().await.len(), 1);
+        }
+        // The storage worker may briefly retain the database after the last handle drops.
+        for _ in 0..50 {
+            if std::fs::remove_dir_all(&path).is_ok() {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        std::fs::remove_dir_all(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn bundled_message_config_loads() {
+        let cfg: PluginConfig = config::Config::builder()
+            .add_source(config::File::from_str(
+                include_str!("../../../../../etc/plugins/message.toml"),
+                config::FileFormat::Toml,
+            ))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert_eq!(cfg.storage.path, "./db/message");
+        assert_eq!(cfg.queue_max_count, 1000);
     }
 }

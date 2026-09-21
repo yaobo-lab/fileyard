@@ -1,19 +1,16 @@
 #![allow(unused_imports)]
 use async_trait::async_trait;
 use config::PluginConfig;
-use redis::RedisStorage;
+use kv_storage::init_db;
 use rmqtt::{
-    Result, context::ServerContext, hook::Register, macros::Plugin, message::MessageManager,
-    plugin::Plugin, register,
+    context::ServerContext, hook::Register, macros::Plugin, message::MessageManager,
+    plugin::Plugin, register, Result,
 };
-use rmqtt_storage::init_db;
 use serde_json::{self, json};
-use sqlite::SqliteStorage;
 use std::sync::Arc;
+use storage::StorageMessageManager;
 mod config;
-mod entity;
-mod redis;
-mod sqlite;
+mod storage;
 
 register!(StoragePlugin::new);
 
@@ -28,33 +25,11 @@ struct StoragePlugin {
 }
 
 impl StoragePlugin {
-    // async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
-    //     let name = name.into();
-    //     let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
-    //     let cfg = Arc::new(cfg);
-
-    //     let storage = SqliteStorage::new(cfg.clone()).await?;
-    //     let message_mgr = MessageMgr { storage };
-    //     let register = scx.extends.hook_mgr().register();
-    //     Ok(Self {
-    //         scx,
-    //         cfg,
-    //         register,
-    //         message_mgr,
-    //     })
-    // }
-
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
 
         let node_id = scx.node.id();
-        cfg.storage.redis.prefix = cfg
-            .storage
-            .redis
-            .prefix
-            .replace("{node}", &format!("{node_id}"));
-
         let storage_db = match init_db(&cfg.storage).await {
             Err(e) => {
                 log::error!("{log_prefix} init storage db error, {e:?}");
@@ -66,7 +41,7 @@ impl StoragePlugin {
         let cfg = Arc::new(cfg);
 
         //存储管理器
-        let storage = RedisStorage::new(node_id, cfg.clone(), storage_db).await?;
+        let storage = StorageMessageManager::new(node_id, cfg.clone(), storage_db).await?;
         let message_mgr = MessageMgr { storage };
 
         let register = scx.extends.hook_mgr().register();
@@ -114,8 +89,7 @@ impl Plugin for StoragePlugin {
 }
 
 struct MessageMgr {
-    //storage: SqliteStorage,
-    storage: RedisStorage,
+    storage: StorageMessageManager,
 }
 
 impl MessageMgr {

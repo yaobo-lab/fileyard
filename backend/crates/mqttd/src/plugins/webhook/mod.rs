@@ -275,7 +275,7 @@ impl Plugin for WebHookPlugin {
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         self.register.stop().await;
-        log::de!("[plugin] web hook stop");
+        log::debug!("[plugin] web hook stop");
         Ok(true)
     }
 

@@ -1,16 +1,11 @@
-pub mod config;
 pub mod plugins;
 pub mod server;
-pub mod version;
+pub mod plugin;
 
 pub use server::run_server;
 
-#[allow(unused_imports)]
-use anyhow::Result;
 pub use plugins::*;
 use rmqtt::hook::Type;
-#[cfg(feature = "message-storage")]
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
 pub trait IType {
     fn to_string(&self) -> String;
@@ -46,23 +41,4 @@ impl IType for Type {
         };
         str
     }
-}
-
-// In memory-> sqlite::memory:
-//sqlite://path/to/db.sqlite?mode=ro  read only
-#[cfg(feature = "message-storage")]
-async fn create_db(conn_str: &str) -> Result<DatabaseConnection> {
-    use std::time::Duration;
-    //let conn_str = "sqlite://./app.db?mode=rwc";
-    let mut opt = ConnectOptions::new(conn_str);
-    opt.max_connections(5)
-        .min_connections(1)
-        .connect_timeout(Duration::from_secs(8))
-        .acquire_timeout(Duration::from_secs(8))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(false)
-        .sqlx_logging_level(log::LevelFilter::Error);
-    let db = Database::connect(opt).await?;
-    Ok(db)
 }

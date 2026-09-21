@@ -20,6 +20,7 @@ pub mod global_settings;
 pub mod groups;
 pub mod handlers;
 pub mod health;
+pub mod mqtt;
 pub mod notifications;
 pub mod oidc;
 pub mod password;

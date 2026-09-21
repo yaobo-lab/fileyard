@@ -4,15 +4,16 @@ version = "1.0.0"
 edition = "2021"
 
 [features]
-default = [] 
-message-storage = ["sea-orm"]
+default = []
+message-storage = []
 webhook = ["ahash","backoff","reqwest"]
- 
 
-[dependencies] 
+
+[dependencies]
+axum = { workspace = true }
 rmqtt ={version =  "0.18.1", features = ["plugin","stats","tls","retain","msgstore","limit-subscription"]}
-rmqtt-conf = "0.3.1"  
- 
+rmqtt-conf = "0.3.1"
+
 # basic crates
 toolkit-rs={  version = '1.0.22',features = ['panic_handle']}
 log = "0.4.29"
@@ -27,15 +28,7 @@ chrono = { version = "0.4.42", default-features = false }
 rust-box = "0.15"
 config = {version = '0.15.19',default-features = false,features = ['toml']}
 bytestring = "1.5.0"
-futures-time = "3.0.1" 
- 
-#sqlite  
-sea-orm = { version = "1.1.19", features = [
-    "sqlx-sqlite",
-    "runtime-tokio-rustls",
-    "macros",
-],optional = true } 
-
+futures-time = "3.0.1"
 
 # storage
 kv-storage = "0.1.0"
@@ -52,30 +45,30 @@ bytes = "1.11.0"
 url = { version = "2.5.4", default-features = false }
 
 
-# 插件 auth mqtt 验证
+# 鎻掍欢 auth mqtt 楠岃瘉
 aes ={version = "=0.7" }
 block-modes ={ version = "=0.8" }
 hex ={version = "0.4.3"   }
 base64 ={ version = "0.22.1" }
 rand ={version =  "0.9.2" }
 
-#rk3308 版本要求，不能升级
+#rk3308 鐗堟湰瑕佹眰锛屼笉鑳藉崌绾?
 rustls="0.23.29"
 rustls-webpki = "0.103.4"
 aws-lc-rs = { version = "1.13.3", features = ["prebuilt-nasm"] }
 aws-lc-sys = { version = "0.30.0", default-features = false, features = ["prebuilt-nasm"] }
 macid = "1.1.1"
 
- 
-# 插件启动配置
+
+# 鎻掍欢鍚姩閰嶇疆
 [package.metadata.plugins]
 auth = {}
 transfer = {}
-session= {default_startup = true } 
-retainer = { } 
+session= {default_startup = true }
+retainer = { }
 restapi= {}
-  
- 
+
+
 [build-dependencies]
 toml = "0.9.8"
 toolkit-rs={  version = '1.0.22',features = ['panic_handle']}
@@ -83,5 +76,4 @@ log = '0.4'
 chrono = '0.4.38'
 
 [lib]
-name = "mqttd"
-path = "src/lib.rs"
+name = "mqttd" # library

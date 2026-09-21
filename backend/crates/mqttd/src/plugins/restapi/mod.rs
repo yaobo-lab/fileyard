@@ -14,6 +14,8 @@ use tokio::{self, sync::RwLock, sync::oneshot};
 mod api;
 mod clients;
 mod config;
+mod embedded;
+pub use embedded::EmbeddedApi;
 mod plugin;
 mod subs;
 mod types;

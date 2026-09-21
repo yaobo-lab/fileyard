@@ -2,7 +2,7 @@ use super::super::PublishParams;
 use super::log_prefix;
 use anyhow::anyhow;
 use salvo::conn::tcp::TcpAcceptor;
-use salvo::http::header::{CONTENT_TYPE, HeaderValue};
+use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::http::mime;
 use salvo::prelude::*;
 use serde_json::{self, json};
@@ -13,15 +13,15 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 use rmqtt::{
-    Result,
     context::ServerContext,
     node::NodeStatus,
     stats::Stats,
     types::{ClientId, HashMap, Id, SubsSearchParams},
+    Result,
 };
 
 use super::types::{ClientSearchParams, ClientSearchResult, SubscribeParams, UnsubscribeParams};
-use super::{PluginConfigType, clients, plugin, subs};
+use super::{clients, plugin, subs, PluginConfigType};
 
 struct BearerValidator {
     token: String,
@@ -57,7 +57,16 @@ impl Handler for BearerValidator {
 }
 
 fn route(scx: ServerContext, cfg: PluginConfigType, token: Option<String>) -> Router {
-    let mut router = Router::with_path("api/v1")
+    route_at(scx, cfg, token, "api/v1")
+}
+
+pub(super) fn route_at(
+    scx: ServerContext,
+    cfg: PluginConfigType,
+    token: Option<String>,
+    path: &str,
+) -> Router {
+    let mut router = Router::with_path(path)
         .hoop(affix_state::inject((scx, cfg)))
         .hoop(api_logger);
     if let Some(token) = token {
@@ -106,10 +115,14 @@ fn route(scx: ServerContext, cfg: PluginConfigType, token: Option<String>) -> Ro
                 .push(Router::with_path("{topic}").get(get_route)),
         )
         .push(
-            Router::with_path("mqtt")
-                .push(Router::with_path("publish").post(publish))
-                .push(Router::with_path("subscribe").post(subscribe))
-                .push(Router::with_path("unsubscribe").post(unsubscribe)),
+            (if path == "api/mqtt" {
+                Router::new()
+            } else {
+                Router::with_path("mqtt")
+            })
+            .push(Router::with_path("publish").post(publish))
+            .push(Router::with_path("subscribe").post(subscribe))
+            .push(Router::with_path("unsubscribe").post(unsubscribe)),
         )
         .push(
             Router::with_path("plugins")
@@ -179,8 +192,8 @@ fn bind(
 }
 
 #[handler]
-async fn list_apis(res: &mut Response) {
-    let data = serde_json::json!([
+async fn list_apis(req: &mut Request, res: &mut Response) {
+    let mut data = serde_json::json!([
         {
             "name": "get_brokers",
             "method": "GET",
@@ -336,6 +349,19 @@ async fn list_apis(res: &mut Response) {
             "descr": "Summarize all statistics information from the cluster"
         },
     ]);
+    let base = req.uri().path().trim_end_matches('/');
+    if let Some(apis) = data.as_array_mut() {
+        for api in apis {
+            if let Some(path) = api["path"].as_str() {
+                let path = if base == "/api/mqtt" {
+                    path.replacen("/api/v1/mqtt/", "/api/v1/", 1)
+                } else {
+                    path.to_owned()
+                };
+                api["path"] = json!(path.replacen("/api/v1", base, 1));
+            }
+        }
+    }
     res.render(Json(data));
 }
 
