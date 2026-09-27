@@ -133,7 +133,7 @@ size_mb = 5
 # 保留天数
 # keep_day = 3
 # 打印风格 Default,Line,Module,Full
-style = "Line"
+style = "Module"
 # 日志目录
 dir = "./logs"
 # 是否打印到控制台
@@ -143,8 +143,12 @@ filters = [
     "h2",
     "ureq",
     "rumqttc",
+    "aws_smithy_runtime_api",
+    "aws_smithy_runtime",
+    "aws_config",
+    "aws_sdk_s3",
+    "aws_runtime",
     "network",
-    "tracing",
     "rustls",
     "hyper",
     "reqwest",
