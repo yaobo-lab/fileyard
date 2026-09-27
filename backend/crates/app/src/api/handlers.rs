@@ -7,7 +7,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Path, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Json, Redirect},
+    response::{IntoResponse, Json},
     Extension,
 };
 use chrono::Utc;
@@ -20,7 +20,6 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use ulid::Ulid;
-use url::Url;
 use uuid::Uuid;
 
 /// Format bytes into human-readable string
@@ -122,25 +121,6 @@ fn sanitize_filename(filename: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
-}
-
-/// Rewrite S3 presigned URL to go through CDN domain
-/// Preserves query params (signature, expiry) for origin validation
-fn rewrite_url_to_cdn(s3_url: &str, cdn_domain: &str) -> String {
-    if let Ok(parsed) = Url::parse(s3_url) {
-        let path_and_query = format!(
-            "{}{}",
-            parsed.path(),
-            parsed
-                .query()
-                .map(|q| format!("?{}", q))
-                .unwrap_or_default()
-        );
-        format!("https://{}{}", cdn_domain, path_and_query)
-    } else {
-        // Fallback to original URL if parsing fails
-        s3_url.to_string()
-    }
 }
 
 /// Get MIME content type based on file extension
@@ -1892,44 +1872,7 @@ pub async fn download_file(
         .await;
     }
 
-    // Try presigned URL redirect if enabled and supported (S3-compatible storage)
-    // This bypasses the proxy and redirects directly to S3/CDN for better performance
-    if state.use_presigned_urls && state.storage.supports_presigned_urls() {
-        match state
-            .storage
-            .presigned_download_url(&storage_path, state.presigned_url_expiry)
-            .await
-        {
-            Ok(Some(mut presigned_url)) => {
-                // Optionally rewrite through CDN for edge caching
-                if let Some(cdn) = &state.cdn_domain {
-                    presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
-                }
-
-                log::debug!(
-                    "Redirecting file download to presigned URL: user={}, file={}",
-                    auth.user_id,
-                    file_uuid
-                );
-
-                // Return redirect to presigned URL (307 preserves method but 302 is more compatible)
-                return Ok(Redirect::temporary(&presigned_url).into_response());
-            }
-            Ok(None) => {
-                // Storage doesn't support presigned URLs, fallback to proxy
-                log::debug!("Storage doesn't support presigned URLs, using proxy");
-            }
-            Err(e) => {
-                // Presigning failed, fallback to proxy
-                log::warn!(
-                    "Presigned URL generation failed, falling back to proxy: {}",
-                    e
-                );
-            }
-        }
-    }
-
-    // FALLBACK: Proxy download through backend using STREAMING (for local storage or when presigned URLs disabled/failed)
+    // Proxy download through backend using STREAMING
     // This streams the file in chunks (~8KB) without loading the entire file into memory
 
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
@@ -4765,49 +4708,7 @@ pub async fn download_shared_file(
 
     // Regular file download
 
-    // Try presigned URL redirect if enabled and supported (S3-compatible storage)
-    // This bypasses the proxy and redirects directly to S3/CDN for better performance
-    if state.use_presigned_urls && state.storage.supports_presigned_urls() {
-        match state
-            .storage
-            .presigned_download_url(&storage_path, state.presigned_url_expiry)
-            .await
-        {
-            Ok(Some(mut presigned_url)) => {
-                // Optionally rewrite through CDN for edge caching
-                if let Some(cdn) = &state.cdn_domain {
-                    presigned_url = rewrite_url_to_cdn(&presigned_url, cdn);
-                }
-
-                log::debug!(
-                    "Redirecting shared file download to presigned URL: token={}, file_id={}",
-                    token,
-                    file_id
-                );
-
-                // Return redirect to presigned URL
-                return Ok(axum::response::Response::builder()
-                    .status(StatusCode::TEMPORARY_REDIRECT)
-                    .header(header::LOCATION, &presigned_url)
-                    .header(header::CACHE_CONTROL, "private, max-age=0")
-                    .body(axum::body::Body::empty())
-                    .unwrap());
-            }
-            Ok(None) => {
-                // Storage doesn't support presigned URLs, fallback to proxy
-                log::debug!("Storage doesn't support presigned URLs, using proxy for share");
-            }
-            Err(e) => {
-                // Presigning failed, fallback to proxy
-                log::warn!(
-                    "Presigned URL generation failed for share, falling back to proxy: {}",
-                    e
-                );
-            }
-        }
-    }
-
-    // FALLBACK: Proxy download through backend using STREAMING (for local storage or when presigned URLs disabled/failed)
+    // Proxy download through backend using STREAMING
 
     // Acquire transfer scheduler permit based on file size (prioritizes small files)
     let transfer_permit = state.scheduler.acquire_download_permit(file_size).await;

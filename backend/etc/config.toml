@@ -8,11 +8,6 @@ listen_addr = "0.0.0.0"
 max_concurrent_requests = 1000
 request_timeout_secs = 300
 base_url = "http://localhost:3000"
-
-# 跨域配置
-[cors]
-environment = "development"
-dev_mode = true
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
@@ -68,12 +63,6 @@ url = "redis://:123456@127.0.0.1:6001"
 [extensions]
 webhook_timeout_ms = 5000
 
-# CDN 配置
-[cdn]
-use_presigned_urls = false
-presigned_url_expiry_secs = 3600
-domain = ""
-
 # 传输配置
 [transfer]
 small_concurrent = 50
@@ -123,9 +112,9 @@ redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
 # GitLab API 客户端与 CI/CD 配置
 [gitlab]
 enabled = true
-url = "https://gitlab.com" # GitLab 实例地址（公网或私有化部署地址，如 http://gitlab.example.com）
-token = ""                 # Personal Access Token 或 Project Access Token（需要 api / read_api 权限）
-default_project_id = ""    # 默认项目 ID 或路径（例如 12345 或 "group/project"）
+url = "http://172.16.25.96:800" # GitLab 实例地址（公网或私有化部署地址，如 http://gitlab.example.com）
+token = ""
+default_project_id = "1"    # 默认项目 ID 或路径（例如 12345 或 "group/project"）
 timeout_secs = 30          # 请求超时时间（秒）
 
 # 限流配置

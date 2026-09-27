@@ -69,7 +69,7 @@ pub fn routers(
 
     let max_concurrent_requests = config.web.max_concurrent_requests;
     let request_timeout_secs = config.web.request_timeout_secs;
-    let cors = configure_cors(&config.cors);
+    let cors = configure_cors(&config.web.allowed_origins);
 
     app
         // 请求体大小限制 (500MB，与 nginx 保持一致)
@@ -89,21 +89,17 @@ pub fn routers(
         .layer(cors)
 }
 
-/// 配置生产安全级别的跨域资源共享（CORS）中间件
+/// 配置跨域资源共享（CORS）中间件
 ///
 /// # 安全机制与行为规则
 /// - 严格限制允许的 HTTP 方法（GET, POST, PUT, DELETE, OPTIONS, PATCH）
 /// - 严格限制允许的请求头（Authorization, Content-Type, Accept, Origin, x-requested-with, x-tenant-id）
 /// - 允许携带凭证凭据（allow_credentials: true）
-/// - 针对开发环境（dev_mode = true 或 environment = "development"）：放行 localhost 与 127.0.0.1 常见前端端口以及自定义配置域名
-/// - 针对生产环境：必须配置明确的 `allowed_origins` 白名单；若白名单为空则采取 Fail-safe 原则默认拒绝所有跨域请求，防范 CSRF 与越权攻击
+/// - 根据 `[web].allowed_origins` 白名单进行来源匹配
 /// - 预检请求（Preflight）缓存时长设为 1 小时 (3600s)
-fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLayer {
+fn configure_cors(allowed_origins: &[String]) -> tower_http::cors::CorsLayer {
     use axum::http::{header, HeaderName, Method};
     use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
-
-    let environment = &config.environment;
-    let dev_mode = config.dev_mode;
 
     // Allowed methods - restrict to actual API methods
     let allowed_methods = AllowMethods::list([
@@ -125,30 +121,14 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
         HeaderName::from_static("x-tenant-id"),
     ]);
 
-    // Build origin policy
-    let allow_origin = if dev_mode || environment == "development" {
-        // Development mode: allow localhost origins + any configured origins
-        log::warn!("CORS: Development mode enabled - allowing localhost origins");
+    let origins: Vec<String> = allowed_origins
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
 
-        let mut origins: Vec<String> = vec![
-            "http://localhost:3000".to_string(),
-            "http://localhost:5173".to_string(),
-            "http://localhost:8080".to_string(),
-            "http://127.0.0.1:3000".to_string(),
-            "http://127.0.0.1:5173".to_string(),
-            "http://127.0.0.1:8080".to_string(),
-        ];
-
-        // Add any explicitly configured origins
-        for origin in &config.allowed_origins {
-            let trimmed = origin.trim().to_string();
-            if !trimmed.is_empty() && !origins.contains(&trimmed) {
-                origins.push(trimmed);
-            }
-        }
-
+    let allow_origin = if !origins.is_empty() {
         log::info!("CORS: Allowed origins: {:?}", origins);
-
         AllowOrigin::predicate(move |origin, _| {
             if let Ok(origin_str) = origin.to_str() {
                 origins.iter().any(|allowed| allowed == origin_str)
@@ -156,39 +136,8 @@ fn configure_cors(config: &types::config::CorsConf) -> tower_http::cors::CorsLay
                 false
             }
         })
-    } else if !config.allowed_origins.is_empty() {
-        // Production mode with explicit allowlist
-        let origins: Vec<String> = config
-            .allowed_origins
-            .iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        if origins.is_empty() {
-            log::error!("CORS: CORS_ALLOWED_ORIGINS is empty in production mode!");
-            // Fail safe - block all cross-origin requests
-            AllowOrigin::predicate(|_, _| false)
-        } else {
-            log::info!(
-                "CORS: Production mode with {} allowed origins",
-                origins.len()
-            );
-            AllowOrigin::predicate(move |origin, _| {
-                if let Ok(origin_str) = origin.to_str() {
-                    origins.iter().any(|allowed| allowed == origin_str)
-                } else {
-                    false
-                }
-            })
-        }
     } else {
-        // Production mode without allowlist - fail safe
-        log::error!(
-            "CORS: No CORS_ALLOWED_ORIGINS configured in production mode! \
-            Set CORS_ALLOWED_ORIGINS or enable CORS_DEV_MODE=true for development."
-        );
-        // Block all cross-origin requests
+        log::warn!("CORS: No allowed_origins configured in [web]! Blocking cross-origin requests.");
         AllowOrigin::predicate(|_, _| false)
     };
 

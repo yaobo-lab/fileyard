@@ -52,10 +52,6 @@ pub struct AppState {
     pub redis_url: String,
     pub cache: Option<Cache>,
     pub extension_webhook_timeout_ms: u64,
-    // CDN / Presigned URL configuration
-    pub use_presigned_urls: bool,
-    pub presigned_url_expiry: u64,
-    pub cdn_domain: Option<String>,
     // Transfer scheduling for downloads/uploads
     pub scheduler: Arc<TransferScheduler>,
     // S3 Replication configuration
@@ -179,18 +175,6 @@ pub async fn run() {
     log::info!("Database connected successfully with optimized pool settings");
     let store = app_entity::DataStore::new(db.clone());
 
-    // CDN / Presigned URL configuration (optional, disabled by default for backwards compatibility)
-    let use_presigned_urls = config.cdn.use_presigned_urls;
-    let presigned_url_expiry = config.cdn.presigned_url_expiry_secs;
-    let cdn_domain = config.cdn.domain.clone();
-
-    if use_presigned_urls {
-        log::info!(
-            "Presigned URLs enabled (expiry: {}s, CDN: {:?})",
-            presigned_url_expiry,
-            cdn_domain
-        );
-    }
 
     // Initialize transfer scheduler for prioritized downloads/uploads
     let scheduler = Arc::new(TransferScheduler::with_config(
@@ -315,9 +299,6 @@ pub async fn run() {
         redis_url: redis_url.clone(),
         cache,
         extension_webhook_timeout_ms,
-        use_presigned_urls,
-        presigned_url_expiry,
-        cdn_domain,
         scheduler,
         replication_config: replication_config.clone(),
         virus_scan_config: virus_scan_config.clone(),

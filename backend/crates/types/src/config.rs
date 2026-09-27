@@ -11,13 +11,11 @@ pub struct Conf {
     pub storage: StorageConf,
     pub redis: RedisConf,
     pub extensions: ExtensionsConf,
-    pub cdn: CdnConf,
     pub transfer: TransferConf,
     pub replication: ReplicationConf,
     pub virus_scan: VirusScanConf,
     pub backup: BackupConf,
     pub api_usage: ApiUsageConf,
-    pub cors: CorsConf,
     pub auth: AuthConf,
     #[serde(default)]
     pub wecom: WeComConf,
@@ -53,6 +51,8 @@ pub struct WebServerConf {
     pub max_concurrent_requests: usize,
     pub request_timeout_secs: u64,
     pub base_url: String,
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 impl WebServerConf {
@@ -94,13 +94,6 @@ pub struct RedisConf {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionsConf {
     pub webhook_timeout_ms: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CdnConf {
-    pub use_presigned_urls: bool,
-    pub presigned_url_expiry_secs: u64,
-    pub domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,13 +139,6 @@ pub struct BackupConf {
 pub struct ApiUsageConf {
     pub enabled: bool,
     pub sample_rate: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CorsConf {
-    pub environment: String,
-    pub dev_mode: bool,
-    pub allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
