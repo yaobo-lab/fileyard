@@ -90,11 +90,18 @@ pub async fn run() {
         .filter(|key| !key.is_empty());
 
     let storage: Arc<dyn Storage> = if storage_type == "s3" {
-        let bucket = config.storage.s3_bucket.clone();
         if encryption_key.is_some() {
             log::info!("S3 storage uses provider-side encryption (ENCRYPTION_KEY ignored for S3)");
         }
-        Arc::new(S3Storage::new(bucket).await)
+        Arc::new(
+            S3Storage::new(
+                &config.storage.s3_bucket,
+                &config.storage.s3_endpoint,
+                &config.storage.s3_access_key,
+                &config.storage.s3_access_secret,
+            )
+            .await,
+        )
     } else {
         // Local storage - optionally enable ChaCha20-Poly1305 encryption
         if let Some(ref key_base64) = encryption_key {
@@ -293,13 +300,11 @@ pub async fn run() {
 
     // Create ClamAV circuit breaker if virus scanning is enabled
     let clamav_circuit_breaker = if virus_scan_config.enabled {
-        Some(Arc::new(
-            app_core::circuit_breaker::CircuitBreaker::new(
-                "clamav", 5,  // failure threshold - opens after 5 consecutive failures
-                30, // recovery timeout - tries half-open after 30 seconds
-                3,  // success threshold - closes after 3 successes in half-open
-            ),
-        ))
+        Some(Arc::new(app_core::circuit_breaker::CircuitBreaker::new(
+            "clamav", 5,  // failure threshold - opens after 5 consecutive failures
+            30, // recovery timeout - tries half-open after 30 seconds
+            3,  // success threshold - closes after 3 successes in half-open
+        )))
     } else {
         None
     };
@@ -502,7 +507,11 @@ pub async fn run() {
         let mqtt_plugins_dir = config.mqtt.plugins_dir.clone();
         let mqtt_api = mqtt_api.clone();
         tokio::spawn(async move {
-            log::info!("正在启动内置 MQTT 服务器 (配置: {}, 插件目录: {})...", mqtt_config_path, mqtt_plugins_dir);
+            log::info!(
+                "正在启动内置 MQTT 服务器 (配置: {}, 插件目录: {})...",
+                mqtt_config_path,
+                mqtt_plugins_dir
+            );
             if let Err(e) = mqttd::server::run_server_with_api(
                 &mqtt_config_path,
                 Some(&mqtt_plugins_dir),

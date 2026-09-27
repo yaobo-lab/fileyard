@@ -1,4 +1,4 @@
-﻿//! File Comments API Handlers
+//! File Comments API Handlers
 //!
 //! Provides CRUD operations for file comments with proper access control.
 
@@ -223,8 +223,7 @@ pub async fn create_comment(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (file_name, file_owner_id) = file_info.ok_or(StatusCode::NOT_FOUND)?;
-    let file_owner_id = file_owner_id.ok_or(StatusCode::NOT_FOUND)?;
+    let (file_name, _) = file_info.ok_or(StatusCode::NOT_FOUND)?;
 
     // Create the comment
     let comment_id = state
@@ -255,33 +254,6 @@ pub async fn create_comment(
         )
         .await;
 
-    // Send Discord notification to file owner (if not commenting on own file)
-    if file_owner_id != auth.user_id {
-        let store_clone = state.store.clone();
-        let commenter_name = auth
-            .email
-            .split('@')
-            .next()
-            .unwrap_or("Someone")
-            .to_string();
-        let content_preview = if content.len() > 100 {
-            format!("{}...", &content[..100])
-        } else {
-            content.to_string()
-        };
-
-        tokio::spawn(async move {
-            crate::discord::notify_comment(
-                &store_clone,
-                tenant_id,
-                file_owner_id,
-                &file_name,
-                &commenter_name,
-                &content_preview,
-            )
-            .await;
-        });
-    }
 
     // Get user info for response
     let user_name = state

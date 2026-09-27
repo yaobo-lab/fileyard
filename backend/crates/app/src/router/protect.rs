@@ -1,7 +1,7 @@
 use crate::{
     api::{
         ai, api_usage, app_manage, approvals, audit, auth, comments, compliance, config_manage,
-        cron, dashboard, departments, discord, email_templates, file_requests, gitlab,
+        cron, dashboard, departments, email_templates, file_requests, gitlab,
         global_settings, groups, handlers, health, notifications, oidc, roles, saml, search,
         security, settings, settings_backup, sharing, sso_mappings, tenants, users, virus_scan,
     },
@@ -44,7 +44,6 @@ use std::sync::Arc;
 /// - 回收站管理与文件恢复/彻底清除
 /// - 定时后台清理任务（Cron）
 /// - AI 智能增强特性（文本提取、智能摘要、智能问答、语义搜索）
-/// - Discord OAuth 绑定与 DM 机器人通知
 /// - OIDC 与 SAML 身份提供商企业级管理与属性映射
 pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
     Router::new()
@@ -692,21 +691,6 @@ pub(super) fn build_protect_routes(app_state: &Arc<AppState>) -> Router {
         .route("/api/ai/answer", post(ai::answer_question))
         .route("/api/ai/search", post(ai::semantic_search))
         .route("/api/ai/providers", get(ai::get_providers))
-        // Discord OAuth & DM Notifications
-        .route("/api/discord/settings", get(discord::get_discord_settings))
-        .route(
-            "/api/discord/settings/update",
-            post(discord::update_discord_settings),
-        )
-        .route("/api/discord/status", get(discord::get_connection_status))
-        .route("/api/discord/connect", get(discord::start_oauth))
-        .route("/api/discord/callback", get(discord::oauth_callback))
-        .route("/api/discord/disconnect", post(discord::disconnect))
-        .route(
-            "/api/discord/preferences",
-            post(discord::update_preferences),
-        )
-        .route("/api/discord/test", post(discord::test_connection))
         // OIDC SSO Provider Management (SuperAdmin)
         .route(
             "/api/oidc/providers",

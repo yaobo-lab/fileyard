@@ -2,6 +2,7 @@ use super::traits::{FileMetadata, Storage, StorageByteStream};
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
+use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::{config::Region, Client};
@@ -18,20 +19,39 @@ pub struct S3Storage {
 
 impl S3Storage {
     /// 基于指定 Bucket 名称与环境变量默认配置初始化 S3 客户端
-    pub async fn new(bucket: String) -> Self {
+    pub async fn new<T>(bucket: T, endpoint_url: T, access_key: T, access_secret: T) -> Self
+    where
+        T: Into<String>,
+    {
         let region_provider =
             RegionProviderChain::default_provider().or_else(Region::new("us-east-1"));
+
+        let credentials_provider = Credentials::new(
+            access_key,
+            access_secret,
+            None,        // session_token, not needed for static credentials
+            None,        // provider chain, we provide our own
+            "rustfs-s3", // service name
+        );
+
         let config = aws_config::defaults(BehaviorVersion::latest())
+            .endpoint_url(endpoint_url)
+            .credentials_provider(credentials_provider)
             .region(region_provider)
             .load()
             .await;
+
         let client = Client::new(&config);
-        Self { client, bucket }
+        Self {
+            client,
+            bucket: bucket.into(),
+        }
     }
 }
 
 #[async_trait]
 impl Storage for S3Storage {
+    //Object Key
     async fn upload(
         &self,
         key: &str,
@@ -41,6 +61,7 @@ impl Storage for S3Storage {
         self.client
             .put_object()
             .bucket(&self.bucket)
+            //Object Key
             .key(key)
             .body(body)
             .send()

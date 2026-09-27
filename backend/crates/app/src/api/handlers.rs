@@ -4527,21 +4527,6 @@ pub async fn create_file_share(
             });
         }
 
-        // Send Discord notification
-        let store = state.store.clone();
-        let file_name_clone = file_name.clone();
-        let link_clone = share_link.clone();
-        tokio::spawn(async move {
-            crate::discord::notify_file_shared(
-                &store,
-                tenant_id,
-                recipient_id,
-                &file_name_clone,
-                &sharer_name,
-                Some(&link_clone),
-            )
-            .await;
-        });
     }
 
     Ok(Json(json!({

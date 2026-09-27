@@ -81,6 +81,9 @@ pub struct StorageConf {
     pub local_path: String,
     pub encryption_key: Option<String>,
     pub s3_bucket: String,
+    pub s3_endpoint: String,
+    pub s3_access_key: String,
+    pub s3_access_secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,13 +162,6 @@ pub struct AuthConf {
     pub jwt_issuer: String,
     pub jwt_audience: String,
     pub jwt_expiry_secs: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscordConf {
-    pub client_id: String,
-    pub client_secret: String,
-    pub redirect_uri: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

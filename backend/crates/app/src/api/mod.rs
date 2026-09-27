@@ -11,7 +11,6 @@ pub mod config_manage;
 pub mod cron;
 pub mod dashboard;
 pub mod departments;
-pub mod discord;
 pub mod email_templates;
 pub mod extensions;
 pub mod file_requests;
