@@ -1,3 +1,4 @@
+# 重置密码，企业微信服务跳转地址
 frontend_url = "http://localhost:5173"
 
 [web]
@@ -18,7 +19,6 @@ max_lifetime_secs = 1800
 [storage]
 kind = "local"
 local_path = "uploads"
-
 encryption_key = ""
 s3_bucket = "clovalink-bucket"
 
@@ -39,6 +39,10 @@ medium_concurrent = 20
 large_concurrent = 5
 large_bandwidth_mbps = 50
 
+# 当用户在主存储上传（或删除）文件时，
+# 系统会在后台通过任务队列异步将文件同步到一个从属的 S3 兼容存储桶
+#（如 AWS S3、MinIO、Cloudflare R2、Ceph 等），
+# 实现跨云/跨地域的数据容灾与冷备
 [replication]
 enabled = false
 endpoint = ""
@@ -75,10 +79,6 @@ jwt_issuer = "clovalink"
 jwt_audience = "clovalink-api"
 jwt_expiry_secs = 604800
 
-[discord]
-client_id = ""
-client_secret = ""
-redirect_uri = ""
 
 [wecom]
 # 企业微信扫码登录配置
@@ -89,6 +89,7 @@ agent_id = "1000015"                                           # 自建固件 Ag
 corp_secret = "uRywD4tMDiKOZCOgFJ6yb2jZDd7D743M-pgapQ0fmPQ"    # 自建固件 Secret
 redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
 
+
 [gitlab]
 # GitLab API 客户端与 CI/CD 配置
 enabled = true
@@ -96,6 +97,7 @@ url = "https://gitlab.com" # GitLab 实例地址（公网或私有化部署地�
 token = ""                 # Personal Access Token 或 Project Access Token（需要 api / read_api 权限）
 default_project_id = ""    # 默认项目 ID 或路径（例如 12345 或 "group/project"）
 timeout_secs = 30          # 请求超时时间（秒）
+
 
 [rate_limit]
 trust_all_proxies = false
@@ -155,4 +157,3 @@ enabled = true
 config_path = "etc/mqttd.toml"
 # MQTT 插件配置文件所在目录
 plugins_dir = "etc/plugins"
-

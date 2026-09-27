@@ -1,4 +1,4 @@
-﻿mod auth;
+mod auth;
 mod extensions;
 mod health;
 mod protect;
@@ -17,7 +17,7 @@ use crate::{
     AppState,
 };
 use app_extensions::routes::ExtensionState;
-use axum::Router;
+use axum::{http::StatusCode, Router};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,9 +77,10 @@ pub fn routers(
             500 * 1024 * 1024,
         ))
         // 请求超时
-        .layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-            request_timeout_secs,
-        )))
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(request_timeout_secs),
+        ))
         // 并发上限
         .layer(tower::limit::ConcurrencyLimitLayer::new(
             max_concurrent_requests,

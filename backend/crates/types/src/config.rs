@@ -19,7 +19,6 @@ pub struct Conf {
     pub api_usage: ApiUsageConf,
     pub cors: CorsConf,
     pub auth: AuthConf,
-    pub discord: DiscordConf,
     #[serde(default)]
     pub wecom: WeComConf,
     #[serde(default)]
