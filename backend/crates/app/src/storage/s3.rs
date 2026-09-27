@@ -41,10 +41,34 @@ impl S3Storage {
             .load()
             .await;
 
-        let client = Client::new(&config);
+        let s3_config = aws_sdk_s3::config::Builder::from(&config)
+            .force_path_style(true)
+            .build();
+
+        let client = Client::from_conf(s3_config);
+        let bucket_str = bucket.into();
+
+        // 检查 Bucket 是否存在，若不存在则尝试自动创建（避免 NoSuchBucket 错误）
+        if let Err(err) = client.head_bucket().bucket(&bucket_str).send().await {
+            log::info!(
+                "S3 Bucket '{}' does not exist or cannot be accessed ({:?}), attempting to create...",
+                bucket_str,
+                err
+            );
+            if let Err(create_err) = client.create_bucket().bucket(&bucket_str).send().await {
+                log::warn!(
+                    "Failed to auto-create bucket '{}': {:?}",
+                    bucket_str,
+                    create_err
+                );
+            } else {
+                log::info!("S3 Bucket '{}' created successfully", bucket_str);
+            }
+        }
+
         Self {
             client,
-            bucket: bucket.into(),
+            bucket: bucket_str,
         }
     }
 }

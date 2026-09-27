@@ -31,15 +31,34 @@ max_lifetime_secs = 1800
 
 # 存储配置
 [storage]
-kind = "local"
+# local s3
+kind = "s3"
 local_path = "uploads"
 encryption_key = ""
 
 # s3 配置
-s3_bucket = "fileyard-bucket"
-s3_endpoint = ""
-s3_access_key = ""
-s3_access_secret = ""
+s3_bucket = "fileyard"
+s3_endpoint = "http://127.0.0.1:9000"
+s3_access_key = "fileyard"
+s3_access_secret = "eQwqw8mk8xo87ExyoR5b3HUUB1C5RLBEWgbZWfPL"
+
+
+# 当用户在主存储上传（或删除）文件时，
+# 系统会在后台通过任务队列异步将文件同步到一个从属的 S3 兼容存储桶
+#（如 AWS S3、MinIO、Cloudflare R2、Ceph 等），
+# 实现跨云/跨地域的数据容灾与冷备
+[replication]
+enabled = true
+endpoint = "http://127.0.0.1:9000"
+bucket = "fileyard-backup"
+region = "us-east-1"
+access_key = "fileyard"
+secret_key = "eQwqw8mk8xo87ExyoR5b3HUUB1C5RLBEWgbZWfPL"
+mode = "backup"
+retry_seconds = 60
+workers = 4
+max_retries = 5
+
 
 #缓存配置
 [redis]
@@ -61,22 +80,6 @@ small_concurrent = 50
 medium_concurrent = 20
 large_concurrent = 5
 large_bandwidth_mbps = 50
-
-# 当用户在主存储上传（或删除）文件时，
-# 系统会在后台通过任务队列异步将文件同步到一个从属的 S3 兼容存储桶
-#（如 AWS S3、MinIO、Cloudflare R2、Ceph 等），
-# 实现跨云/跨地域的数据容灾与冷备
-[replication]
-enabled = false
-endpoint = ""
-bucket = ""
-region = "us-east-1"
-access_key = ""
-secret_key = ""
-mode = "backup"
-retry_seconds = 60
-workers = 4
-max_retries = 5
 
 #  文件杀毒配置
 [virus_scan]
