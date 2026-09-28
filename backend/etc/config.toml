@@ -113,7 +113,7 @@ redirect_uri = "http://localhost:8081/api/auth/wecom/callback"
 [gitlab]
 enabled = true
 url = "http://172.16.25.96:800" # GitLab 实例地址（公网或私有化部署地址，如 http://gitlab.example.com）
-token = ""
+token = ""                 # Personal Access Token 或 Project Access Token（需要 api / read_api 权限）
 default_project_id = "1"    # 默认项目 ID 或路径（例如 12345 或 "group/project"）
 timeout_secs = 30          # 请求超时时间（秒）
 

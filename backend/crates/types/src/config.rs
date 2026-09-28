@@ -216,7 +216,7 @@ pub fn init_config(config: Conf) -> AppResult<()> {
 
 pub fn get_config() -> &'static Conf {
     CONFIG.get_or_init(|| {
-        read_config("etc/config.toml").unwrap_or_else(|_| {
+        let mut config: Conf = read_config("etc/config.toml").unwrap_or_else(|_| {
             let workspace_config = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../..")
                 .join("etc/config.toml");
@@ -226,7 +226,15 @@ pub fn get_config() -> &'static Conf {
                     .expect("Configuration path is not valid UTF-8"),
             )
             .expect("Failed to read etc/config.toml")
-        })
+        });
+
+        if let Ok(token) = std::env::var("FILEYARD_GITLAB_TOKEN") {
+            if !token.trim().is_empty() {
+                config.gitlab.token = token;
+            }
+        }
+
+        config
     })
 }
 
