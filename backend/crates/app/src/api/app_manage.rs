@@ -267,7 +267,11 @@ pub async fn create_app(
     // 2. 固件目录：{inserted.name}
     // 3. 三个默认子目录：需求文档、bug记录、固件文件
     if let Err(err) = init_firmware_folders(&state, &auth, &inserted.name).await {
-        log::warn!("Failed to auto-create firmware folders for app {}: {:?}", inserted.name, err);
+        log::warn!(
+            "Failed to auto-create firmware folders for app {}: {:?}",
+            inserted.name,
+            err
+        );
     }
 
     Ok(Json(json!({
@@ -287,7 +291,6 @@ async fn init_firmware_folders(
     let tenant_id = auth.tenant_id;
     let user_id = auth.user_id;
 
-
     async fn ensure_single_folder(
         state: &Arc<AppState>,
         tenant_id: uuid::Uuid,
@@ -296,7 +299,12 @@ async fn init_firmware_folders(
         parent_path: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 先查是否已存在同名目录
-        if let Ok(Some(_)) = state.store.files().find_folder(tenant_id, name, parent_path).await {
+        if let Ok(Some(_)) = state
+            .store
+            .files()
+            .find_folder(tenant_id, name, parent_path)
+            .await
+        {
             return Ok(());
         }
 
@@ -492,16 +500,56 @@ pub async fn delete_app(
 
 /// 智能家居专业产品固件分类定义
 const SMART_HOME_CLASSES: &[(&str, &str, &str)] = &[
-    ("CLS-LIGHTING", "照明类别", "智能调光驱动、智能开关、RGBW调色控制器、DALI/DMX驱动等照明控制系统"),
-    ("CLS-CURTAIN", "窗帘类别", "智能开合帘电机、电动卷帘、百叶帘控制器、智能推窗器等遮阳驱动系统"),
-    ("CLS-PANEL", "中控类别", "智能中控大屏、智慧语音面板、全屋场景开关、多功能触摸控制屏"),
-    ("CLS-GATEWAY", "网关类别", "多协议智能网关、KNX/Zigbee/Matter/RS485总线网关、边缘主机"),
-    ("CLS-HVAC", "暖通类别", "中央空调VRV网关、智能地暖温控器、新风系统控制器、环境温湿度控制"),
-    ("CLS-SECURITY", "安防类别", "人体存在探测器、门窗磁传感器、烟雾报警器、燃气报警器、水浸报警器"),
-    ("CLS-DOORLOCK", "门锁类别", "3D人脸识别视频锁、指纹密码锁、智能可视门铃、智能猫眼、门禁控制系统"),
-    ("CLS-SENSOR", "传感类别", "高精度温湿度传感器、环境照度传感器、空气质量PM2.5/CO2传感器、跌倒雷达"),
-    ("CLS-MEDIA", "影音类别", "背景音乐主机、分布式功放系统、家庭影院控制器、红外万能遥控转发模块"),
-    ("CLS-POWER", "电工类别", "智能墙面插座、导轨式微型断路器、智能计量电表、配电箱控制模块"),
+    (
+        "CLS-LIGHTING",
+        "照明类别",
+        "智能调光驱动、智能开关、RGBW调色控制器、DALI/DMX驱动等照明控制系统",
+    ),
+    (
+        "CLS-CURTAIN",
+        "窗帘类别",
+        "智能开合帘电机、电动卷帘、百叶帘控制器、智能推窗器等遮阳驱动系统",
+    ),
+    (
+        "CLS-PANEL",
+        "中控类别",
+        "智能中控大屏、智慧语音面板、全屋场景开关、多功能触摸控制屏",
+    ),
+    (
+        "CLS-GATEWAY",
+        "网关类别",
+        "多协议智能网关、KNX/Zigbee/Matter/RS485总线网关、边缘主机",
+    ),
+    (
+        "CLS-HVAC",
+        "暖通类别",
+        "中央空调VRV网关、智能地暖温控器、新风系统控制器、环境温湿度控制",
+    ),
+    (
+        "CLS-SECURITY",
+        "安防类别",
+        "人体存在探测器、门窗磁传感器、烟雾报警器、燃气报警器、水浸报警器",
+    ),
+    (
+        "CLS-DOORLOCK",
+        "门锁类别",
+        "3D人脸识别视频锁、指纹密码锁、智能可视门铃、智能猫眼、门禁控制系统",
+    ),
+    (
+        "CLS-SENSOR",
+        "传感类别",
+        "高精度温湿度传感器、环境照度传感器、空气质量PM2.5/CO2传感器、跌倒雷达",
+    ),
+    (
+        "CLS-MEDIA",
+        "影音类别",
+        "背景音乐主机、分布式功放系统、家庭影院控制器、红外万能遥控转发模块",
+    ),
+    (
+        "CLS-POWER",
+        "电工类别",
+        "智能墙面插座、导轨式微型断路器、智能计量电表、配电箱控制模块",
+    ),
 ];
 
 /// 自动同步与清洗智能家居分类体系
@@ -1091,6 +1139,39 @@ async fn get_gitlab_id_by_appno(
     Ok(gitlab_id.to_string())
 }
 
+async fn get_gitlab_default_branch(gitlab_id: &str) -> Result<String, (StatusCode, Json<Value>)> {
+    let path = format!("/projects/{}", urlencoding::encode(gitlab_id));
+    let res = gitlab_api_request(reqwest::Method::GET, &path, None).await?;
+    let status = res.status();
+    let project: Value = res.json().await.unwrap_or_default();
+
+    if !status.is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": "gitlab_project_error",
+                "message": project.get("message").and_then(Value::as_str).unwrap_or("无法读取 GitLab 项目信息")
+            })),
+        ));
+    }
+
+    project
+        .get("default_branch")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "error": "gitlab_default_branch_empty",
+                    "message": "GitLab 项目未设置默认分支"
+                })),
+            )
+        })
+}
+
 /// GET /api/gitlab/{appno}/branches
 pub async fn get_app_branches(
     State(state): State<Arc<AppState>>,
@@ -1127,7 +1208,7 @@ pub async fn get_app_ci_file(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let gitlab_id = get_gitlab_id_by_appno(&state, &appno).await?;
 
-    let branch = if let Some(ref dno) = query.deployno {
+    let configured_branch = if let Some(ref dno) = query.deployno {
         let deploy = app_deploy::Entity::find()
             .filter(app_deploy::Column::AppNo.eq(&appno))
             .filter(app_deploy::Column::Number.eq(dno))
@@ -1139,28 +1220,51 @@ pub async fn get_app_ci_file(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({ "error": "db_error", "message": e.to_string() })),
                 )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({
+                        "error": "deploy_not_found",
+                        "message": "所选编译环境不存在或已删除"
+                    })),
+                )
             })?;
 
-        deploy
-            .map(|d| d.branch_name)
-            .unwrap_or_else(|| "master".to_string())
+        Some(deploy.branch_name)
     } else {
-        query.branch.unwrap_or_else(|| "master".to_string())
+        query.branch
+    };
+
+    let branch = match configured_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+    {
+        Some(branch) => branch.to_string(),
+        None => get_gitlab_default_branch(&gitlab_id).await?,
     };
 
     let path = format!(
-        "/projects/{}/repository/files/.gitlab-ci%2Eyml/raw?ref={}",
+        "/projects/{}/repository/files/.gitlab-ci.yml/raw?ref={}",
         urlencoding::encode(&gitlab_id),
         urlencoding::encode(&branch)
     );
 
     let res = gitlab_api_request(reqwest::Method::GET, &path, None).await?;
     if !res.status().is_success() {
-        return Ok(Json(json!({
-            "code": 200,
-            "message": "未找到 .gitlab-ci.yml 文件",
-            "data": ""
-        })));
+        let status = res.status();
+        let upstream_error = res.text().await.unwrap_or_default();
+        return Err((
+            status,
+            Json(json!({
+                "error": "gitlab_ci_file_not_found",
+                "message": format!(
+                    "分支 '{}' 中未找到 .gitlab-ci.yml：{}",
+                    branch, upstream_error
+                )
+            })),
+        ));
     }
 
     let content = res.text().await.unwrap_or_default();

@@ -102,6 +102,53 @@ fn normalize_project_id(id: &str) -> String {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct ParsedGitlabUrl {
+    base_url: String,
+    host: String,
+    insecure: bool,
+}
+
+fn parse_gitlab_url(value: &str) -> Result<ParsedGitlabUrl, String> {
+    let value = value.trim();
+    let parsed =
+        url::Url::parse(value).map_err(|e| format!("Invalid GitLab URL '{}': {}", value, e))?;
+
+    let insecure = match parsed.scheme() {
+        "http" => true,
+        "https" => false,
+        scheme => {
+            return Err(format!(
+                "Unsupported GitLab URL scheme '{}'; expected http or https",
+                scheme
+            ))
+        }
+    };
+
+    if parsed.host_str().is_none() {
+        return Err("GitLab URL must include a host".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("GitLab URL must not include credentials".to_string());
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("GitLab URL must not include a query string or fragment".to_string());
+    }
+
+    let base_url = parsed.as_str().trim_end_matches('/').to_string();
+    let scheme_prefix = format!("{}://", parsed.scheme());
+    let host = base_url
+        .strip_prefix(&scheme_prefix)
+        .expect("parsed URL starts with its scheme")
+        .to_string();
+
+    Ok(ParsedGitlabUrl {
+        base_url,
+        host,
+        insecure,
+    })
+}
+
 /// 解析并构造异步 GitLab 客户端
 pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (StatusCode, Json<Value>)>
 {
@@ -128,24 +175,36 @@ pub async fn get_gitlab_client() -> Result<(AsyncGitlab, String, String), (Statu
         ));
     }
 
-    let url_str = gitlab_conf.url.trim_end_matches('/');
-    let client = gitlab::GitlabBuilder::new(url_str, gitlab_conf.token.trim())
-        .build_async()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to create GitLab async client: {:?}", e);
-            (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({
-                    "error": "gitlab_client_error",
-                    "message": format!("Failed to connect to GitLab: {}", e)
-                })),
-            )
-        })?;
+    let parsed_url = parse_gitlab_url(&gitlab_conf.url).map_err(|message| {
+        log::error!("Invalid GitLab URL configuration: {}", message);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "gitlab_invalid_url",
+                "message": message
+            })),
+        )
+    })?;
+
+    let mut builder = gitlab::GitlabBuilder::new(&parsed_url.host, gitlab_conf.token.trim());
+    if parsed_url.insecure {
+        builder.insecure();
+    }
+
+    let client = builder.build_async().await.map_err(|e| {
+        log::error!("Failed to create GitLab async client: {:?}", e);
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": "gitlab_client_error",
+                "message": format!("Failed to connect to GitLab: {}", e)
+            })),
+        )
+    })?;
 
     Ok((
         client,
-        url_str.to_string(),
+        parsed_url.base_url,
         gitlab_conf.token.trim().to_string(),
     ))
 }
@@ -669,5 +728,45 @@ pub async fn lint_ci_file(
         Ok(Json(val))
     } else {
         Err((status, Json(val)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_gitlab_url;
+
+    #[test]
+    fn parses_http_gitlab_url_with_port() {
+        let parsed = parse_gitlab_url(" http://172.16.25.96:800/ ").unwrap();
+
+        assert_eq!(parsed.base_url, "http://172.16.25.96:800");
+        assert_eq!(parsed.host, "172.16.25.96:800");
+        assert!(parsed.insecure);
+    }
+
+    #[test]
+    fn parses_https_gitlab_url_with_subpath() {
+        let parsed = parse_gitlab_url("https://gitlab.example.com/code/").unwrap();
+
+        assert_eq!(parsed.base_url, "https://gitlab.example.com/code");
+        assert_eq!(parsed.host, "gitlab.example.com/code");
+        assert!(!parsed.insecure);
+    }
+
+    #[test]
+    fn rejects_gitlab_url_without_http_scheme() {
+        let error = parse_gitlab_url("gitlab.example.com").unwrap_err();
+
+        assert!(error.starts_with("Invalid GitLab URL"));
+    }
+
+    #[test]
+    fn rejects_gitlab_url_with_query() {
+        let error = parse_gitlab_url("https://gitlab.example.com?foo=bar").unwrap_err();
+
+        assert_eq!(
+            error,
+            "GitLab URL must not include a query string or fragment"
+        );
     }
 }
