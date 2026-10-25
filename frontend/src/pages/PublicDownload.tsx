@@ -4,6 +4,7 @@ import { Download, FileText, Shield, AlertCircle, Loader2, Lock, Clock, Users, A
 import { FileSystemFolderGlyph, FileGenericPaper } from '../components/FileGlyphs';
 import clsx from 'clsx';
 import { useAuth } from '../context/AuthContext';
+import { getApiUrl } from '../lib/utils';
 import { useI18n, useTranslations } from '../context/I18nContext';
 
 interface ShareInfo {
@@ -37,7 +38,7 @@ export function PublicDownload() {
 
     const fetchShareInfo = async () => {
         try {
-            const API_URL = import.meta.env.VITE_API_URL || '';
+            const API_URL = getApiUrl();
             const response = await fetch(`${API_URL}/api/share/${token}/info`);
             
             if (response.ok) {
@@ -72,7 +73,7 @@ export function PublicDownload() {
         setDownloading(true);
         
         try {
-            const API_URL = import.meta.env.VITE_API_URL || '';
+            const API_URL = getApiUrl();
             const headers: Record<string, string> = {};
             
             // Add auth header if logged in (for private shares)

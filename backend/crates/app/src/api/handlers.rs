@@ -578,8 +578,15 @@ pub async fn upload_file(
             content_key.clone()
         };
 
-        // Only upload if content doesn't already exist in storage
-        if existing_content.is_none() {
+        // Check if content actually exists in underlying storage
+        let exists_in_storage = if existing_content.is_some() {
+            state.storage.exists(&key).await.unwrap_or(false)
+        } else {
+            false
+        };
+
+        // Only upload if content doesn't physically exist in storage
+        if !exists_in_storage {
             // Acquire transfer scheduler permit based on file size (prioritizes small files)
             let transfer_permit = state.scheduler.acquire_upload_permit(Some(size)).await;
             log::debug!(
@@ -1891,7 +1898,7 @@ pub async fn download_file(
             .download_stream(&storage_path)
             .await
             .map_err(|e| {
-                log::error!("Failed to open file stream: {}", e);
+                log::error!("Failed to open file stream for '{}': {:?}", storage_path, e);
                 StatusCode::NOT_FOUND
             })?;
 

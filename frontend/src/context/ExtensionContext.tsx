@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { getApiUrl } from '@/lib/utils';
 
 // Types for extensions
 export interface Extension {
@@ -140,7 +141,7 @@ interface ExtensionContextType {
 
 const ExtensionContext = createContext<ExtensionContextType | null>(null);
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = getApiUrl();
 
 export function ExtensionProvider({ children }: { children: ReactNode }) {
     const { token } = useAuth();

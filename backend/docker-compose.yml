@@ -1,0 +1,16 @@
+services:
+  fileyard-backend:
+    container_name: fileyard-backend
+    hostname: fileyard-backend
+    image: crpi-p35inr9lrgirg3t0.cn-hangzhou.personal.cr.aliyuncs.com/yaobo-box/fileyard-backend:1.0.2
+    user: root
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    volumes:
+      - ./etc:/app/etc
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads

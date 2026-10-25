@@ -29,8 +29,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { WeComLoginModal } from '@/components/WeComLoginModal';
+import { getApiUrl } from '@/lib/utils';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = getApiUrl();
 
 interface SsoProvider {
   id: string;

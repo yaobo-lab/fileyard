@@ -4,6 +4,7 @@ import { UploadCloud, CheckCircle, AlertCircle, File, Shield, Globe } from 'luci
 import clsx from 'clsx';
 import { Logo } from '../components/Logo';
 import { useI18n, useTranslations } from '../context/I18nContext';
+import { getApiUrl } from '../lib/utils';
 
 export function PublicUpload() {
     const { token } = useParams<{ token: string }>();
@@ -51,7 +52,7 @@ export function PublicUpload() {
             const formData = new FormData();
             formData.append('file', file);
 
-            const API_URL = import.meta.env.VITE_API_URL || '';
+            const API_URL = getApiUrl();
             const response = await fetch(`${API_URL}/api/public-upload/${token}`, {
                 method: 'POST',
                 body: formData,

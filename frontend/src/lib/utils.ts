@@ -6,6 +6,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * 获取后端 API 地址：
+ * 优先取运行时 window.__APP_CONFIG__?.API_URL，若无则取构建期环境变量 VITE_API_URL，均无则默认为空字符串（同域相对路径）
+ */
+export function getApiUrl(): string {
+  if (typeof window !== 'undefined' && window.__APP_CONFIG__?.API_URL !== undefined) {
+    return window.__APP_CONFIG__.API_URL;
+  }
+  return import.meta.env.VITE_API_URL || '';
+}
+
+/**
  * Copy text to clipboard reliably across all browsers and contexts (HTTP/HTTPS/iframe)
  */
 export async function copyToClipboard(text: string): Promise<boolean> {

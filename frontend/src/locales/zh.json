@@ -71,7 +71,7 @@
     "fileRequests": "文件收集",
     "extensions": "固件扩展",
     "companies": "企业管理",
-    "apps": "固件管理",
+    "apps": "固件发布",
     "configs": "配置管理",
     "users": "用户管理",
     "roles": "角色权限",
@@ -2075,8 +2075,8 @@
     "complianceRestrictedHint": "部分系统配置因监管合规要求已被系统锁定。"
   },
   "Login": {
-    "welcomeTitle": "欢迎使用 Fileyard",
-    "welcomeSubtitle": "安全的文件共享、管理与协同平台",
+    "welcomeTitle": "欢迎使用-嵌软CICD平台",
+    "welcomeSubtitle": "高效的构建产物归档、固件发布与研发协同平台",
     "signInTitle": "登录",
     "signInSubtitle": "输入您的账号凭据以访问工作区。",
     "twoFactorTitle": "两步验证 (2FA)",

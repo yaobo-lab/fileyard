@@ -164,7 +164,7 @@ export function AppsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
             <Boxes className="w-6 h-6 text-primary" />
-            固件管理
+            固件发布
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             统一维护固件、编译环境、流水线

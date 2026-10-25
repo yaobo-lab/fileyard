@@ -50,9 +50,15 @@ pub struct WebServerConf {
     pub listen_addr: String,
     pub max_concurrent_requests: usize,
     pub request_timeout_secs: u64,
+    #[serde(default = "default_upload_timeout_secs")]
+    pub upload_timeout_secs: u64,
     pub base_url: String,
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+}
+
+fn default_upload_timeout_secs() -> u64 {
+    30 * 60
 }
 
 impl WebServerConf {
@@ -216,17 +222,59 @@ pub fn init_config(config: Conf) -> AppResult<()> {
 
 pub fn get_config() -> &'static Conf {
     CONFIG.get_or_init(|| {
-        let mut config: Conf = read_config("etc/config.toml").unwrap_or_else(|_| {
-            let workspace_config = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join("etc/config.toml");
-            read_config(
-                workspace_config
-                    .to_str()
-                    .expect("Configuration path is not valid UTF-8"),
-            )
-            .expect("Failed to read etc/config.toml")
-        });
+        let current_dir = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "未知".to_string());
+        let relative_path = Path::new("etc/config.toml");
+        let exists = relative_path.exists();
+
+        println!(
+            "[config] 当前工作目录: {}, 检查文件 'etc/config.toml' 是否存在: {}",
+            current_dir, exists
+        );
+
+        let err1 = match read_config::<Conf>("etc/config.toml") {
+            Ok(mut config) => {
+                println!("[config] 成功读取并解析配置文件: etc/config.toml");
+                if let Ok(token) = std::env::var("FILEYARD_GITLAB_TOKEN") {
+                    if !token.trim().is_empty() {
+                        config.gitlab.token = token;
+                    }
+                }
+                return config;
+            }
+            Err(e) => {
+                eprintln!("[config] 读取或解析 'etc/config.toml' 失败: {}", e);
+                e
+            }
+        };
+
+        let workspace_config = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("etc/config.toml");
+        let ws_exists = workspace_config.exists();
+        println!(
+            "[config] 尝试从工作区备用路径读取: {:?}, 是否存在: {}",
+            workspace_config, ws_exists
+        );
+
+        let mut config: Conf = match read_config(
+            workspace_config
+                .to_str()
+                .expect("Configuration path is not valid UTF-8"),
+        ) {
+            Ok(cfg) => {
+                println!("[config] 成功从工作区备用路径加载配置文件: {:?}", workspace_config);
+                cfg
+            }
+            Err(err2) => {
+                eprintln!("[config] 工作区备用路径读取失败: {}", err2);
+                panic!(
+                    "Failed to read etc/config.toml!\n  - Current dir: {}\n  - Relative path ('etc/config.toml', exists: {}) error: {}\n  - Workspace fallback path ({:?}, exists: {}) error: {}",
+                    current_dir, exists, err1, workspace_config, ws_exists, err2
+                );
+            }
+        };
 
         if let Ok(token) = std::env::var("FILEYARD_GITLAB_TOKEN") {
             if !token.trim().is_empty() {

@@ -1,0 +1,15 @@
+services:
+    fileyard-frontend:
+        container_name: fileyard-frontend
+        hostname: fileyard-frontend
+        image: crpi-p35inr9lrgirg3t0.cn-hangzhou.personal.cr.aliyuncs.com/yaobo-box/fileyard-frontend:latest
+        build:
+            context: .
+            dockerfile: deploy/Dockerfile
+        network_mode: host
+        volumes:
+            # 运行时前端动态配置（可修改后端 API 地址或开关等）
+            - ./deploy/config.production.js:/usr/share/nginx/html/config.js:ro
+            # Nginx 访问与错误日志持久化
+            - ./logs:/var/log/nginx
+        restart: unless-stopped

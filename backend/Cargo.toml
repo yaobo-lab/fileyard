@@ -113,9 +113,11 @@ aws-sdk-s3 = "1.65"
 aws-credential-types = "1.2"
 
 # Email
-lettre = { version = "0.11", features = [
+lettre = { version = "0.11", default-features = false, features = [
     "tokio1",
-    "tokio1-native-tls",
+    "tokio1-rustls-tls",
+    "rustls-tls",
+    "smtp-transport",
     "builder",
 ] }
 

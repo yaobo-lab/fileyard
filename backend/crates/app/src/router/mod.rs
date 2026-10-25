@@ -17,7 +17,13 @@ use crate::{
     AppState,
 };
 use app_extensions::routes::ExtensionState;
-use axum::{http::StatusCode, Router};
+use axum::{
+    extract::{Request, State},
+    http::{header, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Router,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,7 +40,7 @@ use std::time::Duration;
 /// 2. 依次合并登录认证 (`auth_routes`)、公开免登录 (`public_routes`)、受保护业务 (`protect_routes`)、扩展插件 (`extension_routes`) 及静态资源 (`uploads_routes`)
 /// 3. 条件挂载 API 请求度量中间件 (`api_usage_middleware`)
 /// 4. 挂载全局请求体上限层 (`RequestBodyLimitLayer` 500MB，支持大文件上传)
-/// 5. 挂载全局请求超时控制层 (`TimeoutLayer`)
+/// 5. 挂载按请求类型区分的超时中间件（文件上传使用独立长超时）
 /// 6. 挂载并发请求限制保护层 (`ConcurrencyLimitLayer`)
 /// 7. 挂载严格跨域安全策略层 (`CorsLayer`)
 pub fn routers(
@@ -68,7 +74,15 @@ pub fn routers(
     }
 
     let max_concurrent_requests = config.web.max_concurrent_requests;
-    let request_timeout_secs = config.web.request_timeout_secs;
+    let request_timeouts = RequestTimeouts {
+        default: Duration::from_secs(config.web.request_timeout_secs),
+        upload: Duration::from_secs(config.web.upload_timeout_secs),
+    };
+    log::info!(
+        "Request timeouts configured: default={}s, multipart_upload={}s",
+        request_timeouts.default.as_secs(),
+        request_timeouts.upload.as_secs()
+    );
     let cors = configure_cors(&config.web.allowed_origins);
 
     app
@@ -76,10 +90,10 @@ pub fn routers(
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             500 * 1024 * 1024,
         ))
-        // 请求超时
-        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(request_timeout_secs),
+        // multipart 上传使用更长超时，普通 API 保持较短的全局超时
+        .layer(axum::middleware::from_fn_with_state(
+            request_timeouts,
+            request_timeout_middleware,
         ))
         // 并发上限
         .layer(tower::limit::ConcurrencyLimitLayer::new(
@@ -87,6 +101,49 @@ pub fn routers(
         ))
         // CORS 配置
         .layer(cors)
+}
+
+#[derive(Clone, Copy)]
+struct RequestTimeouts {
+    default: Duration,
+    upload: Duration,
+}
+
+async fn request_timeout_middleware(
+    State(timeouts): State<RequestTimeouts>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let is_multipart_upload = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .to_ascii_lowercase()
+                .starts_with("multipart/form-data")
+        });
+    let timeout = if is_multipart_upload {
+        timeouts.upload
+    } else {
+        timeouts.default
+    };
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+
+    match tokio::time::timeout(timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => {
+            log::warn!(
+                "Request timed out: method={}, path={}, timeout={}s, multipart={}",
+                method,
+                path,
+                timeout.as_secs(),
+                is_multipart_upload
+            );
+            StatusCode::REQUEST_TIMEOUT.into_response()
+        }
+    }
 }
 
 /// 配置跨域资源共享（CORS）中间件
@@ -127,7 +184,12 @@ fn configure_cors(allowed_origins: &[String]) -> tower_http::cors::CorsLayer {
         .filter(|s| !s.is_empty())
         .collect();
 
-    let allow_origin = if !origins.is_empty() {
+    let allow_all = origins.iter().any(|allowed| allowed == "*");
+
+    let allow_origin = if allow_all {
+        log::info!("CORS: Allowed origins: wildcard [*] enabled (allowing all origins)");
+        AllowOrigin::mirror_request()
+    } else if !origins.is_empty() {
         log::info!("CORS: Allowed origins: {:?}", origins);
         AllowOrigin::predicate(move |origin, _| {
             if let Ok(origin_str) = origin.to_str() {

@@ -76,6 +76,10 @@ pub async fn run() {
 
     let cf = config.log.clone();
     logger::setup(cf).expect("日志初始化失败");
+    log::info!(
+        "配置文件加载成功: etc/config.toml (服务端口: {})",
+        config.web.port
+    );
 
     // Initialize Storage
     let storage_type = &config.storage.kind;
@@ -85,6 +89,7 @@ pub async fn run() {
         .as_ref()
         .filter(|key| !key.is_empty());
 
+    log::info!("Initializing {} storage...", storage_type);
     let storage: Arc<dyn Storage> = if storage_type == "s3" {
         if encryption_key.is_some() {
             log::info!("S3 storage uses provider-side encryption (ENCRYPTION_KEY ignored for S3)");
@@ -120,18 +125,34 @@ pub async fn run() {
             Arc::new(LocalStorage::new(&config.storage.local_path))
         }
     };
+    log::info!("Storage initialized successfully");
 
     // Initialize Redis URL
     let redis_url = config.redis.url.clone();
 
-    // Initialize Redis Cache
-    let cache = match Cache::new(&redis_url).await {
-        Ok(c) => {
+    // Cache is optional, so an unresponsive Redis must not block server startup.
+    const REDIS_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+    log::info!(
+        "Connecting to Redis cache (timeout: {}s)...",
+        REDIS_STARTUP_TIMEOUT.as_secs()
+    );
+    let cache = match tokio::time::timeout(REDIS_STARTUP_TIMEOUT, Cache::new(&redis_url)).await {
+        Ok(Ok(cache)) => {
             log::info!("Redis cache initialized successfully");
-            Some(c)
+            Some(cache)
         }
-        Err(e) => {
-            log::warn!("Failed to initialize Redis cache (caching disabled): {}", e);
+        Ok(Err(error)) => {
+            log::warn!(
+                "Failed to initialize Redis cache (caching disabled): {}",
+                error
+            );
+            None
+        }
+        Err(_) => {
+            log::warn!(
+                "Redis cache initialization timed out after {}s (caching disabled)",
+                REDIS_STARTUP_TIMEOUT.as_secs()
+            );
             None
         }
     };
@@ -174,7 +195,6 @@ pub async fn run() {
 
     log::info!("Database connected successfully with optimized pool settings");
     let store = app_entity::DataStore::new(db.clone());
-
 
     // Initialize transfer scheduler for prioritized downloads/uploads
     let scheduler = Arc::new(TransferScheduler::with_config(

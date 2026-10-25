@@ -4,8 +4,9 @@ import { X, ExternalLink, RefreshCw, AlertCircle, Sparkles, CheckCircle2, Shield
 import { useTranslations } from '@/context/I18nContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
+import { getApiUrl } from '@/lib/utils';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = getApiUrl();
 
 interface WeComConfig {
   enabled: boolean;

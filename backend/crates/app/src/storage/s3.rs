@@ -1,6 +1,5 @@
 use super::traits::{FileMetadata, Storage, StorageByteStream};
 use async_trait::async_trait;
-use aws_config::meta::region::RegionProviderChain;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::presigning::PresigningConfig;
@@ -23,8 +22,10 @@ impl S3Storage {
     where
         T: Into<String>,
     {
-        let region_provider =
-            RegionProviderChain::default_provider().or_else(Region::new("us-east-1"));
+        let region = std::env::var("AWS_REGION")
+            .ok()
+            .map(Region::new)
+            .unwrap_or_else(|| Region::new("us-east-1"));
 
         let credentials_provider = Credentials::new(
             access_key,
@@ -37,7 +38,7 @@ impl S3Storage {
         let config = aws_config::defaults(BehaviorVersion::latest())
             .endpoint_url(endpoint_url)
             .credentials_provider(credentials_provider)
-            .region(region_provider)
+            .region(region)
             .load()
             .await;
 
@@ -322,7 +323,16 @@ impl Storage for S3Storage {
             .bucket(&self.bucket)
             .key(key)
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                log::error!(
+                    "S3 get_object failed: bucket='{}', key='{}', error={:?}",
+                    self.bucket,
+                    key,
+                    e
+                );
+                e
+            })?;
 
         let size = resp.content_length().unwrap_or(0) as u64;
 

@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link2, Unlink, Loader2, Shield, AlertCircle, Globe } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthFetch } from '../context/AuthContext';
+import { getApiUrl } from '../lib/utils';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = getApiUrl();
 
 interface SsoIdentity {
     id: string;

@@ -22,9 +22,9 @@ import { useAuthFetch, useAuth } from '../../context/AuthContext';
 import { SsoAttributeMappings } from '../../components/SsoAttributeMappings';
 import { useTranslations } from '../../context/I18nContext';
 import clsx from 'clsx';
-import { copyToClipboard as utilsCopyToClipboard } from '../../lib/utils';
+import { copyToClipboard as utilsCopyToClipboard, getApiUrl } from '../../lib/utils';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = getApiUrl();
 
 // ==================== Types ====================
 
